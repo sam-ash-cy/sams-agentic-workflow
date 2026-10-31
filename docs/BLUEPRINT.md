@@ -237,3 +237,6 @@ Each phase's own build is also run token-light: narrow tests, a fresh session pe
 
 ## Addendum: audit layer (2026-10-31)
 See [ADR 0013](decisions/0013-audit-layer.md). It adds an 8th playbook, `audit`, and an `[audit]` settings section, which is a catalogue of opt-in whole-project auditors: Cloudflare security-audit, Trail of Bits skills, own appsec/dependency/web-quality skills. Audits run only on configured triggers (hardening stage, critical tier, every N stages, before release, on demand) and each has its own token budget. Findings go into one schema. Roadmap: Phase 6b.
+
+## Addendum: autonomous runner (2026-10-31)
+See [ADR 0014](decisions/0014-autonomous-runner.md). **Phase 10: `saw autopilot`.** It works through the approved items in `docs/plans/queue.md`, one item per fresh headless session, branch and PR. When it hits a usage limit it saves state, waits for the reset and resumes the same session. It is opt-in, under hard budget caps, never merges or deploys, and runs only on items the owner approved.
