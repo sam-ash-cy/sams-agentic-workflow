@@ -1,0 +1,7 @@
+#!/usr/bin/env sh
+# Installed by saw init --hooks (git config core.hooksPath .githooks).
+if command -v saw >/dev/null 2>&1; then
+  saw lint-context || exit 1
+else
+  echo "pre-commit: saw not on PATH; skipping context lint" >&2
+fi

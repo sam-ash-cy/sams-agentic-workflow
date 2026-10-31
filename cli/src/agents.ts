@@ -25,10 +25,11 @@ export function syncAgents(pluginDir: string, config: Table, dryRun = false): Sy
   for (const file of readdirSync(dir).filter((f) => f.endsWith(".md")).sort()) {
     const path = join(dir, file);
     const text = readFileSync(path, "utf8");
-    const role = /^role:\s*(\S+)\s*$/m.exec(text)?.[1];
+    const role = /^role:[ \t]*(\S+)/m.exec(text)?.[1];
     if (!role) continue;
     const model = modelFor(config, role);
-    const next = text.replace(/^model:.*$/m, `model: ${model}`);
+    // [^\r\n] keeps a CRLF line ending intact on Windows checkouts.
+    const next = text.replace(/^model:[^\r\n]*/m, `model: ${model}`);
     const changed = next !== text;
     if (changed && !dryRun) writeFileSync(path, next);
     out.push({ name: file.replace(/\.md$/, ""), model, changed });

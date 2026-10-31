@@ -18,7 +18,7 @@ const USAGE = `usage: saw <command>
   config set <key> <value> [--scope global|project|local]   (default: project)
   config unset <key> [--scope ...]
   doctor                             check settings and environment
-  init [--dry-run] [--force]         add workflow.toml and the docs/ vault
+  init [--dry-run] [--force] [--type <t>] [--hooks]   add workflow.toml, AGENTS.md, CI and the docs/ vault
   sync [--plugin-dir <dir>] [--dry-run]   write .saw/resolved.json; set agent models from [models]
   deps list | verify [--strict]      pinned third-party skills (deps.lock.toml)
   deps diff <name> <sha>             compare URL to review before updating a pin
@@ -40,7 +40,7 @@ interface Args {
   values: Record<string, string>;
 }
 
-const VALUE_FLAGS = ["--tier", "--playbook", "--note", "--plugin-dir", "--reviewed-by"];
+const VALUE_FLAGS = ["--tier", "--playbook", "--note", "--plugin-dir", "--reviewed-by", "--type"];
 const PLUGIN_ROOT = join(import.meta.dir, "..", "..");
 
 function parseArgs(argv: string[]): Args {
@@ -119,7 +119,39 @@ export function run(argv: string[], cwd = process.cwd()): number {
   }
   if (command === "init") {
     const dryRun = args.flags.has("--dry-run");
-    printReport(init(cwd, { dryRun, force: args.flags.has("--force") }), dryRun);
+    const type = args.values.type;
+    if (type !== undefined) {
+      const problem = validate("project.type", type);
+      if (problem) return fail(problem);
+    }
+    const report = init(cwd, { dryRun, force: args.flags.has("--force") });
+    if (type && !report.installed.includes("workflow.toml")) {
+      console.error(`warning: workflow.toml already exists, so --type was not applied; run: saw config set project.type ${type}`);
+    } else if (type && !dryRun) {
+      const path = join(cwd, "workflow.toml");
+      writeFileSync(path, readFileSync(path, "utf8").replace(/^type = "\w+"/m, `type = "${type}"`));
+    }
+    const hooksPath = Bun.spawnSync(["git", "config", "--get", "core.hooksPath"], { cwd }).stdout.toString().trim();
+    if (args.flags.has("--hooks") && hooksPath && hooksPath !== ".githooks" && !args.flags.has("--force")) {
+      // Another hook manager (husky, lefthook, ...) owns hooksPath: don't silently disable it.
+      console.error(`warning: core.hooksPath is already "${hooksPath}"; not changed. Call saw lint-context from that hook instead, or re-run with --force to replace it.`);
+    } else if (args.flags.has("--hooks")) {
+      report.changed.push(`git config core.hooksPath .githooks${hooksPath && hooksPath !== ".githooks" ? ` (was ${hooksPath})` : ""}`);
+      if (!dryRun) {
+        const git = Bun.spawnSync(["git", "config", "core.hooksPath", ".githooks"], { cwd, stderr: "pipe" });
+        if (git.exitCode !== 0) return fail(`git config failed: ${git.stderr.toString().trim()}`);
+      }
+    }
+    printReport(report, dryRun);
+    if (!dryRun) {
+      const claude = join(cwd, "CLAUDE.md");
+      if (existsSync(claude) && !/^@AGENTS\.md/m.test(readFileSync(claude, "utf8"))) {
+        console.log("note: your existing CLAUDE.md doesn't import AGENTS.md; add a line `@AGENTS.md` at the top so Claude reads it");
+      }
+      console.log("next: fill in AGENTS.md by hand (commands + non-obvious rules only), then start the foundation playbook:");
+      console.log('  saw task start --tier complex --playbook foundation');
+      if (!args.flags.has("--hooks")) console.log("  optional: saw init --hooks  (runs the context lint before each commit)");
+    }
     return 0;
   }
   if (command === "sync") {
