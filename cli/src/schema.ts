@@ -30,6 +30,7 @@ export function workflowSchema(): Schema {
       properties: { run: { type: "array", items: { type: "string" } }, extends: { type: "string" } },
     },
   };
+  (root.properties as Schema).checks = { type: "object", additionalProperties: { type: "string" } };
   ((root.properties as Record<string, Schema>).models!.properties as Record<string, Schema>).roles!.additionalProperties = { type: "string" };
   return { $schema: "https://json-schema.org/draft/2020-12/schema", title: "sams-agentic-workflow settings", ...root };
 }

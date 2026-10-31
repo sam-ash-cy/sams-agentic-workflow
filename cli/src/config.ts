@@ -70,13 +70,14 @@ const DEFAULT_KEYS = flatten(DEFAULTS);
 export function isKnownKey(key: string): boolean {
   if (key in DEFAULT_KEYS) return true;
   // Tables whose children are open-ended (per-tier check sets, per-role models).
-  return /^verify\.[a-z_]+\.(run|extends)$/.test(key) || /^models\.roles\.[a-z_]+$/.test(key);
+  return /^verify\.[a-z_]+\.(run|extends)$/.test(key) || /^models\.roles\.[a-z_]+$/.test(key) || /^checks\.[a-z_]+$/.test(key);
 }
 
 export function validate(key: string, value: Value): string | undefined {
   if (!isKnownKey(key)) return `unknown key "${key}"`;
   const allowed = ENUMS[key];
   if (allowed && !allowed.includes(String(value))) return `"${key}" must be one of ${allowed.join(" | ")}`;
+  if (key.startsWith("checks.") && typeof value !== "string") return `"${key}" must be a command string`;
   const def = DEFAULT_KEYS[key];
   if (def !== undefined && typeof def !== typeof value) return `"${key}" must be a ${Array.isArray(def) ? "list" : typeof def}`;
   return undefined;

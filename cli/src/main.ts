@@ -1,10 +1,13 @@
 // saw: the sams-agentic-workflow CLI.
 
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { flatten, layerPaths, parseValue, resolve, setPath, unsetPath, validate, weakenedSafety, type Layer } from "./config";
 import type { Table, Value } from "./defaults";
 import { init, type InitReport } from "./init";
+import { lintContext } from "./lint";
+import { runCheck } from "./run";
+import { currentTask, endTask, gate, recordCheck, startTask, taskStatus } from "./task";
 import { readToml, stringifyToml } from "./toml";
 
 const USAGE = `usage: saw <command>
@@ -15,6 +18,13 @@ const USAGE = `usage: saw <command>
   doctor                             check settings and environment
   init [--dry-run] [--force]         add workflow.toml and the docs/ vault
   sync                               write .saw/resolved.json from the resolved settings
+  task start --tier <t> --playbook <p>   open a task (the router does this)
+  task status                        report label + which required checks passed, failed or are missing
+  task record <check> pass|fail [--note "..."]   record a judgement check (code_review, ...)
+  task end                           close the task
+  run <check>                        run checks.<check> quietly and record the result
+  gate                               Stop hook: block "done" until the tier's checks pass
+  lint-context                       AGENTS.md / CLAUDE.md size limits
 global flag: --set key=value         per-task override (repeatable)`;
 
 interface Args {
@@ -22,17 +32,21 @@ interface Args {
   flags: Set<string>;
   scope: Exclude<Layer, "default" | "override">;
   overrides: Record<string, Value>;
+  values: Record<string, string>;
 }
 
+const VALUE_FLAGS = ["--tier", "--playbook", "--note"];
+
 function parseArgs(argv: string[]): Args {
-  const args: Args = { positional: [], flags: new Set(), scope: "project", overrides: {} };
+  const args: Args = { positional: [], flags: new Set(), scope: "project", overrides: {}, values: {} };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i]!;
     if (a === "--scope") args.scope = argv[++i] as Args["scope"];
     else if (a === "--set") {
       const [key, ...rest] = (argv[++i] ?? "").split("=");
       args.overrides[key!] = parseValue(rest.join("="));
-    } else if (a.startsWith("--")) args.flags.add(a);
+    } else if (VALUE_FLAGS.includes(a)) args.values[a.slice(2)] = argv[++i] ?? "";
+    else if (a.startsWith("--")) args.flags.add(a);
     else args.positional.push(a);
   }
   return args;
@@ -91,8 +105,10 @@ export function run(argv: string[], cwd = process.cwd()): number {
   if (command === "doctor") {
     const weakened = weakenedSafety(resolved);
     for (const w of weakened) console.log(`weakened guardrail: ${w}`);
-    const ok = resolved.warnings.length === 0;
-    console.log(ok ? "saw doctor: ok" : `saw doctor: ${resolved.warnings.length} problem(s)`);
+    const problems = [...resolved.warnings, ...lintContext(cwd, resolved.config)];
+    for (const p of lintContext(cwd, resolved.config)) console.error(`warning: ${p}`);
+    const ok = problems.length === 0;
+    console.log(ok ? "saw doctor: ok" : `saw doctor: ${problems.length} problem(s)`);
     return ok ? 0 : 1;
   }
   if (command === "init") {
@@ -106,8 +122,69 @@ export function run(argv: string[], cwd = process.cwd()): number {
     console.log("saw sync: wrote .saw/resolved.json");
     return 0;
   }
+  if (command === "task") return taskCommand(cwd, resolved.config, args);
+  if (command === "run" && sub) {
+    try {
+      const r = runCheck(cwd, resolved.config, sub);
+      if (r.shown) console.log(r.shown);
+      console.log(`saw run ${sub}: ${r.code === 0 ? "pass" : `fail (exit ${r.code})`}; full log: ${r.log}`);
+      return r.code === 0 ? 0 : 1;
+    } catch (e) {
+      return fail((e as Error).message);
+    }
+  }
+  if (command === "gate") {
+    let input = {};
+    try {
+      input = JSON.parse(readFileSync(0, "utf8") || "{}");
+    } catch {
+      // No hook payload (run by hand): treat as a fresh stop.
+    }
+    const block = gate(cwd, resolved.config, input);
+    if (block) console.log(JSON.stringify(block));
+    return 0;
+  }
+  if (command === "lint-context") {
+    const problems = lintContext(cwd, resolved.config);
+    for (const p of problems) console.error(p);
+    return problems.length ? 1 : 0;
+  }
   console.log(USAGE);
   return command === undefined || command === "help" ? 0 : 1;
+}
+
+function taskCommand(cwd: string, config: Table, args: Args): number {
+  const [, sub, name, status] = args.positional;
+  try {
+    if (sub === "start") {
+      const t = startTask(cwd, args.values.tier ?? "", args.values.playbook ?? "feature");
+      console.log(`task: ${t.tier} / ${t.playbook}`);
+      return 0;
+    }
+    if (sub === "end") {
+      endTask(cwd);
+      console.log("task closed");
+      return 0;
+    }
+    const task = currentTask(cwd);
+    if (!task) return fail("no open task; start one with saw task start --tier <t> --playbook <p>");
+    if (sub === "record" && name && (status === "pass" || status === "fail")) {
+      recordCheck(cwd, { name, status, how: "recorded", note: args.values.note });
+      console.log(`recorded ${name}: ${status}`);
+      return 0;
+    }
+    if (sub === "status") {
+      const s = taskStatus(cwd, config, task);
+      console.log(`${task.tier} / ${task.playbook}: ${s.label}`);
+      if (s.passed.length) console.log(`  passed  ${s.passed.join(", ")}`);
+      if (s.failed.length) console.log(`  failed  ${s.failed.join(", ")}`);
+      if (s.missing.length) console.log(`  not run ${s.missing.join(", ")}`);
+      return 0;
+    }
+  } catch (e) {
+    return fail((e as Error).message);
+  }
+  return fail(USAGE);
 }
 
 function fail(message: string): number {

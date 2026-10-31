@@ -62,6 +62,16 @@ export const DEFAULTS: Table = {
       ui_verify: "mid",
     },
   },
+  // Commands for mechanical checks, run by `saw run <name>`. Checks with no
+  // command (reviews, threat models) are recorded with `saw task record`.
+  checks: {},
+  verify: {
+    trivial: { run: ["test"] },
+    standard: { run: ["format", "lint", "typecheck", "test", "code_review", "security_review"] },
+    complex: { extends: "standard", run: [] },
+    critical: { extends: "complex", run: ["e2e", "dep_audit", "threat_model"] },
+  },
+  context: { agents_md_max_lines: 100, claude_md_max_lines: 200 },
   output: { quiet: true, max_lines: 60, full_logs: ".saw/logs" },
   knowledge: { store: "repo", vault_path: "" },
   metrics: { fields: ["tier", "verification", "findings", "rework", "tokens"] },
