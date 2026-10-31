@@ -1,0 +1,4 @@
+node_modules/
+.saw/
+workflow.local.toml
+*.bak
