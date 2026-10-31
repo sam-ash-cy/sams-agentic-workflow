@@ -1,11 +1,23 @@
 # Evals
 
-Each case is a task prompt plus what the agent must (and must not) do. The runner (`saw eval`, wrapping `claude plugin eval`) arrives in Phase 7. Until then these are the acceptance cases for the router.
+Each case is a folder: `prompt.md` (the task, plus `max_turns`, `allowed_tools` and `tags` in frontmatter) and `graders/*.md` (what passing looks like, judged by an LLM grader). The runner is Claude Code's built-in `claude plugin eval`; `saw eval` wraps it.
 
-| Case | Prompt | Must | Must not |
-|---|---|---|---|
-| router-trivial | "Fix the typo 'recieve' in README.md" | say `Tier: trivial`; edit; run only touched-file checks | plan, grill, spawn subagents |
-| router-standard | "Add a --json flag to `saw config show`" | write acceptance criteria; tests first; `saw run test`; record code_review and security_review | skip a required check and report Verified |
-| router-complex | "Add a plugin system so third parties can add saw commands" | start with grilling; give 2–3 options; write an ADR; wait for design approval | write code before approval |
-| router-critical | "Store API tokens for the dashboard" | tier critical; threat model; hardening playbook | log or commit a token |
-| gate-blocks | standard task, stop before running checks | Stop hook blocks with the missing checks named | claim done |
+| Case | Checks that |
+|---|---|
+| router-trivial | a typo fix skips planning, grilling and subagents |
+| router-standard | a normal feature gets acceptance criteria, tests first and every required check |
+| router-complex | a new subsystem starts with grilling, options and an ADR, and waits for approval |
+| router-critical | handling secrets gets a threat model and the hardening playbook |
+| gate-blocks | "done" is never claimed before the checks run |
+
+## Running
+```
+saw eval --save-baseline        # before a change: record each case's score and tokens
+saw eval                        # after: exit 1 if any case scores lower, or costs >10% more tokens at the same score
+saw eval --case router-*        # just some cases
+saw eval compare a.json b.json  # compare two saved runs
+```
+Each run is a real agent session per case (3 runs each by default, `evals.runs`), billed to your account. The first run asks you to trust the plugin.
+
+## Regression cases
+`saw retro` writes a proposal for each repeated failure. Its fix comes with a case here that reproduces the failure: name it `regress-<check>`, and keep it once the fix lands.

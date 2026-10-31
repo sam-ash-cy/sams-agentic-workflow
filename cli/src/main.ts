@@ -5,8 +5,11 @@ import { isAbsolute, join, relative, resolve as resolvePath } from "node:path";
 import { flatten, layerPaths, parseValue, resolve, setPath, unsetPath, validate, weakenedSafety, type Layer } from "./config";
 import type { Table, Value } from "./defaults";
 import { syncAgents } from "./agents";
+import { contextHook } from "./context";
 import { renderHtml, renderMarkdown } from "./dashboard";
 import { appendMetric, buildMetric, readMetrics } from "./metrics";
+import { compare, summarise, type Comparison, type Summary } from "./evals";
+import { readProposals, retro } from "./retro";
 import { compareUrl, pin, readLock, verifyLock } from "./deps";
 import { init, type InitReport } from "./init";
 import { lintContext } from "./lint";
@@ -30,9 +33,13 @@ const USAGE = `usage: saw <command>
   task record <check> pass|fail [--note "..."]   record a judgement check (code_review, ...)
   task end [--tokens <n>]            close the task and append its metrics (.saw/metrics.jsonl)
   dashboard                          write the static metrics page (and the Obsidian note if set)
+  retro [--dry-run]                  write a proposal for each check failing in repeat_threshold+ tasks
+  eval [--case <glob>] [--save-baseline]   run the eval suite (claude plugin eval) and compare with the baseline
+  eval compare <before.json> <after.json>  compare two saved eval results
   run <check>                        run checks.<check> quietly and record the result
   gate                               Stop hook: block "done" until the tier's checks pass
   lint-context                       AGENTS.md / CLAUDE.md size limits
+  context                            UserPromptSubmit hook: suggest /compact as context fills
 global flag: --set key=value         per-task override (repeatable)`;
 
 interface Args {
@@ -43,7 +50,7 @@ interface Args {
   values: Record<string, string>;
 }
 
-const VALUE_FLAGS = ["--tier", "--playbook", "--note", "--plugin-dir", "--reviewed-by", "--type", "--tokens"];
+const VALUE_FLAGS = ["--tier", "--playbook", "--note", "--plugin-dir", "--reviewed-by", "--type", "--tokens", "--case"];
 const PLUGIN_ROOT = join(import.meta.dir, "..", "..");
 
 function parseArgs(argv: string[]): Args {
@@ -176,16 +183,37 @@ export function run(argv: string[], cwd = process.cwd()): number {
     const out = inside(cwd, d.output);
     const note = d.obsidian_note ? inside(cwd, d.obsidian_note) : undefined;
     if (!out || (d.obsidian_note && !note)) return fail("dashboard.output and dashboard.obsidian_note must be paths inside the project");
+    const proposalsDir = inside(cwd, (resolved.config.retro as { proposals_dir: string }).proposals_dir);
+    const proposals = proposalsDir ? readProposals(proposalsDir) : [];
     mkdirSync(join(out, ".."), { recursive: true });
-    writeFileSync(out, renderHtml(metrics, d.panels));
+    writeFileSync(out, renderHtml(metrics, d.panels, proposals));
     console.log(`saw dashboard: ${metrics.length} tasks -> ${out}`);
     if (note) {
       mkdirSync(join(note, ".."), { recursive: true });
-      writeFileSync(note, renderMarkdown(metrics, d.panels));
+      writeFileSync(note, renderMarkdown(metrics, d.panels, proposals));
       console.log(`  note -> ${note}`);
     }
     return 0;
   }
+  if (command === "retro") {
+    const r = resolved.config.retro as { repeat_threshold: number; proposals_dir: string };
+    const features = resolved.config.features as Record<string, boolean>;
+    if (!features.retro) return fail("features.retro is off");
+    const dir = inside(cwd, r.proposals_dir);
+    if (!dir) return fail("retro.proposals_dir must be a path inside the project");
+    const autonomy = resolved.config.autonomy as { level: string; actions: Record<string, string> };
+    // suggest mode (or self_improve = never) lists candidates without writing files.
+    const write = !args.flags.has("--dry-run") && autonomy.level !== "suggest" && autonomy.actions.self_improve !== "never";
+    const result = retro(dir, readMetrics(cwd), r.repeat_threshold, write);
+    for (const c of result.pending) {
+      console.log(`  ${c.check}: failed in ${c.tasks} tasks${write ? "" : " (not written)"}`);
+    }
+    for (const f of result.written) console.log(`  proposal -> ${join(r.proposals_dir, f)}`);
+    for (const p of result.open) console.log(`  open: ${p.file} (${p.check})`);
+    console.log(`saw retro: ${result.pending.length} new, ${result.open.length} open; fill each with the retro-promote skill`);
+    return 0;
+  }
+  if (command === "eval") return evalCommand(cwd, resolved.config, args);
   if (command === "task") return taskCommand(cwd, resolved.config, args);
   if (command === "run" && sub) {
     try {
@@ -206,6 +234,17 @@ export function run(argv: string[], cwd = process.cwd()): number {
     }
     const block = gate(cwd, resolved.config, input);
     if (block) console.log(JSON.stringify(block));
+    return 0;
+  }
+  if (command === "context") {
+    let input = {};
+    try {
+      input = JSON.parse(readFileSync(0, "utf8") || "{}");
+    } catch {
+      // No hook payload: nothing to measure.
+    }
+    const out = contextHook(cwd, resolved.config, input);
+    if (out) console.log(JSON.stringify(out));
     return 0;
   }
   if (command === "lint-context") {
@@ -297,6 +336,50 @@ function depsCommand(cwd: string, config: Table, args: Args): number {
     return fail((e as Error).message);
   }
   return fail(USAGE);
+}
+
+function evalCommand(cwd: string, config: Table, args: Args): number {
+  const e = config.evals as { baseline: string; max_token_increase: number; runs: number };
+  const readSummary = (path: string): Summary => summarise(JSON.parse(readFileSync(path, "utf8")));
+  const [, sub, a, b] = args.positional;
+  try {
+    if (sub === "compare" && a && b) return report(compare(readSummary(a), readSummary(b), e.max_token_increase));
+    if (sub !== undefined) return fail(USAGE);
+    const baseline = inside(PLUGIN_ROOT, e.baseline);
+    if (!baseline) return fail("evals.baseline must be a path inside the plugin");
+    const out = join(cwd, ".saw", "evals", `${new Date().toISOString().replace(/[:.]/g, "-")}.json`);
+    mkdirSync(join(out, ".."), { recursive: true });
+    // No ablation arm: before/after compares two versions of the plugin, not plugin vs none.
+    const cmd = ["claude", "plugin", "eval", PLUGIN_ROOT, "--no-publish", "--ablation", "none", "--runs", String(e.runs), "--threshold", "0", "--json", out];
+    if (args.values.case) cmd.push("--case", args.values.case);
+    console.log(`saw eval: ${cmd.join(" ")}`);
+    const run = Bun.spawnSync(cmd, { cwd, stdout: "inherit", stderr: "inherit" });
+    if (!existsSync(out)) return fail(`claude plugin eval wrote no result (exit ${run.exitCode})`);
+    // --threshold 0 means a non-zero exit is an error or a partial run (exit 2: cost ceiling), never a low score.
+    if (run.exitCode !== 0) return fail(`claude plugin eval exited ${run.exitCode}; partial results in ${out} are not compared or saved`);
+    const now = readSummary(out);
+    console.log(`  ${Object.keys(now).length} cases -> ${out}`);
+    if (args.flags.has("--save-baseline")) {
+      writeFileSync(baseline, JSON.stringify(now, null, 2) + "\n");
+      console.log(`  baseline -> ${baseline}`);
+      return run.exitCode === 0 ? 0 : 1;
+    }
+    if (!existsSync(baseline)) {
+      console.log("  no baseline yet; save one with saw eval --save-baseline before changing a skill or prompt");
+      return run.exitCode === 0 ? 0 : 1;
+    }
+    return report(compare(JSON.parse(readFileSync(baseline, "utf8")) as Summary, now, e.max_token_increase));
+  } catch (err) {
+    return fail((err as Error).message);
+  }
+}
+
+function report(c: Comparison): number {
+  for (const r of c.regressions) console.log(`  worse   ${r}`);
+  for (const i of c.improvements) console.log(`  better  ${i}`);
+  for (const m of c.missing) console.log(`  missing ${m} (not in this run)`);
+  console.log(c.regressions.length ? "saw eval: regression, don't promote this change" : "saw eval: no regressions");
+  return c.regressions.length ? 1 : 0;
 }
 
 // Resolves a configured path, or undefined if it escapes the project (a

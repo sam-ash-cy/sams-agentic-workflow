@@ -42,7 +42,7 @@ Run `saw task status` and use its label:
 - **Partially verified**: some passed, some did not run (say which and why).
 - **Not verified**: none ran (say why, e.g. no Docker here).
 - **Blocked**: a check failed and is not fixed.
-Then `saw task end`. A Stop hook blocks "done" while required checks are missing or failing.
+Then `saw task end`. A Stop hook blocks "done" while required checks are missing or failing. If a check failed during the task, run `saw retro`; any proposal it writes is handled with the retro-promote skill.
 
 ## 5. Suggest
 After the report, suggest at most two follow-up features or improvements, each one line, and ask which (if any) the user wants.

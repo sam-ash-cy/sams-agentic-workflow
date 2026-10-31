@@ -44,6 +44,10 @@
           "type": "boolean",
           "default": true
         },
+        "compact_nudge": {
+          "type": "boolean",
+          "default": true
+        },
         "trail": {
           "type": "boolean",
           "default": false
@@ -313,6 +317,21 @@
         "claude_md_max_lines": {
           "type": "number",
           "default": 200
+        },
+        "window_tokens": {
+          "type": "number",
+          "default": 200000
+        },
+        "suggest_compact_at": {
+          "type": "array",
+          "default": [
+            0.5,
+            0.7
+          ]
+        },
+        "handoff_at": {
+          "type": "number",
+          "default": 0.85
         }
       }
     },
@@ -391,6 +410,38 @@
         "obsidian_note": {
           "type": "string",
           "default": ""
+        }
+      }
+    },
+    "retro": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "repeat_threshold": {
+          "type": "number",
+          "default": 2
+        },
+        "proposals_dir": {
+          "type": "string",
+          "default": "docs/proposals"
+        }
+      }
+    },
+    "evals": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "baseline": {
+          "type": "string",
+          "default": "evals/baseline.json"
+        },
+        "max_token_increase": {
+          "type": "number",
+          "default": 0.1
+        },
+        "runs": {
+          "type": "number",
+          "default": 3
         }
       }
     },

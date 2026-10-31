@@ -3,6 +3,7 @@
 // Optionally also a Markdown note for the Obsidian vault.
 
 import type { TaskMetric } from "./metrics";
+import type { Proposal } from "./retro";
 import { TIERS } from "./task";
 
 interface Bar {
@@ -35,7 +36,7 @@ function byTier(metrics: TaskMetric[], f: (ms: TaskMetric[]) => { value: number;
   });
 }
 
-export const PANELS: Record<string, (ms: TaskMetric[]) => Panel> = {
+export const PANELS: Record<string, (ms: TaskMetric[], proposals: Proposal[]) => Panel> = {
   first_pass_rate: (ms) => ({
     title: "First-pass rate",
     hint: "Tasks that reached Verified with no failed check along the way.",
@@ -84,15 +85,22 @@ export const PANELS: Record<string, (ms: TaskMetric[]) => Panel> = {
       }).filter((b) => b.value > 0),
     };
   },
-  promotion_effect: () => ({
+  promotion_effect: (ms, proposals) => ({
     title: "Promotion effect",
-    hint: "Whether promoted fixes reduced repeat failures. Needs the retro and evals (Phase 7).",
-    bars: [],
+    hint: "Share of tasks where the check failed, before and after its promoted fix (saw retro proposals).",
+    bars: proposals.flatMap((p) => {
+      if (p.status !== "promoted" || !p.promoted) return [];
+      const rate = (t: TaskMetric[]): number => t.filter((m) => (m.findings?.[p.check] ?? 0) > 0).length / t.length;
+      const before = ms.filter((m) => m.at.slice(0, 10) < p.promoted!);
+      const after = ms.filter((m) => m.at.slice(0, 10) >= p.promoted!);
+      if (!before.length || !after.length) return [];
+      return [{ label: `${p.check} (${after.length} after)`, value: rate(after), text: `${pct(rate(before))} → ${pct(rate(after))}` }];
+    }),
   }),
 };
 
-export function buildPanels(metrics: TaskMetric[], names: string[]): Panel[] {
-  return names.filter((n) => n in PANELS).map((n) => PANELS[n]!(metrics));
+export function buildPanels(metrics: TaskMetric[], names: string[], proposals: Proposal[] = []): Panel[] {
+  return names.filter((n) => n in PANELS).map((n) => PANELS[n]!(metrics, proposals));
 }
 
 function panelHtml(p: Panel): string {
@@ -107,7 +115,7 @@ function panelHtml(p: Panel): string {
   return `<section class="panel"><h2>${esc(p.title)}</h2><p class="hint">${esc(p.hint)}</p>${rows}</section>`;
 }
 
-export function renderHtml(metrics: TaskMetric[], names: string[], generated = new Date()): string {
+export function renderHtml(metrics: TaskMetric[], names: string[], proposals: Proposal[] = [], generated = new Date()): string {
   const verified = metrics.filter((m) => m.label === "Verified").length;
   const kpis = [
     ["Tasks", String(metrics.length)],
@@ -133,14 +141,14 @@ h2{font-size:15px;margin:0}.hint{color:var(--muted);font-size:13px;margin:2px 0 
 </style></head><body><main>
 <h1>Workflow metrics</h1><p class="sub">${metrics.length} tasks · generated ${esc(generated.toISOString().slice(0, 16).replace("T", " "))} UTC</p>
 <div class="kpis">${kpis.map(([k, v]) => `<div class="kpi"><b>${esc(v!)}</b><span>${esc(k!)}</span></div>`).join("")}</div>
-<div class="grid">${buildPanels(metrics, names).map(panelHtml).join("")}</div>
+<div class="grid">${buildPanels(metrics, names, proposals).map(panelHtml).join("")}</div>
 </main></body></html>
 `;
 }
 
-export function renderMarkdown(metrics: TaskMetric[], names: string[]): string {
+export function renderMarkdown(metrics: TaskMetric[], names: string[], proposals: Proposal[] = []): string {
   const out = ["---", "tags: [metrics]", "---", "# Workflow metrics", "", `${metrics.length} tasks.`, ""];
-  for (const p of buildPanels(metrics, names)) {
+  for (const p of buildPanels(metrics, names, proposals)) {
     out.push(`## ${p.title}`, "", p.hint, "");
     if (!p.bars.length) out.push("No data yet.", "");
     else out.push("| | |", "|---|---|", ...p.bars.map((b) => `| ${b.label} | ${b.text} |`), "");
