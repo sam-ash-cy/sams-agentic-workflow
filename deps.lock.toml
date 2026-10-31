@@ -1,0 +1,17 @@
+# Third-party skills, pinned by commit. Update only via:
+#   saw deps diff <name> <sha>   (review the changes)
+#   saw deps pin <name> <sha> --reviewed-by <you>
+
+[mattpocock-skills]
+repo = "https://github.com/mattpocock/skills"
+sha = "4ae2317ddb22b046e26455e4f9c9b3aaaf62212d"
+licence = "MIT"
+reviewed_by = "pending"
+reviewed_on = ""
+
+[rederive]
+repo = "https://github.com/EricJujianZou/rederive"
+sha = "7f43edc0ee0e098e98f77b01187027238aba77c8"
+licence = "MIT"
+reviewed_by = "pending"
+reviewed_on = ""

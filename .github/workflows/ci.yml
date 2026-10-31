@@ -15,3 +15,4 @@ jobs:
           bun-version: 1.3.11
       - run: bun test
       - run: bun cli/src/main.ts doctor
+      - run: bun cli/src/main.ts deps verify

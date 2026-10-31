@@ -1,9 +1,11 @@
 // saw: the sams-agentic-workflow CLI.
 
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { flatten, layerPaths, parseValue, resolve, setPath, unsetPath, validate, weakenedSafety, type Layer } from "./config";
 import type { Table, Value } from "./defaults";
+import { syncAgents } from "./agents";
+import { compareUrl, pin, readLock, verifyLock } from "./deps";
 import { init, type InitReport } from "./init";
 import { lintContext } from "./lint";
 import { runCheck } from "./run";
@@ -17,7 +19,10 @@ const USAGE = `usage: saw <command>
   config unset <key> [--scope ...]
   doctor                             check settings and environment
   init [--dry-run] [--force]         add workflow.toml and the docs/ vault
-  sync                               write .saw/resolved.json from the resolved settings
+  sync [--plugin-dir <dir>] [--dry-run]   write .saw/resolved.json; set agent models from [models]
+  deps list | verify [--strict]      pinned third-party skills (deps.lock.toml)
+  deps diff <name> <sha>             compare URL to review before updating a pin
+  deps pin <name> <sha> --reviewed-by <who>
   task start --tier <t> --playbook <p>   open a task (the router does this)
   task status                        report label + which required checks passed, failed or are missing
   task record <check> pass|fail [--note "..."]   record a judgement check (code_review, ...)
@@ -35,7 +40,8 @@ interface Args {
   values: Record<string, string>;
 }
 
-const VALUE_FLAGS = ["--tier", "--playbook", "--note"];
+const VALUE_FLAGS = ["--tier", "--playbook", "--note", "--plugin-dir", "--reviewed-by"];
+const PLUGIN_ROOT = join(import.meta.dir, "..", "..");
 
 function parseArgs(argv: string[]): Args {
   const args: Args = { positional: [], flags: new Set(), scope: "project", overrides: {}, values: {} };
@@ -120,8 +126,15 @@ export function run(argv: string[], cwd = process.cwd()): number {
     mkdirSync(join(cwd, ".saw"), { recursive: true });
     writeFileSync(join(cwd, ".saw", "resolved.json"), JSON.stringify(resolved.config, null, 2) + "\n");
     console.log("saw sync: wrote .saw/resolved.json");
+    const dryRun = args.flags.has("--dry-run");
+    for (const a of syncAgents(args.values["plugin-dir"] ?? PLUGIN_ROOT, resolved.config, dryRun)) {
+      console.log(`  agent ${a.name.padEnd(18)} model: ${a.model}${a.changed ? (dryRun ? " (would change)" : " (changed)") : ""}`);
+    }
+    const models = resolved.config.models as { mode?: string; strong?: string };
+    if (models.mode === "single") console.log(`  single-model mode: agents inherit; to pin one model for all subagents set CLAUDE_CODE_SUBAGENT_MODEL=${models.strong}`);
     return 0;
   }
+  if (command === "deps") return depsCommand(cwd, resolved.config, args);
   if (command === "task") return taskCommand(cwd, resolved.config, args);
   if (command === "run" && sub) {
     try {
@@ -180,6 +193,42 @@ function taskCommand(cwd: string, config: Table, args: Args): number {
       if (s.failed.length) console.log(`  failed  ${s.failed.join(", ")}`);
       if (s.missing.length) console.log(`  not run ${s.missing.join(", ")}`);
       if (s.unconfigured.length) console.log(`  no command (set checks.<name>) ${s.unconfigured.join(", ")}`);
+      return 0;
+    }
+  } catch (e) {
+    return fail((e as Error).message);
+  }
+  return fail(USAGE);
+}
+
+function depsCommand(cwd: string, config: Table, args: Args): number {
+  const [, sub, name, sha] = args.positional;
+  const deps = config.deps as { lock: string; allowed_licences: string[] };
+  const lockPath = join(existsSync(join(cwd, deps.lock)) ? cwd : PLUGIN_ROOT, deps.lock);
+  const lock = readLock(lockPath);
+  try {
+    if (sub === "list") {
+      for (const [n, d] of Object.entries(lock)) console.log(`${n.padEnd(20)} ${d.sha.slice(0, 12)} ${d.licence.padEnd(8)} reviewed by ${d.reviewed_by}`);
+      return 0;
+    }
+    if (sub === "verify") {
+      const v = verifyLock(lock, deps.allowed_licences);
+      for (const e of v.errors) console.error(`error: ${e}`);
+      for (const p of v.pending) console.error(`pending: ${p}`);
+      const failed = v.errors.length > 0 || (args.flags.has("--strict") && v.pending.length > 0);
+      console.log(failed ? "saw deps verify: failed" : `saw deps verify: ok (${Object.keys(lock).length} pinned)`);
+      return failed ? 1 : 0;
+    }
+    if (sub === "diff" && name && sha) {
+      const dep = lock[name];
+      if (!dep) return fail(`no dependency "${name}"`);
+      console.log(compareUrl(dep, sha));
+      console.log("Review every changed file (skills can run commands before the model reads them), then: saw deps pin");
+      return 0;
+    }
+    if (sub === "pin" && name && sha) {
+      pin(lockPath, name, sha, args.values["reviewed-by"] ?? "");
+      console.log(`pinned ${name} at ${sha.slice(0, 12)}`);
       return 0;
     }
   } catch (e) {

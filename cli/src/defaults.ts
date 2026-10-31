@@ -78,6 +78,7 @@ export const DEFAULTS: Table = {
   dashboard: {
     panels: ["first_pass_rate", "findings_by_category", "rework", "cost_per_task", "promotion_effect"],
   },
+  deps: { lock: "deps.lock.toml", allowed_licences: ["MIT", "Apache-2.0", "BSD-2-Clause", "BSD-3-Clause", "ISC"] },
   safety: {
     push: "never",
     destructive_approval: true,
