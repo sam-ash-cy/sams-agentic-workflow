@@ -1,0 +1,12 @@
+# sams-agentic-workflow project settings (committed, shared with the team).
+# Personal overrides go in workflow.local.toml (git-ignored).
+# See every key and its default: saw config show --resolved
+
+[project]
+type = "web"   # web | api | cli | lib | infra
+
+[autonomy]
+level = "propose"   # suggest | propose | act
+
+[knowledge]
+store = "repo"   # repo | vault | both

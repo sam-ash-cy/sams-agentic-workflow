@@ -1,0 +1,404 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "sams-agentic-workflow settings",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "features": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "router": {
+          "type": "boolean",
+          "default": true
+        },
+        "grilling": {
+          "type": "boolean",
+          "default": true
+        },
+        "tdd": {
+          "type": "boolean",
+          "default": true
+        },
+        "code_review": {
+          "type": "boolean",
+          "default": true
+        },
+        "security_review": {
+          "type": "boolean",
+          "default": true
+        },
+        "verify_hook": {
+          "type": "boolean",
+          "default": true
+        },
+        "budgets": {
+          "type": "boolean",
+          "default": true
+        },
+        "model_routing": {
+          "type": "boolean",
+          "default": true
+        },
+        "quiet_output": {
+          "type": "boolean",
+          "default": true
+        },
+        "trail": {
+          "type": "boolean",
+          "default": false
+        },
+        "obsidian": {
+          "type": "boolean",
+          "default": true
+        },
+        "rederive": {
+          "type": "boolean",
+          "default": false
+        },
+        "metrics": {
+          "type": "boolean",
+          "default": true
+        },
+        "dashboard": {
+          "type": "boolean",
+          "default": true
+        },
+        "self_improve": {
+          "type": "boolean",
+          "default": true
+        },
+        "retro": {
+          "type": "boolean",
+          "default": true
+        },
+        "parallel_sessions": {
+          "type": "boolean",
+          "default": false
+        },
+        "worktrees": {
+          "type": "boolean",
+          "default": true
+        },
+        "audit": {
+          "type": "boolean",
+          "default": true
+        }
+      }
+    },
+    "project": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "type": "string",
+          "default": "web",
+          "enum": [
+            "web",
+            "api",
+            "cli",
+            "lib",
+            "infra"
+          ]
+        }
+      }
+    },
+    "autonomy": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "level": {
+          "type": "string",
+          "default": "propose",
+          "enum": [
+            "suggest",
+            "propose",
+            "act"
+          ]
+        },
+        "actions": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "commit": {
+              "type": "string",
+              "default": "ask"
+            },
+            "push": {
+              "type": "string",
+              "default": "never"
+            },
+            "open_pr": {
+              "type": "string",
+              "default": "ask"
+            },
+            "spawn_sessions": {
+              "type": "string",
+              "default": "propose"
+            },
+            "add_dependency": {
+              "type": "string",
+              "default": "ask"
+            },
+            "self_improve": {
+              "type": "string",
+              "default": "propose"
+            },
+            "edit_global": {
+              "type": "string",
+              "default": "never"
+            }
+          }
+        }
+      }
+    },
+    "routing": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "default_tier": {
+          "type": "string",
+          "default": "auto",
+          "enum": [
+            "auto",
+            "trivial",
+            "standard",
+            "complex",
+            "critical"
+          ]
+        },
+        "always_grill": {
+          "type": "array",
+          "default": [
+            "complex",
+            "critical"
+          ]
+        }
+      }
+    },
+    "tokens": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "mode": {
+          "type": "string",
+          "default": "soft",
+          "enum": [
+            "soft",
+            "hard"
+          ]
+        },
+        "warn_at": {
+          "type": "number",
+          "default": 0.8
+        },
+        "budget": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "trivial": {
+              "type": "number",
+              "default": 20000
+            },
+            "standard": {
+              "type": "number",
+              "default": 150000
+            },
+            "complex": {
+              "type": "number",
+              "default": 600000
+            },
+            "critical": {
+              "type": "number",
+              "default": 1000000
+            }
+          }
+        }
+      }
+    },
+    "models": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "mode": {
+          "type": "string",
+          "default": "routed",
+          "enum": [
+            "single",
+            "routed"
+          ]
+        },
+        "cheap": {
+          "type": "string",
+          "default": "haiku"
+        },
+        "mid": {
+          "type": "string",
+          "default": "sonnet"
+        },
+        "strong": {
+          "type": "string",
+          "default": "opus"
+        },
+        "roles": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          },
+          "properties": {
+            "explore": {
+              "type": "string",
+              "default": "cheap"
+            },
+            "research": {
+              "type": "string",
+              "default": "cheap"
+            },
+            "implement": {
+              "type": "string",
+              "default": "strong"
+            },
+            "architect": {
+              "type": "string",
+              "default": "strong"
+            },
+            "review": {
+              "type": "string",
+              "default": "mid"
+            },
+            "security_review": {
+              "type": "string",
+              "default": "strong"
+            },
+            "ui_verify": {
+              "type": "string",
+              "default": "mid"
+            }
+          }
+        }
+      }
+    },
+    "output": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "quiet": {
+          "type": "boolean",
+          "default": true
+        },
+        "max_lines": {
+          "type": "number",
+          "default": 60
+        },
+        "full_logs": {
+          "type": "string",
+          "default": ".saw/logs"
+        }
+      }
+    },
+    "knowledge": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "store": {
+          "type": "string",
+          "default": "repo",
+          "enum": [
+            "repo",
+            "vault",
+            "both"
+          ]
+        },
+        "vault_path": {
+          "type": "string",
+          "default": ""
+        }
+      }
+    },
+    "metrics": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "fields": {
+          "type": "array",
+          "default": [
+            "tier",
+            "verification",
+            "findings",
+            "rework",
+            "tokens"
+          ]
+        }
+      }
+    },
+    "dashboard": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "panels": {
+          "type": "array",
+          "default": [
+            "first_pass_rate",
+            "findings_by_category",
+            "rework",
+            "cost_per_task",
+            "promotion_effect"
+          ]
+        }
+      }
+    },
+    "safety": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "push": {
+          "type": "string",
+          "default": "never",
+          "enum": [
+            "never",
+            "ask",
+            "allow"
+          ]
+        },
+        "destructive_approval": {
+          "type": "boolean",
+          "default": true
+        },
+        "deploy_approval": {
+          "type": "boolean",
+          "default": true
+        },
+        "no_secrets": {
+          "type": "boolean",
+          "default": true
+        },
+        "deny": {
+          "type": "array",
+          "default": [
+            "rm -rf",
+            "git push --force",
+            "curl | sh"
+          ]
+        }
+      }
+    },
+    "verify": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "run": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "extends": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  }
+}
