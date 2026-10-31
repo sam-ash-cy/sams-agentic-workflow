@@ -179,6 +179,7 @@ function taskCommand(cwd: string, config: Table, args: Args): number {
       if (s.passed.length) console.log(`  passed  ${s.passed.join(", ")}`);
       if (s.failed.length) console.log(`  failed  ${s.failed.join(", ")}`);
       if (s.missing.length) console.log(`  not run ${s.missing.join(", ")}`);
+      if (s.unconfigured.length) console.log(`  no command (set checks.<name>) ${s.unconfigured.join(", ")}`);
       return 0;
     }
   } catch (e) {
