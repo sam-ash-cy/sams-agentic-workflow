@@ -240,3 +240,7 @@ See [ADR 0013](decisions/0013-audit-layer.md). It adds an 8th playbook, `audit`,
 
 ## Addendum: autonomous runner (2026-10-31)
 See [ADR 0014](decisions/0014-autonomous-runner.md). **Phase 10: `saw autopilot`.** It works through the approved items in `docs/plans/queue.md`, one item per fresh headless session, branch and PR. When it hits a usage limit it saves state, waits for the reset and resumes the same session. It is opt-in, under hard budget caps, never merges or deploys, and runs only on items the owner approved.
+
+## Addendum: repo settings and prompts (2026-10-31)
+- **Phase 8b: `saw repo plan|apply`** ([ADR 0015](decisions/0015-repo-settings-as-code.md)). A `[repo]` section declares the GitHub settings: merge options, branch rules, security features and labels. They're applied with `gh` / the REST API after a diff and an explicit confirmation.
+- **`prompts/`:** ready-to-paste prompts to start, resume, debug, review and hand off work. Debugging is phased in automatically: the router switches a task to the `debug` playbook when the same check fails twice, or when a bug report arrives.
