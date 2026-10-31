@@ -17,6 +17,7 @@ export const DEFAULTS: Table = {
     budgets: true,
     model_routing: true,
     quiet_output: true,
+    compact_nudge: true,
     trail: false,
     obsidian: true,
     rederive: false,
@@ -71,7 +72,15 @@ export const DEFAULTS: Table = {
     complex: { extends: "standard", run: [] },
     critical: { extends: "complex", run: ["e2e", "dep_audit", "threat_model"] },
   },
-  context: { agents_md_max_lines: 100, claude_md_max_lines: 200 },
+  context: {
+    agents_md_max_lines: 100,
+    claude_md_max_lines: 200,
+    // Context-usage nudges (saw context, a UserPromptSubmit hook). Each
+    // threshold is a share of window_tokens; each fires once per session.
+    window_tokens: 200000,
+    suggest_compact_at: [0.5, 0.7],
+    handoff_at: 0.85,
+  },
   output: { quiet: true, max_lines: 60, full_logs: ".saw/logs" },
   knowledge: { store: "repo", vault_path: "" },
   metrics: { fields: ["tier", "verification", "findings", "rework", "tokens"] },
@@ -81,6 +90,10 @@ export const DEFAULTS: Table = {
     // Also write the panels as a Markdown note, e.g. "docs/metrics.md" for the vault. Empty: off.
     obsidian_note: "",
   },
+  // saw retro: a check failing in this many tasks becomes a proposal.
+  retro: { repeat_threshold: 2, proposals_dir: "docs/proposals" },
+  // saw eval: before/after comparison of the eval suite (claude plugin eval).
+  evals: { baseline: "evals/baseline.json", max_token_increase: 0.1, runs: 3 },
   deps: { lock: "deps.lock.toml", allowed_licences: ["MIT", "Apache-2.0", "BSD-2-Clause", "BSD-3-Clause", "ISC"] },
   safety: {
     push: "never",
