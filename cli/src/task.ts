@@ -16,6 +16,8 @@ export interface Task {
   started: string;
   // Lines already in checks.jsonl when the task started; only later lines count.
   from: number;
+  // Session transcript, saved by the Stop hook, for the token tally at task end.
+  transcript?: string;
 }
 
 export interface CheckResult {
@@ -53,16 +55,21 @@ export function recordCheck(cwd: string, result: Omit<CheckResult, "at">): void 
   appendFileSync(join(dir(cwd), "checks.jsonl"), JSON.stringify({ ...result, at: new Date().toISOString() }) + "\n");
 }
 
-// Latest result per check since the task started.
-export function checksSince(cwd: string, from: number): Map<string, CheckResult> {
-  const latest = new Map<string, CheckResult>();
+// Every result since the task started, oldest first.
+export function checkResults(cwd: string, from: number): CheckResult[] {
   const lines = checkLines(cwd);
   // The log was truncated or deleted mid-task: everything in it is new.
-  for (const line of lines.slice(from > lines.length ? 0 : from)) {
-    const r = JSON.parse(line) as CheckResult;
-    latest.set(r.name, r);
-  }
-  return latest;
+  return lines.slice(from > lines.length ? 0 : from).map((line) => JSON.parse(line) as CheckResult);
+}
+
+// Latest result per check since the task started.
+export function checksSince(cwd: string, from: number): Map<string, CheckResult> {
+  return new Map(checkResults(cwd, from).map((r) => [r.name, r]));
+}
+
+export function saveTranscript(cwd: string, task: Task, transcript: string): void {
+  if (task.transcript === transcript) return;
+  writeFileSync(join(dir(cwd), "task.json"), JSON.stringify({ ...task, transcript }, null, 2) + "\n");
 }
 
 function checkLines(cwd: string): string[] {
@@ -115,19 +122,36 @@ export function taskStatus(cwd: string, config: Table, task: Task): Status {
 }
 
 // Stop hook: returns the JSON to print, or undefined to allow the stop.
-export function gate(cwd: string, config: Table, hookInput: { stop_hook_active?: boolean }): { decision: "block"; reason: string } | undefined {
-  const features = (config.features ?? {}) as Record<string, boolean>;
-  if (!features.verify_hook || hookInput.stop_hook_active) return undefined;
+export function gate(
+  cwd: string,
+  config: Table,
+  hookInput: { stop_hook_active?: boolean; transcript_path?: string },
+): { decision: "block"; reason: string } | undefined {
   const task = currentTask(cwd);
-  if (!task) return undefined;
+  if (task && typeof hookInput.transcript_path === "string") saveTranscript(cwd, task, hookInput.transcript_path);
+  const features = (config.features ?? {}) as Record<string, boolean>;
+  if (!features.verify_hook || hookInput.stop_hook_active || !task) return undefined;
   const s = taskStatus(cwd, config, task);
   if (s.label === "Verified") return undefined;
   const parts = [
     s.failed.length ? `failed: ${s.failed.join(", ")}` : "",
     s.missing.length ? `not run: ${s.missing.join(", ")}` : "",
   ].filter(Boolean);
+  // Debugging is phased in when needed: a check failing twice means guessing has stopped working.
+  const repeated = repeatedFailures(cwd, task);
+  const debug = repeated.length && task.playbook !== "debug"
+    ? ` ${repeated.join(", ")} failed more than once: switch to the debug playbook (reproduce, hypothesise, then fix) before another attempt.`
+    : "";
   return {
     decision: "block",
-    reason: `${task.tier} task is ${s.label} (${parts.join("; ")}). Run each with \`saw run <check>\`, or \`saw task record <check> pass|fail --note "..."\` for reviews. If a check can't run here, report it as Not verified and run \`saw task end\`.`,
+    reason: `${task.tier} task is ${s.label} (${parts.join("; ")}).${debug} Run each with \`saw run <check>\`, or \`saw task record <check> pass|fail --note "..."\` for reviews. If a check can't run here, report it as Not verified and run \`saw task end\`.`,
   };
+}
+
+export function repeatedFailures(cwd: string, task: Task): string[] {
+  const counts = new Map<string, number>();
+  const latest = checksSince(cwd, task.from);
+  for (const r of checkResults(cwd, task.from)) if (r.status === "fail") counts.set(r.name, (counts.get(r.name) ?? 0) + 1);
+  // Only checks still failing: one that has since passed needs no debugging.
+  return [...counts].filter(([name, n]) => n >= 2 && latest.get(name)?.status === "fail").map(([name]) => name);
 }

@@ -23,6 +23,12 @@ Playbooks (read only the one you picked, from `playbooks/<name>.md`): foundation
 - **complex**: grilling (always) → research → 2–3 options with trade-offs → independent review → ADR in `docs/decisions/` → wait for design approval → staged plan → the standard path per unit.
 - **critical**: the complex path + threat model + rollback plan + the hardening playbook. Ask before any deploy.
 
+**Phase in debugging when needed.** Switch to the debug playbook (`saw task start --tier <same> --playbook debug`, or keep the tier and follow playbooks/debug.md) as soon as any of these is true:
+- the user reports a bug or failure
+- the same check fails twice in this task
+- a fix attempt didn't change the failure
+Reproduce before changing code. If you're still stuck after that, follow prompts/stuck.md.
+
 `saw config get verify.<tier>.run` lists the required checks. If an assumption turns out wrong, stop and re-plan; don't keep following a broken plan.
 
 ## 3. Evidence

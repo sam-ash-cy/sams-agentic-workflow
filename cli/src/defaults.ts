@@ -76,7 +76,10 @@ export const DEFAULTS: Table = {
   knowledge: { store: "repo", vault_path: "" },
   metrics: { fields: ["tier", "verification", "findings", "rework", "tokens"] },
   dashboard: {
-    panels: ["first_pass_rate", "findings_by_category", "rework", "cost_per_task", "promotion_effect"],
+    panels: ["outcomes", "first_pass_rate", "findings_by_category", "rework", "cost_per_task", "promotion_effect"],
+    output: ".saw/dashboard.html",
+    // Also write the panels as a Markdown note, e.g. "docs/metrics.md" for the vault. Empty: off.
+    obsidian_note: "",
   },
   deps: { lock: "deps.lock.toml", allowed_licences: ["MIT", "Apache-2.0", "BSD-2-Clause", "BSD-3-Clause", "ISC"] },
   safety: {

@@ -1,10 +1,12 @@
 // saw: the sams-agentic-workflow CLI.
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { isAbsolute, join, relative, resolve as resolvePath } from "node:path";
 import { flatten, layerPaths, parseValue, resolve, setPath, unsetPath, validate, weakenedSafety, type Layer } from "./config";
 import type { Table, Value } from "./defaults";
 import { syncAgents } from "./agents";
+import { renderHtml, renderMarkdown } from "./dashboard";
+import { appendMetric, buildMetric, readMetrics } from "./metrics";
 import { compareUrl, pin, readLock, verifyLock } from "./deps";
 import { init, type InitReport } from "./init";
 import { lintContext } from "./lint";
@@ -26,7 +28,8 @@ const USAGE = `usage: saw <command>
   task start --tier <t> --playbook <p>   open a task (the router does this)
   task status                        report label + which required checks passed, failed or are missing
   task record <check> pass|fail [--note "..."]   record a judgement check (code_review, ...)
-  task end                           close the task
+  task end [--tokens <n>]            close the task and append its metrics (.saw/metrics.jsonl)
+  dashboard                          write the static metrics page (and the Obsidian note if set)
   run <check>                        run checks.<check> quietly and record the result
   gate                               Stop hook: block "done" until the tier's checks pass
   lint-context                       AGENTS.md / CLAUDE.md size limits
@@ -40,7 +43,7 @@ interface Args {
   values: Record<string, string>;
 }
 
-const VALUE_FLAGS = ["--tier", "--playbook", "--note", "--plugin-dir", "--reviewed-by", "--type"];
+const VALUE_FLAGS = ["--tier", "--playbook", "--note", "--plugin-dir", "--reviewed-by", "--type", "--tokens"];
 const PLUGIN_ROOT = join(import.meta.dir, "..", "..");
 
 function parseArgs(argv: string[]): Args {
@@ -167,6 +170,22 @@ export function run(argv: string[], cwd = process.cwd()): number {
     return 0;
   }
   if (command === "deps") return depsCommand(cwd, resolved.config, args);
+  if (command === "dashboard") {
+    const d = resolved.config.dashboard as { panels: string[]; output: string; obsidian_note: string };
+    const metrics = readMetrics(cwd);
+    const out = inside(cwd, d.output);
+    const note = d.obsidian_note ? inside(cwd, d.obsidian_note) : undefined;
+    if (!out || (d.obsidian_note && !note)) return fail("dashboard.output and dashboard.obsidian_note must be paths inside the project");
+    mkdirSync(join(out, ".."), { recursive: true });
+    writeFileSync(out, renderHtml(metrics, d.panels));
+    console.log(`saw dashboard: ${metrics.length} tasks -> ${out}`);
+    if (note) {
+      mkdirSync(join(note, ".."), { recursive: true });
+      writeFileSync(note, renderMarkdown(metrics, d.panels));
+      console.log(`  note -> ${note}`);
+    }
+    return 0;
+  }
   if (command === "task") return taskCommand(cwd, resolved.config, args);
   if (command === "run" && sub) {
     try {
@@ -207,8 +226,19 @@ function taskCommand(cwd: string, config: Table, args: Args): number {
       return 0;
     }
     if (sub === "end") {
+      const open = currentTask(cwd);
+      const features = config.features as Record<string, boolean>;
+      if (open && features.metrics) {
+        const raw = args.values.tokens;
+        const tokens = raw === undefined ? undefined : /^\d+$/.test(raw) ? Number(raw) : NaN;
+        if (tokens !== undefined && Number.isNaN(tokens)) return fail("--tokens must be a whole number");
+        const m = buildMetric(cwd, config, open, tokens);
+        appendMetric(cwd, m);
+        console.log(`task closed: ${m.label}${m.tokens !== undefined ? `, ${m.tokens} tokens (${m.tokens_source})` : ""}`);
+      } else {
+        console.log("task closed");
+      }
       endTask(cwd);
-      console.log("task closed");
       return 0;
     }
     const task = currentTask(cwd);
@@ -267,6 +297,14 @@ function depsCommand(cwd: string, config: Table, args: Args): number {
     return fail((e as Error).message);
   }
   return fail(USAGE);
+}
+
+// Resolves a configured path, or undefined if it escapes the project (a
+// committed workflow.toml must not be able to write elsewhere).
+function inside(cwd: string, path: string): string | undefined {
+  const full = resolvePath(cwd, path);
+  const rel = relative(resolvePath(cwd), full);
+  return rel && !rel.startsWith("..") && !isAbsolute(rel) ? full : undefined;
 }
 
 function fail(message: string): number {

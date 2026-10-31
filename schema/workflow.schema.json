@@ -376,12 +376,21 @@
         "panels": {
           "type": "array",
           "default": [
+            "outcomes",
             "first_pass_rate",
             "findings_by_category",
             "rework",
             "cost_per_task",
             "promotion_effect"
           ]
+        },
+        "output": {
+          "type": "string",
+          "default": ".saw/dashboard.html"
+        },
+        "obsidian_note": {
+          "type": "string",
+          "default": ""
         }
       }
     },
