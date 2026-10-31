@@ -234,3 +234,6 @@ Each phase's own build is also run token-light: narrow tests, a fresh session pe
 8. **Trail should be an optional adapter, not core**, because others replicating the setup may not want it. Core memory = git-tracked docs (ADRs, glossary, plans) + Claude auto-memory.
 
 ## Open decisions (grilling): see round answers below
+
+## Addendum: audit layer (2026-10-31)
+See [ADR 0013](decisions/0013-audit-layer.md). It adds an 8th playbook, `audit`, and an `[audit]` settings section, which is a catalogue of opt-in whole-project auditors: Cloudflare security-audit, Trail of Bits skills, own appsec/dependency/web-quality skills. Audits run only on configured triggers (hardening stage, critical tier, every N stages, before release, on demand) and each has its own token budget. Findings go into one schema. Roadmap: Phase 6b.
