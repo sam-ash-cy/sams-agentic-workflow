@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { cpSync, mkdtempSync, readFileSync } from "node:fs";
+import { cpSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { modelFor, syncAgents } from "../src/agents";
@@ -55,4 +55,13 @@ test("pin writes the new sha and reviewer, and refuses without a reviewer", () =
   pin(path, "rederive", "b".repeat(40), "sam", "2026-11-01");
   expect(readLock(path).rederive).toMatchObject({ sha: "b".repeat(40), reviewed_by: "sam", reviewed_on: "2026-11-01", licence: "MIT" });
   expect(readLock(path)["mattpocock-skills"]?.reviewed_by).toBe("pending");
+});
+
+test("sync keeps CRLF line endings", () => {
+  const dir = mkdtempSync(join(tmpdir(), "saw-crlf-"));
+  cpSync(join(ROOT, "agents"), join(dir, "agents"), { recursive: true });
+  const path = join(dir, "agents", "researcher.md");
+  writeFileSync(path, readFileSync(path, "utf8").replace(/\r?\n/g, "\r\n"));
+  syncAgents(dir, resolve(ROOT, { "models.cheap": "sonnet" }, none(dir)).config);
+  expect(readFileSync(path, "utf8")).toContain("model: sonnet\r\n");
 });

@@ -93,3 +93,20 @@ test("committed schema matches the defaults", async () => {
   const committed = JSON.parse(readFileSync(join(import.meta.dir, "..", "..", "schema", "workflow.schema.json"), "utf8"));
   expect(committed).toEqual(workflowSchema());
 });
+
+describe("project template", () => {
+  test("context files pass the lint, and --type is applied by init", async () => {
+    const { lintContext } = await import("../src/lint");
+    const { TEMPLATE_DIR } = await import("../src/init");
+    const { dir, paths } = setup({});
+    expect(lintContext(TEMPLATE_DIR, resolve(dir, {}, paths).config)).toEqual([]);
+
+    const { run } = await import("../src/main");
+    writeFileSync(join(dir, "CLAUDE.md"), "# mine\n");
+    expect(run(["init", "--type", "api"], dir)).toBe(0);
+    expect(readFileSync(join(dir, "workflow.toml"), "utf8")).toContain('type = "api"');
+    expect(readFileSync(join(dir, "CLAUDE.md"), "utf8")).toBe("# mine\n");
+    expect(existsSync(join(dir, "AGENTS.md"))).toBe(true);
+    expect(run(["init", "--type", "nope"], dir)).toBe(1);
+  });
+});
