@@ -278,6 +278,44 @@
         }
       }
     },
+    "checks": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "string"
+      }
+    },
+    "verify": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "run": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "extends": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "context": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "agents_md_max_lines": {
+          "type": "number",
+          "default": 100
+        },
+        "claude_md_max_lines": {
+          "type": "number",
+          "default": 200
+        }
+      }
+    },
     "output": {
       "type": "object",
       "additionalProperties": false,
@@ -379,24 +417,6 @@
             "git push --force",
             "curl | sh"
           ]
-        }
-      }
-    },
-    "verify": {
-      "type": "object",
-      "additionalProperties": {
-        "type": "object",
-        "additionalProperties": false,
-        "properties": {
-          "run": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            }
-          },
-          "extends": {
-            "type": "string"
-          }
         }
       }
     }
