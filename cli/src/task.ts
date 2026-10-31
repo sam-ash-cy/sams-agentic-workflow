@@ -56,7 +56,9 @@ export function recordCheck(cwd: string, result: Omit<CheckResult, "at">): void 
 // Latest result per check since the task started.
 export function checksSince(cwd: string, from: number): Map<string, CheckResult> {
   const latest = new Map<string, CheckResult>();
-  for (const line of checkLines(cwd).slice(from)) {
+  const lines = checkLines(cwd);
+  // The log was truncated or deleted mid-task: everything in it is new.
+  for (const line of lines.slice(from > lines.length ? 0 : from)) {
     const r = JSON.parse(line) as CheckResult;
     latest.set(r.name, r);
   }
@@ -79,19 +81,31 @@ export function requiredChecks(config: Table, tier: string, seen = new Set<strin
   return [...new Set([...parent, ...(entry.run ?? [])])];
 }
 
+// Checks judged by the agent and recorded with `saw task record`; every other
+// check needs a command in [checks] and only counts when `saw run` ran it.
+export const JUDGEMENT_CHECKS = ["code_review", "security_review", "threat_model"];
+
 export interface Status {
   label: Label;
   passed: string[];
   failed: string[];
   missing: string[];
+  // Required mechanical checks with no command configured: reported, not blocking.
+  unconfigured: string[];
 }
 
 export function taskStatus(cwd: string, config: Table, task: Task): Status {
   const results = checksSince(cwd, task.from);
-  const status: Status = { label: "Verified", passed: [], failed: [], missing: [] };
+  const commands = (config.checks ?? {}) as Record<string, string>;
+  const status: Status = { label: "Verified", passed: [], failed: [], missing: [], unconfigured: [] };
   for (const name of requiredChecks(config, task.tier)) {
+    const mechanical = !JUDGEMENT_CHECKS.includes(name);
+    if (mechanical && !commands[name]) {
+      status.unconfigured.push(name);
+      continue;
+    }
     const r = results.get(name);
-    if (!r) status.missing.push(name);
+    if (!r || (mechanical && r.how !== "ran")) status.missing.push(name);
     else if (r.status === "pass") status.passed.push(name);
     else status.failed.push(name);
   }
