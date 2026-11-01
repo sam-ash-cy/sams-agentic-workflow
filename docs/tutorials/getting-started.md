@@ -74,7 +74,26 @@ It prints the steps for that tier. While you work:
 
 ## 6. Improve from evidence
 After a few tasks:
-- `saw dashboard` writes `.saw/dashboard.html` (first-pass rate, findings, rework, cost per task).
+- `saw dashboard` writes `.saw/dashboard.html` (first-pass rate, findings, rework, cost per task, and a timeline of recent events).
+- `saw dashboard --serve [--port 4173]` serves the same page live on `127.0.0.1` and reloads it whenever `.saw/metrics.jsonl` or `.saw/events.jsonl` changes. It answers only to loopback host names.
+- `.saw/events.jsonl` logs one JSON line per workflow event: the tier picked by `saw task start`, Stop-hook (`gate`) blocks and passes, commands `saw guard` denied or rewrote, budget warnings, review-session starts and results, and `saw run` results. Full check output stays in `.saw/logs/`.
+
+Settings:
+
+```toml
+[logging]
+enabled = true     # write .saw/events.jsonl
+level = "info"     # debug | info | warn; warn keeps only blocks, denies, failures and budget warnings
+
+[dashboard]
+panels = ["outcomes", "first_pass_rate", "findings_by_category", "rework", "cost_per_task", "promotion_effect", "events"]
+port = 4173        # saw dashboard --serve
+events_limit = 50  # events shown in the timeline
+```
+
+Recommended: keep `level = "info"` day to day, and switch to `"debug"` (`saw config set logging.level debug --scope local`) while you work out why a hook behaves oddly. Drop `"events"` from `panels` if you only want the metric charts.
+
+Optional, with Docker: `docker compose up` runs `saw dashboard --serve` in the `oven/bun` image, pinned by digest. It mounts the repo read-only and publishes the port on `127.0.0.1:4173` only. Nothing else in the workflow needs Docker.
 - `saw retro` turns checks that keep failing into proposals in `docs/proposals/`.
 - `saw eval` runs the eval suite and compares it with the baseline before you adopt a change. There is no baseline until you save one with `saw eval --save-baseline`.
 

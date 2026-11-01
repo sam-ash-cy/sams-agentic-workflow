@@ -132,8 +132,16 @@ export const DEFAULTS: Table = {
   release: { names: [] },
   // Agents this project supports; saw agents check verifies each reads AGENTS.md.
   agents: { enabled: ["claude"] },
+  // Workflow event log (.saw/events.jsonl): tier picks, gate blocks/passes,
+  // guard denies/rewrites, budget warnings, review sessions, saw run results.
+  // level: "debug" adds chatty events (format-hook runs), "info" is the normal
+  // timeline, "warn" keeps only blocks, denies, failures and budget warnings.
+  logging: { enabled: true, level: "info" },
   dashboard: {
-    panels: ["outcomes", "first_pass_rate", "findings_by_category", "rework", "cost_per_task", "promotion_effect", "autopilot"],
+    panels: ["outcomes", "first_pass_rate", "findings_by_category", "rework", "cost_per_task", "promotion_effect", "events", "autopilot"],
+    // saw dashboard --serve: port on 127.0.0.1, and how many recent events the timeline shows.
+    port: 4173,
+    events_limit: 50,
     output: ".saw/dashboard.html",
     // Also write the panels as a Markdown note, e.g. "docs/metrics.md" for the vault. Empty: off.
     obsidian_note: "",
@@ -181,4 +189,5 @@ export const ENUMS: Record<string, string[]> = {
   "models.mode": ["single", "routed"],
   "knowledge.store": ["repo", "vault", "both"],
   "safety.push": ["never", "ask", "allow"],
+  "logging.level": ["debug", "info", "warn"],
 };

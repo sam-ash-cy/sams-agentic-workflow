@@ -1,7 +1,12 @@
 // `saw dashboard`: a self-contained static HTML page (no scripts, no network)
-// built from .saw/metrics.jsonl, with the panels listed in [dashboard].panels.
-// Optionally also a Markdown note for the Obsidian vault.
+// built from .saw/metrics.jsonl and .saw/events.jsonl, with the panels listed in
+// [dashboard].panels. Optionally also a Markdown note for the Obsidian vault.
+// `saw dashboard --serve` serves the same page live on 127.0.0.1; only then does
+// the page carry a script, which polls /version and reloads when the data changes.
 
+import { statSync } from "node:fs";
+import { join } from "node:path";
+import type { WorkflowEvent } from "./events";
 import type { TaskMetric } from "./metrics";
 import type { RunRecord } from "./autopilot";
 import type { Proposal } from "./retro";
@@ -125,7 +130,40 @@ function panelHtml(p: Panel): string {
   return `<section class="panel"><h2>${esc(p.title)}</h2><p class="hint">${esc(p.hint)}</p>${rows}</section>`;
 }
 
-export function renderHtml(metrics: TaskMetric[], names: string[], proposals: Proposal[] = [], runs: RunRecord[] = [], generated = new Date()): string {
+// Every field is escaped: event text can come from commands and check names.
+export function eventsHtml(events: WorkflowEvent[]): string {
+  const rows = events.length
+    ? `<ol class="events">${[...events]
+        .reverse()
+        .map(
+          (e) => `<li class="ev ${esc(String(e.level))}"><time>${esc(String(e.at).slice(0, 19).replace("T", " "))}</time><span class="kind">${esc(String(e.kind))}</span><span class="msg">${esc(String(e.message ?? ""))}</span></li>`,
+        )
+        .join("")}</ol>`
+    : `<p class="empty">No events yet. Turn on [logging] enabled = true.</p>`;
+  return `<section class="panel wide"><h2>Events</h2><p class="hint">Latest workflow events from .saw/events.jsonl, newest first.</p>${rows}</section>`;
+}
+
+const LIVE_SCRIPT = `<script>
+(() => { let v = null;
+  setInterval(async () => {
+    try { const r = await fetch("/version", { cache: "no-store" }); const t = await r.text();
+      if (v !== null && t !== v) location.reload(); v = t; } catch {}
+  }, 2000);
+})();
+</script>`;
+
+// What the live page polls: changes whenever metrics or events are written.
+export function dataVersion(cwd: string): string {
+  return ["metrics.jsonl", "events.jsonl"]
+    .map((f) => join(cwd, ".saw", f))
+    .map((p) => {
+      const s = statSync(p, { throwIfNoEntry: false });
+      return s ? `${s.mtimeMs}:${s.size}` : "-";
+    })
+    .join("|");
+}
+
+export function renderHtml(metrics: TaskMetric[], names: string[], proposals: Proposal[] = [], runs: RunRecord[] = [], generated = new Date(), events: WorkflowEvent[] = [], live = false): string {
   const verified = metrics.filter((m) => m.label === "Verified").length;
   const kpis = [
     ["Tasks", String(metrics.length)],
@@ -148,11 +186,15 @@ h2{font-size:15px;margin:0}.hint{color:var(--muted);font-size:13px;margin:2px 0 
 .row{display:grid;grid-template-columns:minmax(0,9rem) 1fr 3.5rem;gap:8px;align-items:center;margin:6px 0}
 .lbl{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.track{background:var(--line);border-radius:4px;height:10px}
 .bar{display:block;height:100%;background:var(--bar);border-radius:4px}.val{text-align:right;font-variant-numeric:tabular-nums}
+.wide{grid-column:1/-1}.events{list-style:none;margin:0;padding:0;max-height:28rem;overflow:auto}
+.ev{display:grid;grid-template-columns:10.5rem 9rem 1fr;gap:8px;padding:4px 0;border-top:1px solid var(--line);font-size:13px}
+.ev time,.kind{color:var(--muted);font-variant-numeric:tabular-nums}.msg{overflow-wrap:anywhere}.ev.warn .kind{color:#b4542b}
+@media (max-width:600px){.ev{grid-template-columns:1fr}}
 </style></head><body><main>
 <h1>Workflow metrics</h1><p class="sub">${metrics.length} tasks · generated ${esc(generated.toISOString().slice(0, 16).replace("T", " "))} UTC</p>
 <div class="kpis">${kpis.map(([k, v]) => `<div class="kpi"><b>${esc(v!)}</b><span>${esc(k!)}</span></div>`).join("")}</div>
-<div class="grid">${buildPanels(metrics, names, proposals, runs).map(panelHtml).join("")}</div>
-</main></body></html>
+<div class="grid">${buildPanels(metrics, names, proposals, runs).map(panelHtml).join("")}${names.includes("events") ? eventsHtml(events) : ""}</div>
+</main>${live ? LIVE_SCRIPT : ""}</body></html>
 `;
 }
 

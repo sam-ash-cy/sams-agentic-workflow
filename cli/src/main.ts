@@ -13,7 +13,8 @@ import { sessionHook, UNITS } from "./sessions";
 import { recordReview, reviewApplies, reviewArgv, reviewBrief, writeChange, type ReviewSettings } from "./review-session";
 import { effectiveStyle, styleCheck, styleLine, TONES } from "./style";
 import { autopilot, eligible, parseQueue, readRuns, readState as autopilotState, scheduleCommand, settings as autopilotSettings, spawnClaude, stopReasons } from "./autopilot";
-import { renderHtml, renderMarkdown } from "./dashboard";
+import { dataVersion, renderHtml, renderMarkdown } from "./dashboard";
+import { logEvent, readEvents } from "./events";
 import { appendMetric, buildMetric, readMetrics } from "./metrics";
 import { compare, summarise, type Comparison, type Summary } from "./evals";
 import { readProposals, retro } from "./retro";
@@ -50,7 +51,7 @@ const USAGE = `usage: saw <command>
   repo plan|apply [--repo o/n] [--yes]   GitHub settings from [repo]: diff, then apply only with --yes and re-verify
   outline <file>                     signatures with line numbers (when Trail is off)
   task end [--tokens <n>]            close the task and append its metrics (.saw/metrics.jsonl)
-  dashboard                          write the static metrics page (and the Obsidian note if set)
+  dashboard [--serve [--port <n>]]   write the static metrics page (and the Obsidian note if set); --serve: live page on 127.0.0.1
   retro [--dry-run]                  write a proposal for each check failing in repeat_threshold+ tasks
   eval [--case <glob>] [--runs <n>] [--dry-run] [--save-baseline]   run the eval suite (claude plugin eval) and compare with the baseline
   eval compare <before.json> <after.json>  compare two saved eval results
@@ -76,7 +77,7 @@ interface Args {
   values: Record<string, string>;
 }
 
-const VALUE_FLAGS = ["--runs", "--repo", "--pr", "--tier", "--playbook", "--note", "--plugin-dir", "--reviewed-by", "--type", "--tokens", "--case", "--agents", "--tone", "--max-words", "--unit", "--unit-id"];
+const VALUE_FLAGS = ["--runs", "--repo", "--pr", "--tier", "--playbook", "--note", "--plugin-dir", "--reviewed-by", "--type", "--tokens", "--case", "--agents", "--tone", "--max-words", "--unit", "--unit-id", "--port"];
 const PLUGIN_ROOT = join(import.meta.dir, "..", "..");
 
 function parseArgs(argv: string[]): Args {
@@ -364,8 +365,19 @@ export function run(argv: string[], cwd = process.cwd()): number {
     if (!out || (d.obsidian_note && features.obsidian && !note)) return fail("dashboard.output and dashboard.obsidian_note must be paths inside the project");
     const proposalsDir = inside(cwd, (resolved.config.retro as { proposals_dir: string }).proposals_dir);
     const proposals = proposalsDir ? readProposals(proposalsDir) : [];
+    if (args.flags.has("--serve")) {
+      const raw = args.values.port || String(d.port);
+      if (!/^\d+$/.test(raw) || Number(raw) < 1 || Number(raw) > 65535) return fail("--port must be a number from 1 to 65535");
+      try {
+        const server = serveDashboard(cwd, resolved.config, Number(raw));
+        console.log(`saw dashboard: serving on http://127.0.0.1:${server.port}/ (Ctrl+C to stop)`);
+      } catch (e) {
+        return fail(`could not serve on port ${raw}: ${(e as Error).message}`);
+      }
+      return SERVING;
+    }
     mkdirSync(join(out, ".."), { recursive: true });
-    writeFileSync(out, renderHtml(metrics, d.panels, proposals, readRuns(cwd)));
+    writeFileSync(out, renderHtml(metrics, d.panels, proposals, readRuns(cwd), new Date(), readEvents(cwd, d.events_limit)));
     console.log(`saw dashboard: ${metrics.length} tasks -> ${out}`);
     if (note) {
       mkdirSync(join(note, ".."), { recursive: true });
@@ -397,6 +409,7 @@ export function run(argv: string[], cwd = process.cwd()): number {
   if (command === "run" && sub) {
     try {
       const r = runCheck(cwd, resolved.config, sub, { changed: args.flags.has("--changed") });
+      logEvent(cwd, resolved.config, r.code === 0 ? "info" : "warn", "check", `saw run ${sub}: ${r.code === 0 ? "pass" : `fail (exit ${r.code})`}`, { check: sub, code: r.code });
       if (r.shown) console.log(r.shown);
       console.log(`saw run ${sub}: ${r.code === 0 ? "pass" : `fail (exit ${r.code})`}; full log: ${r.log}`);
       return r.code === 0 ? 0 : 1;
@@ -413,6 +426,9 @@ export function run(argv: string[], cwd = process.cwd()): number {
     }
     const block = gate(cwd, resolved.config, input);
     if (block) console.log(JSON.stringify(block));
+    const tier = currentTask(cwd)?.tier;
+    if (block) logEvent(cwd, resolved.config, "warn", "gate.block", block.reason, { tier });
+    else if (tier) logEvent(cwd, resolved.config, "info", "gate.pass", `stop allowed (${tier})`, { tier });
     return 0;
   }
   if (command === "context") {
@@ -422,7 +438,9 @@ export function run(argv: string[], cwd = process.cwd()): number {
     } catch {
       // No hook payload: nothing to measure.
     }
-    const outs = [contextHook(cwd, resolved.config, input), budgetHook(cwd, resolved.config, currentTask(cwd), input)].filter((o) => o !== undefined);
+    const budget = budgetHook(cwd, resolved.config, currentTask(cwd), input);
+    if (budget) logEvent(cwd, resolved.config, "warn", "budget", String(budget.systemMessage));
+    const outs = [contextHook(cwd, resolved.config, input), budget].filter((o) => o !== undefined);
     if (outs.length === 1) console.log(JSON.stringify(outs[0]));
     else if (outs.length === 2) {
       // One hook, one JSON object: join the two nudges.
@@ -445,6 +463,12 @@ export function run(argv: string[], cwd = process.cwd()): number {
       : command === "session-hook" ? sessionHook(cwd, resolved.config, input)
       : formatHook(cwd, resolved.config, input, resolved.sources["checks.format"]);
     if (out) console.log(JSON.stringify(out));
+    if (command === "guard" && out) {
+      const h = out.hookSpecificOutput as { permissionDecision?: string; permissionDecisionReason?: string; updatedInput?: { command?: string } };
+      if (h.updatedInput) logEvent(cwd, resolved.config, "info", "guard.rewrite", `rewritten to ${h.updatedInput.command}`);
+      else logEvent(cwd, resolved.config, h.permissionDecision === "deny" ? "warn" : "info", `guard.${h.permissionDecision}`, String(h.permissionDecisionReason));
+    }
+    if (command === "format-hook" && out) logEvent(cwd, resolved.config, "debug", "format", "format-hook ran");
     return 0;
   }
   if (command === "memory" && sub === "lint") {
@@ -508,6 +532,7 @@ function reviewSessionCommand(cwd: string, config: Table, args: Args): number {
   const brief = reviewBrief(cwd, config, kind, id, tier);
   const done = (report: string): number => {
     const rec = recordReview(cwd, kind, id, review.mode ?? "both", report);
+    logEvent(cwd, config, rec.findings ? "warn" : "info", "review.result", `${rec.findings} finding(s) for ${kind} ${id}`, { unit: kind, id, findings: rec.findings });
     console.log(report.trim());
     console.log(`saw review-session: ${rec.findings} finding(s) recorded for ${kind} ${id}; fix or answer each before the PR`);
     return 0;
@@ -527,6 +552,7 @@ function reviewSessionCommand(cwd: string, config: Table, args: Args): number {
       console.log(`saw review-session: would run ${argv.join(" ")} < brief`);
       return 0;
     }
+    logEvent(cwd, config, "info", "review.start", `review session for ${kind} ${id} (${tier})`, { unit: kind, id, tier });
     let p: ReturnType<typeof Bun.spawnSync>;
     try {
       p = Bun.spawnSync(argv, { cwd, stdin: Buffer.from(reviewBrief(cwd, config, kind, id, tier, writeChange(cwd, config, id))), stdout: "pipe", stderr: "inherit" });
@@ -614,6 +640,7 @@ function taskCommand(cwd: string, config: Table, args: Args): number {
         max_words: rawCap === undefined ? undefined : Number(rawCap),
       });
       console.log(`task: ${t.tier} / ${t.playbook} · ${styleLine(effectiveStyle(config, t))}`);
+      logEvent(cwd, config, "info", "tier", `${t.tier} / ${t.playbook}`, { tier: t.tier, playbook: t.playbook, requested: args.values.tier ?? null });
       console.log(`steps: ${taskSteps(config, t.tier, t.playbook).join(" · ")}`);
       return 0;
     }
@@ -776,9 +803,44 @@ function checkHooks(cwd: string): string[] {
   return problems;
 }
 
+// run() returns this when a server is running: the entrypoint must not exit.
+export const SERVING = -1;
+
+// saw dashboard --serve: renders on every request so the page is always current.
+// Listens on 127.0.0.1 only. Inside the optional container (SAW_DASHBOARD_IN_CONTAINER=1
+// and /.dockerenv present) it binds 0.0.0.0; compose publishes it on 127.0.0.1 only.
+export function serveDashboard(cwd: string, config: Table, port: number): ReturnType<typeof Bun.serve> {
+  const inContainer = process.env.SAW_DASHBOARD_IN_CONTAINER === "1" && existsSync("/.dockerenv");
+  const d = config.dashboard as { panels: string[]; events_limit: number };
+  const proposalsDir = inside(cwd, (config.retro as { proposals_dir: string }).proposals_dir);
+  const headers = {
+    "cache-control": "no-store",
+    "x-content-type-options": "nosniff",
+    "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src 'self'; frame-ancestors 'none'",
+  };
+  return Bun.serve({
+    hostname: inContainer ? "0.0.0.0" : "127.0.0.1",
+    port,
+    fetch(req) {
+      // DNS rebinding: only answer requests addressed to a loopback name.
+      const host = (req.headers.get("host") ?? "").replace(/:\d+$/, "");
+      if (!["127.0.0.1", "localhost", "[::1]"].includes(host)) return new Response("forbidden", { status: 403, headers });
+      if (req.method !== "GET") return new Response("method not allowed", { status: 405, headers });
+      const path = new URL(req.url).pathname;
+      if (path === "/version") return new Response(dataVersion(cwd), { headers: { ...headers, "content-type": "text/plain" } });
+      if (path !== "/") return new Response("not found", { status: 404, headers });
+      const html = renderHtml(readMetrics(cwd), d.panels, proposalsDir ? readProposals(proposalsDir) : [], readRuns(cwd), new Date(), readEvents(cwd, d.events_limit), true);
+      return new Response(html, { headers: { ...headers, "content-type": "text/html; charset=utf-8" } });
+    },
+  });
+}
+
 function fail(message: string): number {
   console.error(`saw: ${message}`);
   return 1;
 }
 
-if (import.meta.main) process.exit(run(process.argv.slice(2)));
+if (import.meta.main) {
+  const code = run(process.argv.slice(2));
+  if (code !== SERVING) process.exit(code);
+}
