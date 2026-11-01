@@ -1,6 +1,6 @@
 // `saw deps`: third-party skills pinned by SHA in deps.lock.toml, with a
-// licence allow-list and a named reviewer for every pin (supply-chain risk,
-// RESEARCH.md §6).
+// licence allow-list and a named reviewer for every pin: a third-party skill
+// can run commands, so every update is reviewed before it is pinned.
 
 import { existsSync, writeFileSync } from "node:fs";
 import type { Table } from "./defaults";

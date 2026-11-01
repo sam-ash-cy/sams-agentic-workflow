@@ -18,7 +18,6 @@ export const DEFAULTS: Table = {
     security_review: true,
     verify_hook: true,
     budgets: true,
-    model_routing: true,
     compact_nudge: true,
     style_hook: true,
     format_hook: true,
@@ -28,13 +27,18 @@ export const DEFAULTS: Table = {
     dashboard: true,
     retro: true,
     audit: true,
-    // Phase 10 groundwork: saw task start suggests them; saw guard denies
+    // saw task start suggests them; saw guard denies
     // `git worktree add` / `claude -p` when off.
     worktrees: true,
     parallel_sessions: false,
     // Third-party UI polish skill (deps.lock.toml): a design-playbook step when
     // on; saw sync denies the skill when off.
     unslop: false,
+    // Third-party launch-video skill (deps.lock.toml): an optional step after a
+    // feature or foundation PR merges; saw sync denies it when off.
+    brag: false,
+    // feature and foundation tasks end with a docs step (Diataxis split).
+    docs_step: true,
   },
   project: { type: "web" },
   autonomy: {
@@ -110,6 +114,17 @@ export const DEFAULTS: Table = {
     mode: "both",
     budget_by_tier: { trivial: 0, standard: 40000, complex: 80000, critical: 150000 },
   },
+  // saw autopilot: owner-approved queue items, one headless session,
+  // branch and PR each, under hard caps. Opt-in; never merges or deploys.
+  autopilot: {
+    enabled: false,
+    queue: "docs/plans/queue.md",
+    per_item_usd: 5,
+    max_total_usd: 30,
+    max_failures: 2,
+    max_wait: "6h",
+    resume_on_limit: true,
+  },
   // vault_path: the central personal vault (absolute; global or local layer only).
   knowledge: { store: "repo", vault_path: "" },
   // saw sanitize: extra names of yours to flag before going public, besides git
@@ -118,12 +133,12 @@ export const DEFAULTS: Table = {
   // Agents this project supports; saw agents check verifies each reads AGENTS.md.
   agents: { enabled: ["claude"] },
   dashboard: {
-    panels: ["outcomes", "first_pass_rate", "findings_by_category", "rework", "cost_per_task", "promotion_effect"],
+    panels: ["outcomes", "first_pass_rate", "findings_by_category", "rework", "cost_per_task", "promotion_effect", "autopilot"],
     output: ".saw/dashboard.html",
     // Also write the panels as a Markdown note, e.g. "docs/metrics.md" for the vault. Empty: off.
     obsidian_note: "",
   },
-  // Whole-project auditors (ADR 0013): skill names run when a task's tier or
+  // Whole-project auditors: skill names run when a task's tier or
   // playbook is in triggers; saw task start lists them with their token budget.
   // Third-party auditors must be pinned in deps.lock.toml first.
   audit: {
@@ -131,7 +146,7 @@ export const DEFAULTS: Table = {
     triggers: ["critical", "hardening", "audit"],
     token_budget: 100000,
   },
-  // GitHub settings as code (ADR 0015), for saw repo plan|apply. Off until enabled.
+  // GitHub settings as code, for saw repo plan|apply. Off until enabled.
   repo: {
     enabled: false,
     merge: { squash: true, merge_commit: false, rebase: false, delete_branch_on_merge: true, auto_merge: false },
@@ -149,7 +164,7 @@ export const DEFAULTS: Table = {
     destructive_approval: true,
     deploy_approval: true,
     no_secrets: true,
-    deny: ["rm -rf", "git push --force", "curl | sh"],
+    deny: ["rm -rf", "git push --force", "git push -f", "curl | sh"],
   },
 };
 

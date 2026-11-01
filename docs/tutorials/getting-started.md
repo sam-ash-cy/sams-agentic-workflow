@@ -19,9 +19,9 @@ sh bootstrap.sh
 
 On Windows PowerShell: `.\bootstrap.ps1 -DryRun`, then `.\bootstrap.ps1`.
 
-The bootstrap installs the Claude Code plugin from this folder's marketplace, copies `global/CLAUDE.md` to `~/.claude/saw-workflow.md` and imports it from your `~/.claude/CLAUDE.md`. It copies `global/settings.example.json` only if you have no `settings.json`.
+The bootstrap copies `global/CLAUDE.md` to `~/.claude/saw-workflow.md` and imports it from your `~/.claude/CLAUDE.md`, copies `global/settings.example.json` only if you have no `settings.json`, then installs the Claude Code plugin (and its pinned `mattpocock-skills` dependency) from this folder's marketplace.
 
-Put `bin/` on your `PATH` (or run `bun cli/src/main.ts` instead of `saw`), then check the setup:
+The bootstrap doesn't touch your `PATH`. Put this folder's `bin/` on it yourself (or run `bun cli/src/main.ts` instead of `saw`); [docs/install.md](../how-to/install.md) shows how on each OS. Then check the setup:
 
 ```bash
 saw doctor
@@ -42,11 +42,11 @@ Every setting has a default; see them all with `saw config show --resolved`. A f
 
 ```bash
 saw config set checks.test "bun test"
-saw config set features.trail true
+saw config set features.trail true --scope local
 saw config set agents.enabled '["claude","codex"]'
 ```
 
-Settings are layered: `~/.saw/config.toml` (yours, every project), `workflow.toml` (committed, the team's) and `workflow.local.toml` (yours, this project, gitignored). Personal values such as `knowledge.vault_path` and `release.names` only count from your own layers. For more agents, run `saw init --agents codex,cursor,gemini`, then `saw agents check`.
+Settings are layered: `~/.saw/config.toml` (yours, every project), `workflow.toml` (committed, the team's) and `workflow.local.toml` (yours, this project, gitignored). Personal values such as `knowledge.vault_path` and `release.names` only count from your own layers, and a committed `workflow.toml` can only tighten the guardrails (`safety`, `autonomy`). For more agents, run `saw init --agents codex,cursor,gemini`, then `saw agents check`. The [configuration guide](../how-to/configuration.md) goes step by step, and [profiles](../reference/profiles.md) has ready-made sets.
 
 ### Optional: the unslop UI polish skill
 For UI work, the `design` playbook can add a polish pass with [unslop](https://github.com/heydamir/unslop) by Damir Sokolovsky (CC BY 4.0). It isn't bundled. Install it at the commit pinned in `deps.lock.toml`, then turn it on:
@@ -76,16 +76,16 @@ It prints the steps for that tier. While you work:
 After a few tasks:
 - `saw dashboard` writes `.saw/dashboard.html` (first-pass rate, findings, rework, cost per task).
 - `saw retro` turns checks that keep failing into proposals in `docs/proposals/`.
-- `saw eval` runs the eval suite and compares it with the baseline before you adopt a change.
+- `saw eval` runs the eval suite and compares it with the baseline before you adopt a change. There is no baseline until you save one with `saw eval --save-baseline`.
 
 ## 7. Before you make a repo public
 ```bash
 saw sanitize
 ```
 
-It scans every file a push would publish for secrets, home-folder paths, email addresses and your own names (git `user.name` and email, your OS user, plus `release.names`). Mark a line that is meant to stay with `saw-sanitize: allow`, or list public literals in `.sanitize-allow`. Commit author names and emails are not scanned: check them with `git log --format='%an <%ae>'`.
+It scans every file a push would publish for secrets, home-folder paths, email addresses and your own names (git `user.name` and email, your OS user, plus `release.names`). Mark a line that is meant to stay with `saw-sanitize: allow`, or list public literals in `.sanitize-allow`. Run `saw sanitize --history` too: it scans every line any commit ever added, since a secret deleted later still ships with the history. Commit author names and emails are not scanned: check them with `git log --format='%an <%ae>'`.
 
 ## Where next
-- `docs/BLUEPRINT.md`: the design and the roadmap.
-- `docs/decisions/`: why each choice was made.
+- [docs/features.md](../reference/features.md): everything the workflow does, including `saw autopilot`.
+- [docs/configuration.md](../how-to/configuration.md) and [docs/profiles.md](../reference/profiles.md): tune it for your project.
 - `prompts/`: copy-paste prompts for starting a project, a feature, a debug session or a handoff.

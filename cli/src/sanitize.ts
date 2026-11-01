@@ -1,6 +1,6 @@
-// `saw sanitize`: scan the repo's files for things that must not go public
-// (Phase 12): secrets, personal paths, email addresses and the owner's own
-// names. It only reports; fixing is a human edit.
+// `saw sanitize`: scan the repo's files for things that must not go public:
+// secrets, personal paths, email addresses and the owner's own names. It only
+// reports; fixing is a human edit.
 
 import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync, statSync } from "node:fs";
@@ -111,6 +111,32 @@ function decode(buf: Buffer): string | undefined {
   if (buf[0] === 0xff && buf[1] === 0xfe) return buf.subarray(2).toString("utf16le");
   if (buf[0] === 0xfe && buf[1] === 0xff) return Buffer.from(buf.subarray(2)).swap16().toString("utf16le");
   return buf.includes(0) ? undefined : buf.toString("utf8");
+}
+
+// `--history`: every line any commit on any branch ever added. A secret that
+// was committed and later deleted still goes public with the history.
+// Findings are reported as <commit>:<file>, with the line in that commit's diff.
+export function sanitizeHistory(cwd: string, config: Table): Finding[] {
+  const out = spawnSync("git", ["log", "--all", "-p", "--no-color", "--no-ext-diff", "--format=commit %h"], { cwd, encoding: "utf8", maxBuffer: 1 << 30 });
+  if (out.status !== 0) throw new Error(`git log failed: ${out.stderr?.trim()}`);
+  const names = ownerNames(cwd, config);
+  const allowed = readAllow(cwd);
+  const seen = new Set<string>();
+  const findings: Finding[] = [];
+  let commit = "";
+  let file = "";
+  for (const line of out.stdout.split("\n")) {
+    if (line.startsWith("commit ")) commit = line.slice(7);
+    else if (line.startsWith("+++ ")) file = line.replace(/^\+\+\+ (b\/)?/, "");
+    else if (line.startsWith("+") && file !== ".sanitize-allow") {
+      for (const f of scanText(`${commit}:${file}`, line.slice(1), names, allowed)) {
+        // The same leak in many commits is one finding (the newest commit is listed first).
+        const key = `${file}\0${f.kind}\0${f.match}`;
+        if (!seen.has(key)) findings.push(f), seen.add(key);
+      }
+    }
+  }
+  return findings;
 }
 
 export function sanitize(cwd: string, config: Table): Finding[] {

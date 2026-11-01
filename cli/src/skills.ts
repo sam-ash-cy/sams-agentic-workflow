@@ -11,6 +11,7 @@ export const FEATURE_SKILLS: Record<string, string[]> = {
   tdd: ["mattpocock-skills:tdd"],
   retro: ["sams-agentic-workflow:retro-promote"],
   unslop: ["unslop"],
+  brag: ["brag", "brag-slim"],
 };
 
 const TRACK = join(".saw", "skill-denies.json");
@@ -30,7 +31,12 @@ export function syncSkillDenies(cwd: string, config: Table, dryRun = false): { a
     }
   }
   const trackPath = join(cwd, TRACK);
-  const ours = existsSync(trackPath) ? (JSON.parse(readFileSync(trackPath, "utf8")) as string[]) : [];
+  let ours: string[] = [];
+  try {
+    if (existsSync(trackPath)) ours = JSON.parse(readFileSync(trackPath, "utf8")) as string[];
+  } catch {
+    // Corrupt tracking file: forget what we added; entries already in settings.json stay.
+  }
   const deny = settings.permissions?.deny ?? [];
   const removed = ours.filter((e) => !want.includes(e) && deny.includes(e));
   // An entry the user already had stays theirs: not added, so never removed.

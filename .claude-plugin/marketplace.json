@@ -6,6 +6,11 @@
       "name": "sams-agentic-workflow",
       "source": "./",
       "description": "A configurable, token-light agentic workflow: tiered routing, verification, reviews and evidence-driven self-improvement."
+    },
+    {
+      "name": "mattpocock-skills",
+      "source": { "source": "url", "url": "https://github.com/mattpocock/skills.git", "sha": "4ae2317ddb22b046e26455e4f9c9b3aaaf62212d" },
+      "description": "Matt Pocock's engineering skills (MIT), pinned at the commit in deps.lock.toml: grilling, tdd and more."
     }
   ]
 }

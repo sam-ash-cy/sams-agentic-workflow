@@ -90,7 +90,9 @@ export function readMetrics(cwd: string): TaskMetric[] {
     .filter((l) => l.trim())
     .flatMap((l) => {
       try {
-        return [JSON.parse(l) as TaskMetric];
+        const m = JSON.parse(l) as TaskMetric & { kind?: string };
+        // saw autopilot writes its item and wait records here too (readRuns).
+        return m.kind === "autopilot" ? [] : [m];
       } catch {
         return [];
       }

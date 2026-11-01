@@ -4,7 +4,7 @@ import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { resolve } from "../src/config";
-import { sanitize, scanText } from "../src/sanitize";
+import { sanitize, sanitizeHistory, scanText } from "../src/sanitize";
 import { run } from "../src/main";
 
 // Fixtures are built from pieces so this file doesn't trip the scan itself.
@@ -69,4 +69,19 @@ test("saw sanitize exits 1 on findings and refuses names from workflow.toml", ()
   expect(run(["sanitize"], dir)).toBe(0);
   writeFileSync(join(dir, "workflow.toml"), '[release]\nnames = ["x"]\n');
   expect(run(["sanitize"], dir)).toBe(1);
+});
+
+test("--history finds a secret that was committed and later deleted", () => {
+  const dir = mkdtempSync(join(tmpdir(), "saw-hist-"));
+  const git = (...a: string[]) => Bun.spawnSync(["git", "-c", "user.name=t", "-c", "user.email=t@example.com", ...a], { cwd: dir });
+  git("init", "-q");
+  writeFileSync(join(dir, "a.txt"), `key = ${key}\n`);
+  git("add", "."), git("commit", "-qm", "oops");
+  writeFileSync(join(dir, "a.txt"), "clean\n");
+  git("commit", "-qam", "fix");
+  const config = resolve(dir, {}, { global: join(dir, "n"), project: join(dir, "n"), local: join(dir, "n") }).config;
+  expect(sanitize(dir, config).filter((f) => f.kind === "secret")).toEqual([]);
+  const h = sanitizeHistory(dir, config).filter((f) => f.kind === "secret");
+  expect(h).toHaveLength(1);
+  expect(h[0]!.file).toMatch(/^[0-9a-f]+:a\.txt$/);
 });

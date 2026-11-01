@@ -5,9 +5,8 @@
 
 import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { baseBranch } from "./config";
 import type { Table } from "./defaults";
-
-export const REVIEW_MODES = ["grill", "audit", "both"] as const;
 
 export interface ReviewSettings {
   enabled?: boolean;
@@ -39,20 +38,41 @@ export function reviewApplies(config: Table, kind: string, tier: string): boolea
 // Unit ids become file names: keep them to one safe path segment.
 const safeId = (id: string): string => id.replace(/[^\w.-]/g, "_").replace(/^\.+/, "_");
 
-export function reviewBrief(cwd: string, config: Table, kind: string, id: string, tier: string): string {
+// For `run`: the change, written to a file the reviewer reads, so the
+// sub-session needs no shell at all (git diff/log accept --output=<file>).
+export function writeChange(cwd: string, config: Table, id: string): string {
+  const base = baseBranch(config);
+  const git = (...a: string[]): string => {
+    const p = Bun.spawnSync(["git", ...a], { cwd, stdout: "pipe", stderr: "pipe" });
+    return p.exitCode === 0 ? p.stdout.toString() : `(git ${a[0]} failed: ${p.stderr.toString().trim()})\n`;
+  };
+  const rel = join(".saw", "reviews", `${safeId(id)}.diff`);
+  mkdirSync(join(cwd, ".saw", "reviews"), { recursive: true });
+  writeFileSync(join(cwd, rel), [
+    "## git status --short", git("status", "--short"),
+    `## git log ${base}..HEAD`, git("log", "--oneline", `${base}..HEAD`),
+    `## git diff ${base}...HEAD`, git("diff", `${base}...HEAD`),
+    "## git diff (uncommitted)", git("diff", "HEAD"),
+  ].join("\n"));
+  return rel.replace(/\\/g, "/");
+}
+
+export function reviewBrief(cwd: string, config: Table, kind: string, id: string, tier: string, changeFile?: string): string {
   const s = settings(config);
   const mode = s.mode ?? "both";
-  const base = ((config.repo ?? {}) as { protect?: { branch?: string } }).protect?.branch || "main";
+  const base = baseBranch(config);
   const plan = join("docs", "plans", `${safeId(id)}.md`);
   const sources = [existsSync(join(cwd, plan)) ? `the plan ${plan.replace(/\\/g, "/")}` : "the plan (none found under docs/plans; say so)"];
-  if (existsSync(join(cwd, "docs", "BLUEPRINT.md"))) sources.push("docs/BLUEPRINT.md");
+  if (existsSync(join(cwd, "docs", "plans", "roadmap.md"))) sources.push("the roadmap docs/plans/roadmap.md");
   const jobs: string[] = [];
   if (mode !== "audit") jobs.push("Grill: check the work against the plan and its acceptance criteria. Every claim in \"Built\" must be in the diff and tested; question each decision that isn't justified.");
-  if (mode !== "grill") jobs.push("Audit: look for holes. Missing features, settings that nothing reads, untested paths and error cases, docs that disagree with the code, gaps against the blueprint.");
+  if (mode !== "grill") jobs.push("Audit: look for holes. Missing features, settings that nothing reads, untested paths and error cases, docs that disagree with the code, gaps against the roadmap.");
   return [
     `You are an independent reviewer of ${kind} ${id} (tier ${tier}). You have not seen the builder's reasoning; judge only what is in the repo.`,
     `Read-only: do not edit, commit or push. Stay within about ${reviewBudget(config, tier)} tokens.`,
-    `Read ${sources.join(" and ")}, then the change: \`git diff ${base}...HEAD\` and \`git status --short\` for uncommitted work.`,
+    changeFile
+      ? `Read ${sources.join(" and ")}, then the change in ${changeFile} (status, log and diff against ${base}).`
+      : `Read ${sources.join(" and ")}, then the change: \`git diff ${base}...HEAD\` and \`git status --short\` for uncommitted work.`,
     ...jobs,
     "Report: one line per finding, most severe first, each `- [category] file:line: what is wrong, and the failure it causes`. Then `verdict: pass` or `verdict: fail`.",
   ].join("\n");
@@ -86,6 +106,7 @@ export function readReviews(cwd: string): ReviewRecord[] {
 export const reviewedSince = (cwd: string, id: string, since = ""): boolean => readReviews(cwd).some((r) => r.unit === id && r.at >= since);
 
 // The headless sub-session: edits and shell writes disallowed, read tools only.
-export function reviewArgv(brief: string): string[] {
-  return ["claude", "-p", brief, "--allowedTools", "Read,Grep,Glob,Bash(git diff:*),Bash(git status:*),Bash(git log:*)", "--disallowedTools", "Edit,Write,MultiEdit,NotebookEdit"];
+// The brief goes on stdin: a multi-line argument breaks the claude.cmd shim npm installs on Windows.
+export function reviewArgv(): string[] {
+  return ["claude", "-p", "--allowedTools", "Read,Grep,Glob", "--disallowedTools", "Bash,Edit,Write,MultiEdit,NotebookEdit"];
 }
