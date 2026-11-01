@@ -42,15 +42,69 @@ const SETTINGS_WRITE = /(>>?|\btee\b|\bsed\s+-i|\bSet-Content\b|\bAdd-Content\b|
 // Spellings folded to one form before matching, so neither the deny-list nor
 // the action patterns can be sidestepped: git's global options (`git -C . push`)
 // are dropped; rm's flags in any order ("-fr", "--recursive --force") become
-// "rm -rf"; any download piped to a shell becomes "curl | sh".
+// "rm -rf"; any download piped to a shell becomes "curl | sh"; a quoted single
+// word loses its quotes (`"git" "push"` is git push).
 const normalise = (s: string): string =>
   s.trim().replace(/\s+/g, " ")
+    .replace(/"([^"\s$`\\]+)"|'([^'\s]+)'/g, (_, d?: string, q?: string) => d ?? q ?? "")
     .replace(/\bgit((?: (?:-C \S+|-c \S+|--git-dir(?:=| )\S+|--work-tree(?:=| )\S+|--namespace(?:=| )\S+|--no-pager|-P|--bare|--no-replace-objects|--literal-pathspecs|--no-optional-locks))+)(?= )/g, "git")
     .replace(/\brm((?: -{1,2}[a-zA-Z-]+)+)/g, (m, flags: string) => {
       const f = flags.replace(/--recursive/g, "-r").replace(/--force/g, "-f");
       return /-[a-zA-Z]*[rR]/.test(f) && /-[a-zA-Z]*f/.test(f) ? "rm -rf" : m;
     })
     .replace(/\b(curl|wget|iwr|Invoke-WebRequest)\b[^|;&]*\| ?(sudo )?(ba|z|da)?sh\b/g, "curl | sh");
+
+// Quoted text that is only data (an echo, a commit message, a prompt) is
+// blanked before the deny-list and action patterns run, so mentioning a
+// command isn't running it. Only when every command on the line is one that
+// treats its quoted arguments as text (DATA_ONLY); a line with anything else
+// (a shell, sudo, awk, an interpreter...) is matched as written. A quote
+// holding `$(` or a backtick, or holding no space, is never blanked.
+// Matched against the line as written: git's global options (`-c core.editor=...`)
+// and rg's --pre can run a string, so neither form counts as data-only.
+const DATA_ONLY = /^(echo|printf|grep|claude|true|git (commit|tag|log|notes)|gh (pr|issue) (create|comment|edit|close|review))\b/;
+const QUOTED = /"((?:[^"\\]|\\.)*)"|'([^']*)'/g;
+
+export function blankQuotedData(cmd: string): string {
+  const outside = cmd.replace(QUOTED, "Q");
+  if (/[`$<>]\(|`|\$\(/.test(outside)) return cmd;
+  const segments = outside.split(/\s*(?:\|\|?|&&?|;|\n)\s*/).filter((s) => s.trim());
+  if (!segments.every((s) => DATA_ONLY.test(s.trim().replace(/\s+/g, " ")))) return cmd;
+  return cmd.replace(QUOTED, (m, dq: string | undefined, sq: string | undefined) => {
+    const body = dq ?? sq ?? "";
+    if (!/\s/.test(body) || /\$\(|`/.test(body)) return m;
+    return '""';
+  });
+}
+
+// A settings file is this project's when it sits in the working directory, one
+// of its ancestors (a parent layer) or below it. Anything else (another repo, a
+// sandbox under the temp dir) isn't a layer the agent here runs under.
+// On Windows a Git Bash drive path (/c/...) is read as the C: drive.
+export function isProjectSettings(path: string, cwd = process.cwd()): boolean {
+  // A variable or a home shortcut can't be resolved here, so it counts. A `~`
+  // inside a path is a Windows short name (RUNNER~1), not home.
+  if (/[$%`]|^~/.test(path)) return true;
+  const win = process.platform === "win32";
+  const fold = (s: string): string => win ? s.toLowerCase() : s;
+  const dir = fold(resolvePath(cwd, win ? path.replace(/^\/([a-zA-Z])(?=\/)/, "$1:") : path, ".."));
+  const here = fold(resolvePath(cwd));
+  const inside = (a: string, b: string): boolean => {
+    const rel = relative(a, b);
+    return rel === "" || (!rel.startsWith("..") && !isAbsolute(rel));
+  };
+  return inside(dir, here) || inside(here, dir);
+}
+
+const SETTINGS_PATHS = /"([^"]*workflow(?:\.local)?\.toml)"|'([^']*workflow(?:\.local)?\.toml)'|([^\s"'<>|;&]*workflow(?:\.local)?\.toml)/g;
+
+function writesProjectSettings(cmd: string, cwd: string): boolean {
+  if (!SETTINGS_WRITE.test(cmd)) return false;
+  // A copy or move can land a settings file here under a destination that names no file.
+  if (/\b(cp|mv|Copy-Item|Move-Item|ln|rsync|install)\b/.test(cmd)) return true;
+  const paths = [...cmd.matchAll(SETTINGS_PATHS)].map((m) => m[1] ?? m[2] ?? m[3]);
+  return paths.length === 0 || paths.some((p) => isProjectSettings(p, cwd));
+}
 
 interface Safety {
   deny?: string[];
@@ -60,15 +114,17 @@ interface Safety {
   no_secrets?: boolean;
 }
 
-export function guardCommand(config: Table, command: string): Verdict {
-  const cmd = normalise(command);
+export function guardCommand(config: Table, command: string, cwd = process.cwd()): Verdict {
+  const full = normalise(command);
+  // Secrets and settings checks see the whole line: a quoted path is still a path.
+  const cmd = normalise(blankQuotedData(command));
   const safety = (config.safety ?? {}) as Safety;
   for (const pattern of safety.deny ?? []) {
     if (pattern && cmd.includes(normalise(pattern))) return { decision: "deny", reason: `"${pattern}" is on the safety.deny list` };
   }
   // Existence checks (ls, test -f, [ -f ]) read nothing; anything chained after them still counts.
-  if (safety.no_secrets && SECRETS.test(cmd) && !EXISTS_ONLY.test(cmd)) return { decision: "deny", reason: "safety.no_secrets: don't read or copy secrets files in the session" };
-  if (CONFIG_EDIT.test(cmd) || SETTINGS_WRITE.test(cmd)) return { decision: "ask", reason: "changing workflow settings that guard the agent needs your approval" };
+  if (safety.no_secrets && SECRETS.test(full) && !EXISTS_ONLY.test(full)) return { decision: "deny", reason: "safety.no_secrets: don't read or copy secrets files in the session" };
+  if (CONFIG_EDIT.test(full) || writesProjectSettings(full, cwd)) return { decision: "ask", reason: "changing workflow settings that guard the agent needs your approval" };
   const features = (config.features ?? {}) as Record<string, boolean>;
   if (!features.parallel_sessions && SPAWN.test(cmd)) return { decision: "deny", reason: "features.parallel_sessions is off: no new sessions" };
   if (!features.worktrees && WORKTREE.test(cmd)) return { decision: "deny", reason: "features.worktrees is off" };
@@ -89,8 +145,8 @@ export function guardCommand(config: Table, command: string): Verdict {
 
 // autonomy.actions.edit_global: file edits under ~/.claude or ~/.saw. Edits to
 // a settings layer (workflow.toml, workflow.local.toml) always ask.
-export function guardEdit(config: Table, path: string, home = homedir()): Verdict {
-  if (SETTINGS_FILE.test(path)) return { decision: "ask", reason: `changing workflow settings needs your approval (${path})` };
+export function guardEdit(config: Table, path: string, home = homedir(), cwd = process.cwd()): Verdict {
+  if (SETTINGS_FILE.test(path) && isProjectSettings(path, cwd)) return { decision: "ask", reason: `changing workflow settings needs your approval (${path})` };
   const level = ((config.autonomy ?? {}) as { actions?: Record<string, string> }).actions?.edit_global;
   if (level !== "never" && level !== "ask") return undefined;
   const full = resolvePath(path).toLowerCase();
@@ -119,12 +175,12 @@ export function rewriteCommand(config: Table, command: string): string | undefin
 }
 
 // Returns the hook's JSON output, or undefined to let the call through.
-export function guardHook(config: Table, input: { tool_name?: string; tool_input?: { command?: unknown; file_path?: unknown } }): Record<string, unknown> | undefined {
+export function guardHook(config: Table, input: { tool_name?: string; tool_input?: { command?: unknown; file_path?: unknown } }, cwd = process.cwd()): Record<string, unknown> | undefined {
   const t = input.tool_input;
   const g = input.tool_name === "Bash" && typeof t?.command === "string"
-    ? guardCommand(config, t.command)
+    ? guardCommand(config, t.command, cwd)
     : typeof t?.file_path === "string" && ["Edit", "Write", "MultiEdit", "NotebookEdit"].includes(input.tool_name ?? "")
-      ? guardEdit(config, t.file_path)
+      ? guardEdit(config, t.file_path, homedir(), cwd)
       : undefined;
   if (!g) {
     const rewritten = input.tool_name === "Bash" && typeof t?.command === "string" ? rewriteCommand(config, t.command) : undefined;

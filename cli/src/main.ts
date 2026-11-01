@@ -4,7 +4,7 @@ import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSyn
 import { homedir } from "node:os";
 import { isAbsolute, join, relative, resolve as resolvePath } from "node:path";
 import { baseBranch, flatten, inside, layerPaths, loosens, parseValue, resolve, setPath, unsetPath, validate, weakenedSafety, type Layer } from "./config";
-import type { Table, Value } from "./defaults";
+import { DEFAULTS, type Table, type Value } from "./defaults";
 import { syncAgents } from "./agents";
 import { AGENTS, checkAdapters, installAdapters } from "./adapters";
 import { syncVault, vaultPath } from "./vault";
@@ -148,7 +148,7 @@ function printChanges(head: string, doneLabel: string, keptLabel: string, r: Cha
   return 0;
 }
 
-const HOOKS = ["guard", "gate", "context", "format-hook", "session-hook", "style-check"];
+const HOOKS = ["guard", "gate", "context", "format-hook", "session-hook", "style-check", "failure-hook"];
 
 export function run(argv: string[], cwd = process.cwd()): number {
   let args: Args;
@@ -180,7 +180,15 @@ export function run(argv: string[], cwd = process.cwd()): number {
       // Edits still go through (asking), so the broken file can be fixed.
       const decision = tool === "Bash" || tool === "" ? "deny" : "ask";
       console.log(JSON.stringify({ hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: decision, permissionDecisionReason: `saw guard: ${problem}` } }));
-    } else console.error(`saw: ${problem}`);
+    } else {
+      // stderr from a hook that exits 0 reaches no one: tell the user, and the
+      // agent where the event allows it, so a broken file isn't silently ignored.
+      const message = `saw ${command}: ${problem}; this hook is not running`;
+      const context = command === "context" ? { hookSpecificOutput: { hookEventName: "UserPromptSubmit", additionalContext: `[saw] ${message}` } } : {};
+      console.log(JSON.stringify({ systemMessage: message, ...context }));
+    }
+    // Logged with default settings, since the project's can't be read.
+    logEvent(cwd, DEFAULTS, "warn", "hook.error", `saw ${command}: ${problem}`);
     return 0;
   }
   for (const w of resolved.warnings) console.error(`warning: ${w}`);
@@ -462,6 +470,20 @@ export function run(argv: string[], cwd = process.cwd()): number {
     }
     return 0;
   }
+  // PostToolUseFailure: the agent sees the error, but nothing kept it. Log
+  // which tool failed, on what, and the end of the error.
+  if (command === "failure-hook") {
+    let input: { tool_name?: string; tool_input?: { command?: unknown; file_path?: unknown }; error?: unknown; is_interrupt?: boolean } = {};
+    try {
+      input = JSON.parse(readFileSync(0, "utf8") || "{}");
+    } catch {
+      // No hook payload: nothing to log.
+    }
+    const target = String(input.tool_input?.command ?? input.tool_input?.file_path ?? "").slice(0, 200);
+    const error = String(input.error ?? "").trim().slice(-500);
+    logEvent(cwd, resolved.config, "warn", "tool.fail", `${input.tool_name ?? "tool"} failed${input.is_interrupt ? " (interrupted)" : ""}: ${target}`, { tool: input.tool_name, target, error });
+    return 0;
+  }
   if (command === "guard" || command === "format-hook" || command === "session-hook") {
     let input = {};
     try {
@@ -469,7 +491,7 @@ export function run(argv: string[], cwd = process.cwd()): number {
     } catch {
       // No hook payload: nothing to check.
     }
-    const out = command === "guard" ? guardHook(resolved.config, input)
+    const out = command === "guard" ? guardHook(resolved.config, input, cwd)
       : command === "session-hook" ? sessionHook(cwd, resolved.config, input)
       : formatHook(cwd, resolved.config, input, resolved.sources["checks.format"]);
     if (out) console.log(JSON.stringify(out));

@@ -62,7 +62,7 @@ test("the agent can't quietly loosen its own guardrails", () => {
   }
   expect(guardCommand(defaults(), "saw config set checks.test 'bun test'")).toBeUndefined();
   expect(guardCommand(defaults(), "cat workflow.toml")).toBeUndefined();
-  expect(guardEdit(defaults(), "/repo/workflow.local.toml")?.decision).toBe("ask");
+  expect(guardEdit(defaults(), "/repo/workflow.local.toml", homedir(), "/repo")?.decision).toBe("ask");
   expect(guardEdit(defaults(), "/repo/src/workflow.ts")).toBeUndefined();
   // ~/.claudex is not ~/.claude.
   expect(guardEdit(defaults(), join(homedir(), ".claudex", "x.md"))).toBeUndefined();
