@@ -460,7 +460,7 @@ export function run(argv: string[], cwd = process.cwd()): number {
     } catch {
       // No hook payload: nothing to check.
     }
-    const out = command === "guard" ? guardHook(resolved.config, input)
+    const out = command === "guard" ? guardHook(resolved.config, input, cwd)
       : command === "session-hook" ? sessionHook(cwd, resolved.config, input)
       : formatHook(cwd, resolved.config, input, resolved.sources["checks.format"]);
     if (out) console.log(JSON.stringify(out));
