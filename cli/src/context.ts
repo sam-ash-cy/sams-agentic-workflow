@@ -6,6 +6,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Table } from "./defaults";
+import { transcriptTokens } from "./metrics";
 
 // Current context size = the prompt tokens of the latest assistant turn
 // (input + cache creation + cache reads). The transcript isn't a documented
@@ -89,5 +90,47 @@ export function contextHook(cwd: string, config: Table, input: HookInput): Recor
   return {
     systemMessage: `saw: ${nudge.message}`,
     hookSpecificOutput: { hookEventName: "UserPromptSubmit", additionalContext: `[saw context] ${nudge.message}` },
+  };
+}
+
+// Token budget for the open task: tokens spent since it started against
+// tokens.budget[tier]. Fires once at warn_at and once at 100% per task.
+export function budgetNudge(config: Table, tier: string, spent: number, alreadyFired: number[]): Nudge | undefined {
+  const t = (config.tokens ?? {}) as { mode?: string; warn_at?: number; budget?: Record<string, number> };
+  const budget = t.budget?.[tier];
+  if (!budget) return undefined;
+  const share = spent / budget;
+  const pct = Math.round(share * 100);
+  if (share >= 1 && !alreadyFired.includes(1)) {
+    const message = t.mode === "hard"
+      ? `This ${tier} task has used ${pct}% of its ${budget}-token budget (hard mode). Stop at the next safe point, write a handoff (prompts/handoff.md) and run saw task end; don't start new work.`
+      : `This ${tier} task has used ${pct}% of its ${budget}-token budget. Ask the user whether to continue before doing more.`;
+    return { share: 1, level: "handoff", message };
+  }
+  const warn = t.warn_at ?? 0.8;
+  if (share >= warn && share < 1 && !alreadyFired.includes(warn)) {
+    return { share: warn, level: "compact", message: `This ${tier} task has used ${pct}% of its ${budget}-token budget; keep the rest of it lean.` };
+  }
+  return undefined;
+}
+
+export function budgetHook(cwd: string, config: Table, task: { tier: string; started: string } | undefined, input: HookInput): Record<string, unknown> | undefined {
+  const features = (config.features ?? {}) as Record<string, boolean>;
+  if (!features.budgets || !task || !input.transcript_path) return undefined;
+  const spent = transcriptTokens(input.transcript_path, task.started);
+  if (spent === undefined) return undefined;
+
+  const statePath = join(cwd, ".saw", "budget.json");
+  const state = (existsSync(statePath) ? JSON.parse(readFileSync(statePath, "utf8")) : {}) as Record<string, number[]>;
+  const fired = state[task.started] ?? [];
+  const nudge = budgetNudge(config, task.tier, spent, fired);
+  if (!nudge) return undefined;
+  // The 100% nudge implies the warning: don't send it afterwards.
+  state[task.started] = [...new Set([...fired, nudge.share, ...(nudge.share === 1 ? [(config.tokens as { warn_at?: number }).warn_at ?? 0.8] : [])])];
+  mkdirSync(join(cwd, ".saw"), { recursive: true });
+  writeFileSync(statePath, JSON.stringify(state) + "\n");
+  return {
+    systemMessage: `saw: ${nudge.message}`,
+    hookSpecificOutput: { hookEventName: "UserPromptSubmit", additionalContext: `[saw budget] ${nudge.message}` },
   };
 }

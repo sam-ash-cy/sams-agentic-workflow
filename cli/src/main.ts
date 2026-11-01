@@ -1,23 +1,26 @@
 // saw: the sams-agentic-workflow CLI.
 
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { isAbsolute, join, relative, resolve as resolvePath } from "node:path";
 import { flatten, layerPaths, parseValue, resolve, setPath, unsetPath, validate, weakenedSafety, type Layer } from "./config";
 import type { Table, Value } from "./defaults";
 import { syncAgents } from "./agents";
 import { AGENTS, checkAdapters, installAdapters } from "./adapters";
 import { syncVault, vaultPath } from "./vault";
-import { contextHook } from "./context";
+import { budgetHook, contextHook } from "./context";
+import { guardHook } from "./guard";
 import { effectiveStyle, styleCheck, styleLine, TONES } from "./style";
 import { renderHtml, renderMarkdown } from "./dashboard";
 import { appendMetric, buildMetric, readMetrics } from "./metrics";
 import { compare, summarise, type Comparison, type Summary } from "./evals";
 import { readProposals, retro } from "./retro";
 import { compareUrl, pin, readLock, verifyLock } from "./deps";
-import { init, type InitReport } from "./init";
-import { lintContext } from "./lint";
-import { runCheck } from "./run";
-import { currentTask, endTask, gate, recordCheck, startTask, taskStatus } from "./task";
+import { depAuditFor, init, recordInstalled, uninstall, upgrade, type ChangeReport, type InitReport } from "./init";
+import { lintContext, lintMemory } from "./lint";
+import { outline } from "./outline";
+import { applyPlan, gh, readState, repoName, repoPlan, type Gh } from "./repo";
+import { formatHook, runCheck } from "./run";
+import { currentTask, endTask, gate, pickTier, recordCheck, startTask, taskReport, taskStatus, taskSteps } from "./task";
 import { readToml, stringifyToml } from "./toml";
 
 const USAGE = `usage: saw <command>
@@ -25,8 +28,10 @@ const USAGE = `usage: saw <command>
   config get <key>
   config set <key> <value> [--scope global|project|local]   (default: project)
   config unset <key> [--scope ...]
-  doctor                             check settings and environment
+  doctor [--hooks]                   check settings and environment (--hooks: run each plugin hook once)
   init [--dry-run] [--force] [--type <t>] [--hooks] [--agents a,b]   add workflow.toml, AGENTS.md, CI and the docs/ vault (+ agent adapters)
+  init --upgrade [--dry-run]         update unedited template files to the current template; edited ones are kept
+  uninstall [--dry-run]              remove template files you haven't edited
   agents check                       smoke test: will each agent in agents.enabled read AGENTS.md?
   vault sync [--dry-run]             index this project (and its learnings) in the central vault
   sync [--plugin-dir <dir>] [--dry-run]   write .saw/resolved.json; set agent models from [models]
@@ -36,15 +41,21 @@ const USAGE = `usage: saw <command>
   task start --tier <t> --playbook <p> [--tone <t>] [--max-words <n>]   open a task (the router does this)
   task status                        report label + which required checks passed, failed or are missing
   task record <check> pass|fail [--note "..."]   record a judgement check (code_review, ...)
+  task report [--post [--pr <n>] [--yes]]   Markdown verification section for a PR (--post: gh pr comment, per autonomy.actions.open_pr)
+  repo plan|apply [--repo o/n] [--yes]   GitHub settings from [repo]: diff, then apply only with --yes and re-verify
+  outline <file>                     signatures with line numbers (when Trail is off)
   task end [--tokens <n>]            close the task and append its metrics (.saw/metrics.jsonl)
   dashboard                          write the static metrics page (and the Obsidian note if set)
   retro [--dry-run]                  write a proposal for each check failing in repeat_threshold+ tasks
   eval [--case <glob>] [--save-baseline]   run the eval suite (claude plugin eval) and compare with the baseline
   eval compare <before.json> <after.json>  compare two saved eval results
-  run <check>                        run checks.<check> quietly and record the result
+  run <check> [--changed]            run checks.<check> quietly and record the result (--changed: only tests for changed files)
   gate                               Stop hook: block "done" until the tier's checks pass
   lint-context                       AGENTS.md / CLAUDE.md size limits
-  context                            UserPromptSubmit hook: suggest /compact as context fills
+  memory lint                        stale file refs in docs/learnings and docs/decisions, duplicate learnings, size limits
+  context                            UserPromptSubmit hook: suggest /compact as context fills; warn on the task's token budget
+  guard                              PreToolUse hook: enforce [safety] deny-list and autonomy actions on Bash commands
+  format-hook                        PostToolUse hook: run checks.format after each edit
   style                              the effective reply style for this task (tone, word cap)
   style-check                        Stop hook: warn (soft) or ask for a rewrite (hard) when a reply is over the cap
 global flag: --set key=value         per-task override (repeatable)`;
@@ -57,7 +68,7 @@ interface Args {
   values: Record<string, string>;
 }
 
-const VALUE_FLAGS = ["--tier", "--playbook", "--note", "--plugin-dir", "--reviewed-by", "--type", "--tokens", "--case", "--agents", "--tone", "--max-words"];
+const VALUE_FLAGS = ["--repo", "--pr", "--tier", "--playbook", "--note", "--plugin-dir", "--reviewed-by", "--type", "--tokens", "--case", "--agents", "--tone", "--max-words"];
 const PLUGIN_ROOT = join(import.meta.dir, "..", "..");
 
 function parseArgs(argv: string[]): Args {
@@ -83,9 +94,45 @@ function printReport(report: InitReport, dryRun: boolean): void {
   }
 }
 
+export function repoCommand(config: Table, sub: "plan" | "apply", args: Args, run: Gh = gh): number {
+  const c = config.repo as { enabled: boolean; protect: { branch: string } };
+  if (!c.enabled) return fail("repo.enabled is false; set it in workflow.toml to manage GitHub settings");
+  try {
+    const name = repoName(run, args.values.repo);
+    const changes = repoPlan(config, name, readState(run, name, c.protect.branch));
+    console.log(`saw repo plan: ${name}, ${changes.length} change(s)`);
+    for (const ch of changes) console.log(`  ${ch.what.padEnd(28)} ${ch.from} -> ${ch.to}`);
+    if (sub === "plan" || !changes.length) return 0;
+    // Always the user's call, at every autonomy level (ADR 0015).
+    if (!args.flags.has("--yes")) return fail("review the plan above, then re-run saw repo apply --yes");
+    const r = applyPlan(run, changes);
+    for (const a of r.applied) console.log(`  applied ${a}`);
+    for (const s of r.skipped) console.log(`  skipped ${s}`);
+    for (const f of r.failed) console.error(`  failed  ${f}`);
+    const left = repoPlan(config, name, readState(run, name, c.protect.branch)).filter((ch) => !r.skipped.some((s) => s.startsWith(ch.what)));
+    for (const ch of left) console.error(`  not applied: ${ch.what} is still ${ch.from}`);
+    console.log(r.failed.length || left.length ? "saw repo apply: incomplete" : "saw repo apply: done, verified");
+    return r.failed.length || left.length ? 1 : 0;
+  } catch (e) {
+    return fail((e as Error).message);
+  }
+}
+
+function printChanges(head: string, doneLabel: string, keptLabel: string, r: ChangeReport, dryRun: boolean): number {
+  console.log(`${head}: ${dryRun ? "dry run, nothing written" : "done"}`);
+  for (const f of r.done) console.log(`  ${doneLabel.padEnd(13)} ${f}`);
+  for (const f of r.kept) console.log(`  ${keptLabel.padEnd(13)} ${f}`);
+  return 0;
+}
+
 export function run(argv: string[], cwd = process.cwd()): number {
   const args = parseArgs(argv);
   const [command, sub, key, raw] = args.positional;
+  // Before anything runs: `saw eval --help` must not start a (paid) eval run.
+  if (args.flags.has("--help") || args.flags.has("-h")) {
+    console.log(USAGE);
+    return 0;
+  }
   const resolved = resolve(cwd, args.overrides);
   for (const w of resolved.warnings) console.error(`warning: ${w}`);
 
@@ -130,6 +177,7 @@ export function run(argv: string[], cwd = process.cwd()): number {
     for (const w of weakened) console.log(`weakened guardrail: ${w}`);
     const problems = [...resolved.warnings, ...lintContext(cwd, resolved.config)];
     for (const p of lintContext(cwd, resolved.config)) console.error(`warning: ${p}`);
+    if (args.flags.has("--hooks")) problems.push(...checkHooks(cwd));
     const ok = problems.length === 0;
     console.log(ok ? "saw doctor: ok" : `saw doctor: ${problems.length} problem(s)`);
     return ok ? 0 : 1;
@@ -141,12 +189,22 @@ export function run(argv: string[], cwd = process.cwd()): number {
       const problem = validate("project.type", type);
       if (problem) return fail(problem);
     }
+    if (args.flags.has("--upgrade")) return printChanges("saw init --upgrade", "updated", "kept (edited)", upgrade(cwd, { dryRun }), dryRun);
     const report = init(cwd, { dryRun, force: args.flags.has("--force") });
+    const audit = depAuditFor(cwd);
+    if (audit && report.installed.includes("workflow.toml")) {
+      report.changed.push(`workflow.toml (checks.dep_audit = "${audit}")`);
+      if (!dryRun) {
+        appendFileSync(join(cwd, "workflow.toml"), `\n[checks]\ndep_audit = ${JSON.stringify(audit)}   # from the lockfiles found by saw init\n`);
+        recordInstalled(cwd, "workflow.toml", readFileSync(join(cwd, "workflow.toml"), "utf8"));
+      }
+    }
     if (type && !report.installed.includes("workflow.toml")) {
       console.error(`warning: workflow.toml already exists, so --type was not applied; run: saw config set project.type ${type}`);
     } else if (type && !dryRun) {
       const path = join(cwd, "workflow.toml");
       writeFileSync(path, readFileSync(path, "utf8").replace(/^type = "\w+"/m, `type = "${type}"`));
+      recordInstalled(cwd, "workflow.toml", readFileSync(path, "utf8"));
     }
     const hooksPath = Bun.spawnSync(["git", "config", "--get", "core.hooksPath"], { cwd }).stdout.toString().trim();
     if (args.flags.has("--hooks") && hooksPath && hooksPath !== ".githooks" && !args.flags.has("--force")) {
@@ -180,6 +238,19 @@ export function run(argv: string[], cwd = process.cwd()): number {
     }
     return 0;
   }
+  if (command === "outline" && sub) {
+    try {
+      for (const line of outline(resolvePath(cwd, sub))) console.log(line);
+      return 0;
+    } catch (e) {
+      return fail((e as Error).message);
+    }
+  }
+  if (command === "repo" && (sub === "plan" || sub === "apply")) return repoCommand(resolved.config, sub, args);
+  if (command === "uninstall") {
+    const dryRun = args.flags.has("--dry-run");
+    return printChanges("saw uninstall", "removed", "kept (edited)", uninstall(cwd, { dryRun }), dryRun);
+  }
   if (command === "sync") {
     mkdirSync(join(cwd, ".saw"), { recursive: true });
     writeFileSync(join(cwd, ".saw", "resolved.json"), JSON.stringify(resolved.config, null, 2) + "\n");
@@ -200,7 +271,8 @@ export function run(argv: string[], cwd = process.cwd()): number {
     return problems.length ? 1 : 0;
   }
   if (command === "vault" && sub === "sync") {
-    const k = resolved.config.knowledge as { store: string; vault_path: string };
+    if (!(resolved.config.features as Record<string, boolean>).obsidian) return fail("features.obsidian is off");
+    const k =resolved.config.knowledge as { store: string; vault_path: string };
     const v = vaultPath(k.vault_path, resolved.sources["knowledge.vault_path"]);
     if (!v.path) return fail(v.error!);
     const dryRun = args.flags.has("--dry-run");
@@ -211,11 +283,14 @@ export function run(argv: string[], cwd = process.cwd()): number {
   }
   if (command === "deps") return depsCommand(cwd, resolved.config, args);
   if (command === "dashboard") {
+    const features = resolved.config.features as Record<string, boolean>;
+    if (!features.dashboard) return fail("features.dashboard is off");
     const d = resolved.config.dashboard as { panels: string[]; output: string; obsidian_note: string };
     const metrics = readMetrics(cwd);
     const out = inside(cwd, d.output);
-    const note = d.obsidian_note ? inside(cwd, d.obsidian_note) : undefined;
-    if (!out || (d.obsidian_note && !note)) return fail("dashboard.output and dashboard.obsidian_note must be paths inside the project");
+    // The Obsidian note export follows features.obsidian.
+    const note = d.obsidian_note && features.obsidian ? inside(cwd, d.obsidian_note) : undefined;
+    if (!out || (d.obsidian_note && features.obsidian && !note)) return fail("dashboard.output and dashboard.obsidian_note must be paths inside the project");
     const proposalsDir = inside(cwd, (resolved.config.retro as { proposals_dir: string }).proposals_dir);
     const proposals = proposalsDir ? readProposals(proposalsDir) : [];
     mkdirSync(join(out, ".."), { recursive: true });
@@ -250,7 +325,7 @@ export function run(argv: string[], cwd = process.cwd()): number {
   if (command === "task") return taskCommand(cwd, resolved.config, args);
   if (command === "run" && sub) {
     try {
-      const r = runCheck(cwd, resolved.config, sub);
+      const r = runCheck(cwd, resolved.config, sub, { changed: args.flags.has("--changed") });
       if (r.shown) console.log(r.shown);
       console.log(`saw run ${sub}: ${r.code === 0 ? "pass" : `fail (exit ${r.code})`}; full log: ${r.log}`);
       return r.code === 0 ? 0 : 1;
@@ -276,9 +351,34 @@ export function run(argv: string[], cwd = process.cwd()): number {
     } catch {
       // No hook payload: nothing to measure.
     }
-    const out = contextHook(cwd, resolved.config, input);
+    const outs = [contextHook(cwd, resolved.config, input), budgetHook(cwd, resolved.config, currentTask(cwd), input)].filter((o) => o !== undefined);
+    if (outs.length === 1) console.log(JSON.stringify(outs[0]));
+    else if (outs.length === 2) {
+      // One hook, one JSON object: join the two nudges.
+      const text = (o: Record<string, unknown>, k: string): string => k === "systemMessage" ? o.systemMessage as string : (o.hookSpecificOutput as { additionalContext: string }).additionalContext;
+      console.log(JSON.stringify({
+        systemMessage: outs.map((o) => text(o, "systemMessage")).join("\n"),
+        hookSpecificOutput: { hookEventName: "UserPromptSubmit", additionalContext: outs.map((o) => text(o, "additionalContext")).join("\n") },
+      }));
+    }
+    return 0;
+  }
+  if (command === "guard" || command === "format-hook") {
+    let input = {};
+    try {
+      input = JSON.parse(readFileSync(0, "utf8") || "{}");
+    } catch {
+      // No hook payload: nothing to check.
+    }
+    const out = command === "guard" ? guardHook(resolved.config, input) : formatHook(cwd, resolved.config, input, resolved.sources["checks.format"]);
     if (out) console.log(JSON.stringify(out));
     return 0;
+  }
+  if (command === "memory" && sub === "lint") {
+    const problems = lintMemory(cwd, resolved.config);
+    for (const p of problems) console.error(p);
+    console.log(problems.length ? `saw memory lint: ${problems.length} problem(s)` : "saw memory lint: ok");
+    return problems.length ? 1 : 0;
   }
   if (command === "style") {
     console.log(styleLine(effectiveStyle(resolved.config, currentTask(cwd))));
@@ -312,11 +412,14 @@ function taskCommand(cwd: string, config: Table, args: Args): number {
       if (tone !== undefined && !(TONES as readonly string[]).includes(tone)) return fail(`--tone must be one of ${TONES.join(" | ")}`);
       const rawCap = args.values["max-words"];
       if (rawCap !== undefined && !/^[1-9]\d*$/.test(rawCap)) return fail("--max-words must be a positive whole number");
-      const t = startTask(cwd, args.values.tier ?? "", args.values.playbook ?? "feature", {
+      const playbook = args.values.playbook ?? "feature";
+      if (playbook === "audit" && !(config.features as Record<string, boolean>).audit) return fail("features.audit is off");
+      const t = startTask(cwd, pickTier(config, args.values.tier), playbook, {
         tone,
         max_words: rawCap === undefined ? undefined : Number(rawCap),
       });
       console.log(`task: ${t.tier} / ${t.playbook} · ${styleLine(effectiveStyle(config, t))}`);
+      console.log(`steps: ${taskSteps(config, t.tier, t.playbook).join(" · ")}`);
       return 0;
     }
     if (sub === "end") {
@@ -340,6 +443,19 @@ function taskCommand(cwd: string, config: Table, args: Args): number {
     if (sub === "record" && name && (status === "pass" || status === "fail")) {
       recordCheck(cwd, { name, status, how: "recorded", note: args.values.note });
       console.log(`recorded ${name}: ${status}`);
+      return 0;
+    }
+    if (sub === "report") {
+      const body = taskReport(cwd, config, task);
+      console.log(body);
+      if (!args.flags.has("--post")) return 0;
+      // Posting to the PR is outward-facing: autonomy.actions.open_pr decides.
+      const autonomy = config.autonomy as { level: string; actions: Record<string, string> };
+      if (autonomy.level === "suggest" || autonomy.actions.open_pr === "never") return fail("posting is off (autonomy.actions.open_pr = never, or autonomy.level = suggest)");
+      if (autonomy.actions.open_pr === "ask" && !args.flags.has("--yes")) return fail("posting needs your OK: re-run with --yes (autonomy.actions.open_pr = ask)");
+      const r = gh(["pr", "comment", ...(args.values.pr ? [args.values.pr] : []), "--body-file", "-"], body);
+      if (r.code !== 0) return fail(`gh pr comment failed: ${r.out.trim()}`);
+      console.log(r.out.trim());
       return 0;
     }
     if (sub === "status") {
@@ -443,6 +559,24 @@ function inside(cwd: string, path: string): string | undefined {
   const full = resolvePath(cwd, path);
   const rel = relative(resolvePath(cwd), full);
   return rel && !rel.startsWith("..") && !isAbsolute(rel) ? full : undefined;
+}
+
+// saw doctor --hooks: runs each plugin hook's saw subcommand with an empty
+// payload; a hook that crashes would otherwise fail silently in a session.
+function checkHooks(cwd: string): string[] {
+  const hooks = JSON.parse(readFileSync(join(PLUGIN_ROOT, "hooks", "hooks.json"), "utf8")) as { hooks: Record<string, { hooks: { command: string }[] }[]> };
+  const problems: string[] = [];
+  for (const [event, groups] of Object.entries(hooks.hooks)) {
+    for (const h of groups.flatMap((g) => g.hooks)) {
+      const sub = /bin\/saw"?\s+(\S+)/.exec(h.command)?.[1];
+      if (!sub) continue;
+      const proc = Bun.spawnSync(["bun", join(import.meta.dir, "main.ts"), sub], { cwd, stdin: Buffer.from("{}"), stdout: "pipe", stderr: "pipe" });
+      const ok = proc.exitCode === 0;
+      console.log(`  hook ${event.padEnd(16)} saw ${sub.padEnd(12)} ${ok ? "ok" : `exit ${proc.exitCode}`}`);
+      if (!ok) problems.push(`hook ${event} (saw ${sub}) exited ${proc.exitCode}: ${proc.stderr.toString().trim().split("\n").pop()}`);
+    }
+  }
+  return problems;
 }
 
 function fail(message: string): number {

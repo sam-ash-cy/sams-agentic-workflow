@@ -1,0 +1,89 @@
+// `saw guard`: a PreToolUse hook that enforces [safety] and [autonomy]
+// mechanically, instead of relying on instructions. "never" denies, "ask"
+// hands the decision to the user, anything else allows.
+
+import { homedir } from "node:os";
+import { resolve as resolvePath } from "node:path";
+import type { Table } from "./defaults";
+
+type Decision = "deny" | "ask";
+type Verdict = { decision: Decision; reason: string } | undefined;
+
+// Shell commands that count as each autonomy action.
+const ACTIONS: Record<string, RegExp> = {
+  push: /\bgit\s+push\b/,
+  commit: /\bgit\s+commit\b/,
+  open_pr: /\bgh\s+pr\s+create\b/,
+  add_dependency: /\b(bun|npm|pnpm|yarn)\s+(add|install|i)\s+\S|\bcomposer\s+require\b|\bpip\s+install\s+\S|\bcargo\s+add\b/,
+};
+
+// safety.destructive_approval / deploy_approval: always ask, whatever the autonomy level.
+const DESTRUCTIVE = /\bgit\s+(reset\s+--hard|clean\s+-[a-z]*f|checkout\s+--\s)|\bgit\s+branch\s+-D\b|\b(drop|truncate)\s+(table|database)\b|\bmigrate:fresh\b|\bdb:wipe\b/i;
+const DEPLOY = /\b(terraform|tofu)\s+(apply|destroy)\b|\bkubectl\s+(apply|delete)\b|\bhelm\s+(install|upgrade|uninstall)\b|\b(fly|flyctl)\s+deploy\b|\bvercel\b.*--prod\b|\bgh\s+release\s+create\b|\bnpm\s+publish\b|\bbun\s+publish\b|\bsaw\s+repo\s+apply\b|main\.ts\s+repo\s+apply\b/;
+// safety.no_secrets: commands that would print a secrets file into the session.
+const SECRETS = /\b(cat|type|less|more|head|tail|bat|Get-Content)\s+(\S*[\\/])?\.env(\.[\w.-]+)?(\s|$)/;
+
+// rm's flags in any order or spelling ("-fr", "-r -f", "--recursive --force")
+// are rewritten to "rm -rf", so the default deny entry can't be sidestepped.
+const normalise = (s: string): string =>
+  s.trim().replace(/\s+/g, " ").replace(/\brm((?: -{1,2}[a-zA-Z-]+)+)/g, (m, flags: string) => {
+    const f = flags.replace(/--recursive/g, "-r").replace(/--force/g, "-f");
+    return /-[a-zA-Z]*[rR]/.test(f) && /-[a-zA-Z]*f/.test(f) ? "rm -rf" : m;
+  });
+
+interface Safety {
+  deny?: string[];
+  push?: string;
+  destructive_approval?: boolean;
+  deploy_approval?: boolean;
+  no_secrets?: boolean;
+}
+
+export function guardCommand(config: Table, command: string): Verdict {
+  const cmd = normalise(command);
+  const safety = (config.safety ?? {}) as Safety;
+  for (const pattern of safety.deny ?? []) {
+    if (pattern && cmd.includes(normalise(pattern))) return { decision: "deny", reason: `"${pattern}" is on the safety.deny list` };
+  }
+  if (safety.no_secrets && SECRETS.test(cmd)) return { decision: "deny", reason: "safety.no_secrets: don't print secrets files into the session" };
+  const autonomy = (config.autonomy ?? {}) as { level?: string; actions?: Record<string, string> };
+  const actions = autonomy.actions ?? {};
+  const levels: Record<string, string | undefined> = { ...actions, push: strictest(safety.push, actions.push) };
+  for (const [action, re] of Object.entries(ACTIONS)) {
+    if (!re.test(cmd)) continue;
+    // suggest: the agent only suggests, so it never takes these actions itself.
+    const level = autonomy.level === "suggest" ? "never" : levels[action];
+    if (level === "never") return { decision: "deny", reason: `autonomy: ${action} is ${autonomy.level === "suggest" ? "off under autonomy.level = suggest" : "set to never"}` };
+    if (level === "ask") return { decision: "ask", reason: `autonomy: ${action} needs your approval` };
+  }
+  if (safety.destructive_approval && DESTRUCTIVE.test(cmd)) return { decision: "ask", reason: "safety.destructive_approval: destructive command" };
+  if (safety.deploy_approval && DEPLOY.test(cmd)) return { decision: "ask", reason: "safety.deploy_approval: deploy or publish command" };
+  return undefined;
+}
+
+// autonomy.actions.edit_global: file edits under ~/.claude or ~/.saw.
+export function guardEdit(config: Table, path: string, home = homedir()): Verdict {
+  const level = ((config.autonomy ?? {}) as { actions?: Record<string, string> }).actions?.edit_global;
+  if (level !== "never" && level !== "ask") return undefined;
+  const full = resolvePath(path).toLowerCase();
+  const global = [".claude", ".saw"].some((d) => full.startsWith(resolvePath(home, d).toLowerCase()));
+  if (!global) return undefined;
+  return { decision: level === "never" ? "deny" : "ask", reason: `autonomy: edit_global is ${level === "never" ? "set to never" : "ask"} (${path})` };
+}
+
+function strictest(a?: string, b?: string): string | undefined {
+  for (const level of ["never", "ask"]) if (a === level || b === level) return level;
+  return a ?? b;
+}
+
+// Returns the hook's JSON output, or undefined to let the call through.
+export function guardHook(config: Table, input: { tool_name?: string; tool_input?: { command?: unknown; file_path?: unknown } }): Record<string, unknown> | undefined {
+  const t = input.tool_input;
+  const g = input.tool_name === "Bash" && typeof t?.command === "string"
+    ? guardCommand(config, t.command)
+    : typeof t?.file_path === "string" && ["Edit", "Write", "MultiEdit", "NotebookEdit"].includes(input.tool_name ?? "")
+      ? guardEdit(config, t.file_path)
+      : undefined;
+  if (!g) return undefined;
+  return { hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: g.decision, permissionDecisionReason: `saw guard: ${g.reason}` } };
+}

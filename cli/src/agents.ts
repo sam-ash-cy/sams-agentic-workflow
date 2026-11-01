@@ -7,7 +7,8 @@ import type { Table } from "./defaults";
 
 export function modelFor(config: Table, role: string): string {
   const models = (config.models ?? {}) as Record<string, unknown> & { mode?: string; roles?: Record<string, string> };
-  if (models.mode === "single") return "inherit";
+  const routing = ((config.features ?? {}) as Record<string, boolean>).model_routing !== false;
+  if (models.mode === "single" || !routing) return "inherit";
   const tier = models.roles?.[role] ?? "mid";
   // A role maps to cheap | mid | strong, or straight to a model name.
   return typeof models[tier] === "string" ? (models[tier] as string) : tier;

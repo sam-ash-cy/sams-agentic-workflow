@@ -5,3 +5,9 @@ if command -v saw >/dev/null 2>&1; then
 else
   echo "pre-commit: saw not on PATH; skipping context lint" >&2
 fi
+# Secret scan of the staged changes, when gitleaks is installed.
+if command -v gitleaks >/dev/null 2>&1; then
+  gitleaks protect --staged --redact || exit 1
+else
+  echo "pre-commit: gitleaks not installed; skipping secret scan" >&2
+fi
