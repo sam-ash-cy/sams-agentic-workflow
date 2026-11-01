@@ -20,13 +20,13 @@ import { appendMetric, buildMetric, readMetrics } from "./metrics";
 import { compare, summarise, type Comparison, type Summary } from "./evals";
 import { readProposals, retro } from "./retro";
 import { compareUrl, eccProblem, pin, readLock, verifyLock } from "./deps";
-import { depAuditFor, init, recordInstalled, uninstall, upgrade, type ChangeReport, type InitReport } from "./init";
+import { depAuditFor, guessType, init, recordInstalled, uninstall, upgrade, type ChangeReport, type InitReport } from "./init";
 import { lintContext, lintMemory } from "./lint";
 import { outline } from "./outline";
 import { sanitize, sanitizeHistory } from "./sanitize";
 import { syncSkillDenies } from "./skills";
 import { applyPlan, gh, readState, repoName, repoPlan, type Gh } from "./repo";
-import { formatHook, runCheck } from "./run";
+import { formatHook, runCheck, TRUSTED_LAYERS } from "./run";
 import { currentTask, endTask, gate, markUntaskedEdit, pickTier, recordCheck, startTask, taskReport, taskStatus, taskSteps } from "./task";
 import { patchToml, readToml, stringifyToml } from "./toml";
 
@@ -279,11 +279,14 @@ export function run(argv: string[], cwd = process.cwd()): number {
         recordInstalled(cwd, "workflow.toml", readFileSync(join(cwd, "workflow.toml"), "utf8"));
       }
     }
+    const guessed = type === undefined && report.installed.includes("workflow.toml") ? guessType(cwd) : undefined;
+    if (guessed) console.log(`  project.type = "${guessed.type}" (guessed from ${guessed.from}; change it with saw config set project.type <t>)`);
+    const chosen = type ?? guessed?.type;
     if (type && !report.installed.includes("workflow.toml")) {
       console.error(`warning: workflow.toml already exists, so --type was not applied; run: saw config set project.type ${type}`);
-    } else if (type && !dryRun) {
+    } else if (chosen && !dryRun) {
       const path = join(cwd, "workflow.toml");
-      writeFileSync(path, readFileSync(path, "utf8").replace(/^type = "\w+"/m, `type = "${type}"`));
+      writeFileSync(path, readFileSync(path, "utf8").replace(/^type = "\w+"/m, `type = "${chosen}"`));
       recordInstalled(cwd, "workflow.toml", readFileSync(path, "utf8"));
     }
     const hooksPath = Bun.spawnSync(["git", "config", "--get", "core.hooksPath"], { cwd }).stdout.toString().trim();
@@ -458,7 +461,9 @@ export function run(argv: string[], cwd = process.cwd()): number {
     }
     const budget = budgetHook(cwd, resolved.config, currentTask(cwd), input);
     if (budget) logEvent(cwd, resolved.config, "warn", "budget", String(budget.systemMessage));
-    const outs = [routerNudge(cwd, resolved.config), contextHook(cwd, resolved.config, input), budget].filter((o) => o !== undefined);
+    const nudge = routerNudge(cwd, resolved.config);
+    if (nudge) logEvent(cwd, resolved.config, "debug", "nudge", "no saw task open: pointed the agent at the router skill");
+    const outs = [nudge, contextHook(cwd, resolved.config, input), budget].filter((o) => o !== undefined);
     if (outs.length === 1) console.log(JSON.stringify(outs[0]));
     else if (outs.length > 1) {
       // One hook, one JSON object: join the nudges.
@@ -500,8 +505,18 @@ export function run(argv: string[], cwd = process.cwd()): number {
       if (h.updatedInput) logEvent(cwd, resolved.config, "info", "guard.rewrite", `rewritten to ${h.updatedInput.command}`);
       else logEvent(cwd, resolved.config, h.permissionDecision === "deny" ? "warn" : "info", `guard.${h.permissionDecision}`, String(h.permissionDecisionReason));
     }
+    if (command === "guard" && !out) {
+      const i = input as { tool_name?: string; tool_input?: { command?: unknown; file_path?: unknown } };
+      logEvent(cwd, resolved.config, "debug", "guard.allow", `${i.tool_name ?? "tool"}: ${String(i.tool_input?.command ?? i.tool_input?.file_path ?? "").slice(0, 200)}`);
+    }
     if (command === "format-hook") markUntaskedEdit(cwd);
-    if (command === "format-hook") logEvent(cwd, resolved.config, out ? "warn" : "debug", "format", out ? "checks.format failed" : "format-hook ran");
+    if (command === "format-hook") {
+      const source = resolved.sources["checks.format"];
+      const skipped = !(resolved.config.checks as Record<string, string> | undefined)?.format ? "no checks.format set"
+        : !TRUSTED_LAYERS.includes(source ?? "") ? `checks.format comes from the ${source} layer (workflow.toml); only ~/.saw/config.toml or workflow.local.toml run on edits`
+        : undefined;
+      logEvent(cwd, resolved.config, out ? "warn" : "debug", "format", out ? "checks.format failed" : skipped ? `format-hook skipped: ${skipped}` : "format-hook ran: checks.format passed");
+    }
     return 0;
   }
   if (command === "memory" && sub === "lint") {

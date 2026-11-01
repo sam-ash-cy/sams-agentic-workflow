@@ -60,7 +60,9 @@ export function runCheck(cwd: string, config: Table, name: string, opts: { chang
   const logDir = inside(cwd, output.full_logs ?? ".saw/logs");
   if (!logDir) throw new Error("output.full_logs must be a path inside the project");
 
-  const shell = process.platform === "win32" ? ["cmd", "/c", command] : ["sh", "-c", command];
+  // One syntax everywhere: checks are written for sh (CI runs them on Linux), so
+  // Windows uses Git Bash's sh when it's on PATH and falls back to cmd.
+  const shell = process.platform !== "win32" || Bun.which("sh") ? ["sh", "-c", command] : ["cmd", "/c", command];
   const proc = Bun.spawnSync(shell, { cwd, stdout: "pipe", stderr: "pipe" });
   const text = proc.stdout.toString() + proc.stderr.toString();
   const code = proc.exitCode ?? 1;

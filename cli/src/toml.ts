@@ -4,7 +4,34 @@
 import { existsSync, readFileSync } from "node:fs";
 import type { Table, Value } from "./defaults";
 
+// Bun's parser accepts a table header with no closing bracket (`[broken`) and
+// drops it, so a broken settings file would load as if it were fine. Lines
+// outside a multi-line value that open with `[` must be a whole header.
+const HEADER = /^\[\[?\s*[\w"'.\s-]+\s*\]\]?\s*(#.*)?$/;
+
+function checkHeaders(text: string): void {
+  let depth = 0;
+  let multiline: string | undefined;
+  text.split(/\r?\n/).forEach((raw, i) => {
+    const line = raw.trim();
+    if (multiline) {
+      if (line.includes(multiline)) multiline = undefined;
+      return;
+    }
+    const triple = /("""|''')/.exec(line);
+    if (triple && line.split(triple[1]!).length === 2) {
+      multiline = triple[1];
+      return;
+    }
+    if (depth === 0 && line.startsWith("[") && !HEADER.test(line)) throw new Error(`line ${i + 1}: bad table header: ${line.slice(0, 60)}`);
+    if (depth === 0 && line.startsWith("[")) return;
+    const bare = line.replace(/"(?:[^"\\]|\\.)*"|'[^']*'/g, "").replace(/#.*/, "");
+    depth = Math.max(0, depth + (bare.match(/\[/g)?.length ?? 0) - (bare.match(/\]/g)?.length ?? 0));
+  });
+}
+
 export function parseToml(text: string): Table {
+  checkHeaders(text);
   return Bun.TOML.parse(text) as Table;
 }
 
