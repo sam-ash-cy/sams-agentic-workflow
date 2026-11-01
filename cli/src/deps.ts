@@ -50,3 +50,20 @@ export function pin(path: string, name: string, sha: string, reviewer: string, t
   const header = "# Third-party skills, pinned by commit. Update only via saw deps diff, then saw deps pin.\n\n";
   writeFileSync(path, header + stringifyToml(lock as unknown as Table));
 }
+
+// saw doctor with features.ecc on: ECC is a whole Claude Code plugin, so it is
+// checked in installed_plugins.json, not as a skill folder. A different commit
+// from the pin is reported too: hooks there were not reviewed.
+export function eccProblem(installedJson: string | undefined, pinnedSha: string | undefined): string | undefined {
+  let plugins: Record<string, { gitCommitSha?: string }[]> = {};
+  try {
+    plugins = installedJson ? (JSON.parse(installedJson).plugins ?? {}) : {};
+  } catch {
+    return "features.ecc is on but installed_plugins.json isn't valid JSON";
+  }
+  const key = Object.keys(plugins).find((k) => k.startsWith("ecc@"));
+  if (!key) return "features.ecc is on but the ecc plugin isn't installed: `claude plugin install ecc@sams-agentic-workflow` (docs/how-to/install.md), or set features.ecc false";
+  const sha = plugins[key]?.[0]?.gitCommitSha;
+  if (pinnedSha && sha && sha !== pinnedSha) return `ecc plugin (${key}) is at ${sha.slice(0, 12)}, not the pinned ${pinnedSha.slice(0, 12)}: review with saw deps diff ecc ${sha}, or reinstall from the pin`;
+  return undefined;
+}

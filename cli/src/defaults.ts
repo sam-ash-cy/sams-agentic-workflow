@@ -37,6 +37,9 @@ export const DEFAULTS: Table = {
     // Third-party launch-video skill (deps.lock.toml): an optional step after a
     // feature or foundation PR merges; saw sync denies it when off.
     brag: false,
+    // Third-party ECC plugin (deps.lock.toml): context nudges name its
+    // strategic-compact skill, and delivering tasks get a verification-loop step.
+    ecc: false,
     // feature and foundation tasks end with a docs step (Diataxis split).
     docs_step: true,
   },
