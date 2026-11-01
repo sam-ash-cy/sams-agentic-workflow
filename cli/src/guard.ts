@@ -82,7 +82,9 @@ export function blankQuotedData(cmd: string): string {
 // sandbox under the temp dir) isn't a layer the agent here runs under.
 // On Windows a Git Bash drive path (/c/...) is read as the C: drive.
 export function isProjectSettings(path: string, cwd = process.cwd()): boolean {
-  if (/[$~%`]/.test(path)) return true;
+  // A variable or a home shortcut can't be resolved here, so it counts. A `~`
+  // inside a path is a Windows short name (RUNNER~1), not home.
+  if (/[$%`]|^~/.test(path)) return true;
   const win = process.platform === "win32";
   const fold = (s: string): string => win ? s.toLowerCase() : s;
   const dir = fold(resolvePath(cwd, win ? path.replace(/^\/([a-zA-Z])(?=\/)/, "$1:") : path, ".."));

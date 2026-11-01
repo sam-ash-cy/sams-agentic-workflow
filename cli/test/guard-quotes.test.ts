@@ -58,6 +58,8 @@ test("B6: only this project's workflow.toml asks", () => {
   expect(guardCommand(c, `printf x >> ${join(other, "workflow.toml")}`, cwd)).toBeUndefined();
   expect(guardCommand(c, `printf x >> ${join(other, "workflow.toml")}; cp a workflow.toml`, cwd)?.decision).toBe("ask");
   expect(guardCommand(c, `cp ${join(other, "workflow.toml")} .`, cwd)?.decision).toBe("ask");
+  expect(guardCommand(c, "printf x >> ~/p/workflow.toml", cwd)?.decision).toBe("ask");
+  expect(guardCommand(c, `printf x >> ${join(other, "RUNNER~1", "workflow.toml")}`, cwd)).toBeUndefined();
   expect(guardEdit(c, join(cwd, "workflow.toml"), tmp("saw-gq-home-"), cwd)?.decision).toBe("ask");
   expect(guardEdit(c, join(other, "workflow.toml"), tmp("saw-gq-home-"), cwd)).toBeUndefined();
 });
