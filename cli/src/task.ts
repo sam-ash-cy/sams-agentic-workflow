@@ -4,7 +4,7 @@
 // result written in the same millisecond as the start can't leak in.
 
 import { appendFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { isAbsolute, join, relative, resolve } from "node:path";
 import type { Table } from "./defaults";
 import { reviewBudget, type ReviewSettings } from "./review-session";
 
@@ -51,8 +51,14 @@ export function startTask(cwd: string, tier: string, playbook: string, style?: T
 export const isSawProject = (cwd: string): boolean => existsSync(join(cwd, "workflow.toml"));
 
 // Post-edit hook: remembers that files changed while no task was open.
-export function markUntaskedEdit(cwd: string): void {
+// An edit in another repo (or ~/.claude) isn't this project's work: that repo's
+// own task, if any, covers it, so it doesn't arm this project's Stop gate.
+export function markUntaskedEdit(cwd: string, filePath?: string): void {
   if (!isSawProject(cwd) || currentTask(cwd)) return;
+  if (filePath) {
+    const rel = relative(cwd, resolve(cwd, filePath));
+    if (rel.startsWith("..") || isAbsolute(rel)) return;
+  }
   mkdirSync(dir(cwd), { recursive: true });
   writeFileSync(join(dir(cwd), "untasked-edits"), new Date().toISOString() + "\n");
 }

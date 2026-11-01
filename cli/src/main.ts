@@ -509,7 +509,11 @@ export function run(argv: string[], cwd = process.cwd()): number {
       const i = input as { tool_name?: string; tool_input?: { command?: unknown; file_path?: unknown } };
       logEvent(cwd, resolved.config, "debug", "guard.allow", `${i.tool_name ?? "tool"}: ${String(i.tool_input?.command ?? i.tool_input?.file_path ?? "").slice(0, 200)}`);
     }
-    if (command === "format-hook") markUntaskedEdit(cwd);
+    if (command === "format-hook") {
+      const path = (input as { tool_input?: { file_path?: unknown; notebook_path?: unknown } }).tool_input;
+      const file = path?.file_path ?? path?.notebook_path;
+      markUntaskedEdit(cwd, typeof file === "string" ? file : undefined);
+    }
     if (command === "format-hook") {
       const source = resolved.sources["checks.format"];
       const skipped = !(resolved.config.checks as Record<string, string> | undefined)?.format ? "no checks.format set"
