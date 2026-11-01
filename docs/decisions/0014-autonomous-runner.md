@@ -2,7 +2,7 @@
 
 - Status: proposed
 - Date: 2026-10-31
-- Roadmap: Phase 10, after evals (Phase 7) and Tier 2 (Phase 8). Phase 9, the public release, can ship without it.
+- Roadmap: Phase 12, after evals (Phase 7), Tier 2 (Phase 8) and the public release (Phase 11), which can ship without it.
 
 ## Context
 The owner wants Claude to work through planned and **approved** features on its own: one after another, unattended. When a usage limit is hit, it should wait for the reset and carry on from where it stopped. The gate (Phase 3), budgets and metrics (Phase 6) and evals (Phase 7) are what make this safe enough to try.

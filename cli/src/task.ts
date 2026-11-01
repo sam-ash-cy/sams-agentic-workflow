@@ -18,6 +18,8 @@ export interface Task {
   from: number;
   // Session transcript, saved by the Stop hook, for the token tally at task end.
   transcript?: string;
+  // Per-task style override ("this task: tone=verbose"), set by saw task start.
+  style?: { tone?: string; max_words?: number };
 }
 
 export interface CheckResult {
@@ -32,10 +34,11 @@ export type Label = "Verified" | "Partially verified" | "Not verified" | "Blocke
 
 const dir = (cwd: string): string => join(cwd, ".saw");
 
-export function startTask(cwd: string, tier: string, playbook: string): Task {
+export function startTask(cwd: string, tier: string, playbook: string, style?: Task["style"]): Task {
   if (!(TIERS as readonly string[]).includes(tier)) throw new Error(`tier must be one of ${TIERS.join(" | ")}`);
   if (!(PLAYBOOKS as readonly string[]).includes(playbook)) throw new Error(`playbook must be one of ${PLAYBOOKS.join(" | ")}`);
   const task: Task = { tier, playbook, started: new Date().toISOString(), from: checkLines(cwd).length };
+  if (style && (style.tone || style.max_words)) task.style = style;
   mkdirSync(dir(cwd), { recursive: true });
   writeFileSync(join(dir(cwd), "task.json"), JSON.stringify(task, null, 2) + "\n");
   return task;

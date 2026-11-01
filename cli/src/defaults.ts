@@ -18,6 +18,7 @@ export const DEFAULTS: Table = {
     model_routing: true,
     quiet_output: true,
     compact_nudge: true,
+    style_hook: true,
     trail: false,
     obsidian: true,
     rederive: false,
@@ -82,6 +83,14 @@ export const DEFAULTS: Table = {
     handoff_at: 0.85,
   },
   output: { quiet: true, max_lines: 60, full_logs: ".saw/logs" },
+  // Reply shape and length. max_words caps prose only (code blocks don't count);
+  // by_tier overrides it per tier, 0 = use max_words. saw style-check enforces it.
+  style: {
+    tone: "normal",
+    max_words: 250,
+    by_tier: { trivial: 80, standard: 0, complex: 0, critical: 600 },
+    mode: "soft",
+  },
   // vault_path: the central personal vault (absolute; global or local layer only).
   knowledge: { store: "repo", vault_path: "" },
   // Agents this project supports; saw agents check verifies each reads AGENTS.md.
@@ -113,6 +122,8 @@ export const ENUMS: Record<string, string[]> = {
   "autonomy.level": ["suggest", "propose", "act"],
   "routing.default_tier": ["auto", "trivial", "standard", "complex", "critical"],
   "tokens.mode": ["soft", "hard"],
+  "style.tone": ["normal", "structured", "detailed", "verbose"],
+  "style.mode": ["soft", "hard"],
   "models.mode": ["single", "routed"],
   "knowledge.store": ["repo", "vault", "both"],
   "safety.push": ["never", "ask", "allow"],
