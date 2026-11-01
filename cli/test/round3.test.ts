@@ -105,7 +105,7 @@ for (const [name, cmd] of shells) {
     const env = { ...process.env, CLAUDE_CONFIG_DIR: home, SAW_NO_PLUGIN: "1" };
     const go = (dry: boolean): string => {
       const p = Bun.spawnSync([...cmd, ...(dry ? [name.endsWith(".ps1") ? "-DryRun" : "--dry-run"] : [])], { env, stderr: "pipe" });
-      expect(p.exitCode).toBe(0);
+      expect(`${p.exitCode} ${p.stderr.toString()}`).toBe("0 ");
       return p.stdout.toString();
     };
     expect(go(true)).toContain("saw-workflow.md");
