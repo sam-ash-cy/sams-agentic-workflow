@@ -137,7 +137,8 @@ docs/              README, GETTING_STARTED, WORKFLOW, CUSTOMISING, SKILLS (Bloom
 [verify.critical] extends="standard" ; run = ["e2e","dep_audit","threat_model"]
 [knowledge] store = "repo" ; vault_path = "" ; trail = false
 [metrics]   enabled = true ; fields = ["tier","verification","findings","rework","tokens"]
-[dashboard] panels = ["first_pass_rate","findings_by_category","rework","cost_per_task","promotion_effect"]
+[logging]   enabled = true ; level = "info"   # .saw/events.jsonl
+[dashboard] panels = ["first_pass_rate","findings_by_category","rework","cost_per_task","promotion_effect","events"] ; port = 4173 ; events_limit = 50
 [deps]      mattpocock-skills = "sha:…" ; rederive = "sha:…"
 ```
 
