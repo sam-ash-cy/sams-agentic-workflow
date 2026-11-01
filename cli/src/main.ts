@@ -586,6 +586,10 @@ function reviewSessionCommand(cwd: string, config: Table, args: Args): number {
     const rec = recordReview(cwd, kind, id, review.mode ?? "both", report);
     logEvent(cwd, config, rec.findings ? "warn" : "info", "review.result", `${rec.findings} finding(s) for ${kind} ${id}`, { unit: kind, id, findings: rec.findings });
     console.log(report.trim());
+    if (!rec.verdict) {
+      console.log(`saw review-session: the report has no \`verdict:\` line, so the review didn't finish and doesn't count; run it again or record a full report with \`saw review-session record\``);
+      return 1;
+    }
     console.log(`saw review-session: ${rec.findings} finding(s) recorded for ${kind} ${id}; fix or answer each before the PR`);
     return 0;
   };
