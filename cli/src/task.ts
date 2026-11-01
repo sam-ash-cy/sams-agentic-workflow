@@ -107,12 +107,19 @@ export function requiredChecks(config: Table, tier: string, seen = new Set<strin
   if (!entry || seen.has(tier)) return [];
   seen.add(tier);
   const parent = entry.extends ? requiredChecks(config, entry.extends, seen) : [];
-  // features.code_review / security_review off: those reviews aren't required.
+  // features.code_review / security_review / docs_step off: those checks aren't required.
   const features = (config.features ?? {}) as Record<string, boolean>;
   return [...new Set([...parent, ...(entry.run ?? [])])].filter((c) => !(c in REVIEW_FEATURES) || features[REVIEW_FEATURES[c]!] !== false);
 }
 
-const REVIEW_FEATURES: Record<string, string> = { code_review: "code_review", security_review: "security_review" };
+const REVIEW_FEATURES: Record<string, string> = { code_review: "code_review", security_review: "security_review", docs: "docs_step" };
+
+// Playbooks that ship something users read about; only these owe the docs check.
+const DELIVERS = ["feature", "foundation"];
+
+// The checks a task owes: its tier's, minus docs for playbooks that deliver nothing.
+export const taskChecks = (config: Table, tier: string, playbook: string): string[] =>
+  requiredChecks(config, tier).filter((c) => c !== "docs" || DELIVERS.includes(playbook));
 
 // The tier for `saw task start`: --tier, else routing.default_tier unless it's "auto".
 export function pickTier(config: Table, flag: string | undefined): string {
@@ -135,11 +142,12 @@ export function taskSteps(config: Table, tier: string, playbook = "feature"): st
   if (features.parallel_sessions && big) steps.push("split independent steps into sessions (autonomy.actions.spawn_sessions)");
   if (features.implementer && tier !== "trivial") steps.push("after the plan: hand each unit to the implementer agent (models.roles.implement), then review its diff here");
   if (features.unslop && playbook === "design") steps.push("unslop polish pass before screenshots");
-  const delivers = playbook === "feature" || playbook === "foundation";
-  if (features.docs_step && delivers) steps.push("docs step: engineering:documentation in the Diataxis split (tutorial, how-to, reference, explanation); mattpocock-skills:writing-for-agents for AGENTS.md, CLAUDE.md and skill files");
+  const delivers = DELIVERS.includes(playbook);
+  if (features.docs_step && delivers) steps.push("docs step: engineering:documentation in the Diataxis split (tutorial, how-to, reference, explanation); mattpocock-skills:writing-for-agents for AGENTS.md, CLAUDE.md and skill files" +
+    (taskChecks(config, tier, playbook).includes("docs") ? "; then saw task record docs pass --note \"<files>\" (or --note \"none needed: <why>\")" : ""));
   if (features.ecc && delivers) steps.push("before the PR: ecc:verification-loop (build, types, lint, tests, diff review)");
   if (features.brag && delivers) steps.push("optional after the PR merges: a launch video with the brag skill");
-  const checks = requiredChecks(config, tier);
+  const checks = taskChecks(config, tier, playbook);
   steps.push(checks.length ? `checks: ${checks.join(", ")}` : "checks: none");
   const audit = (config.audit ?? {}) as { auditors?: string[]; triggers?: string[]; token_budget?: number };
   const triggered = (audit.triggers ?? []).some((t) => t === tier || t === playbook);
@@ -155,7 +163,7 @@ export function taskSteps(config: Table, tier: string, playbook = "feature"): st
 
 // Checks judged by the agent and recorded with `saw task record`; every other
 // check needs a command in [checks] and only counts when `saw run` ran it.
-export const JUDGEMENT_CHECKS = ["code_review", "security_review", "threat_model", "rollback_plan"];
+export const JUDGEMENT_CHECKS = ["code_review", "security_review", "threat_model", "rollback_plan", "docs"];
 
 export interface Status {
   label: Label;
@@ -170,7 +178,7 @@ export function taskStatus(cwd: string, config: Table, task: Task): Status {
   const results = checksSince(cwd, task.from);
   const commands = (config.checks ?? {}) as Record<string, string>;
   const status: Status = { label: "Verified", passed: [], failed: [], missing: [], unconfigured: [] };
-  for (const name of requiredChecks(config, task.tier)) {
+  for (const name of taskChecks(config, task.tier, task.playbook)) {
     const mechanical = !JUDGEMENT_CHECKS.includes(name);
     if (mechanical && !commands[name]) {
       status.unconfigured.push(name);
@@ -219,7 +227,7 @@ export function gate(
     rmSync(marker, { force: true });
     return {
       decision: "block",
-      reason: "Files were edited but no saw task is open, so nothing was verified. Use the router skill to classify the work, run `saw task start --tier <t> --playbook <p>` (trivial is fine for a one-line change), then run its checks.",
+      reason: "Files were edited but no saw task is open, so nothing was verified. Use the router skill to classify the work, run `saw task start --tier <t> --playbook <p>` (or `saw task adhoc` for a one-off edit), then run its checks.",
     };
   }
   const s = taskStatus(cwd, config, task);

@@ -2,7 +2,9 @@
 
 Four starting points. Pick the closest, apply it, then adjust ([configuration.md](../how-to/configuration.md)). Each one says which layer it belongs in: guardrails (`safety`, `autonomy`, the session toggles) can only be loosened from your own layers, so a profile that loosens them goes in `workflow.local.toml` or `~/.saw/config.toml`, not the committed `workflow.toml`.
 
-To apply one, merge it into the file named, then run `saw doctor`. `saw init` already writes some of these tables (`[autonomy]` among them), so set the keys inside the existing table rather than pasting a second copy: TOML rejects a table defined twice, and every saw command then fails. Keys you leave out keep their defaults.
+To apply one, run `saw profile apply <name>` (`--dry-run` first to see what it sets), then `saw doctor`. It merges each block below key by key into the file it names, inside any table `saw init` already wrote, so it's safe to run twice. `saw profile list` and `saw profile show <name>` read this page, so what you see here is what gets applied. Keys a profile leaves out keep their values.
+
+Merging by hand works too, but don't paste a block whole: `saw init` already writes some of these tables (`[autonomy]` among them), TOML rejects a table defined twice, and every saw command then fails.
 
 ## Solo: your own projects, moving fast
 

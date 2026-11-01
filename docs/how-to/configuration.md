@@ -27,6 +27,8 @@ saw config set tokens.mode hard                    # project (default)
 saw config set style.tone structured --scope global
 saw config set autonomy.actions.commit allow --scope local
 saw config unset tokens.mode
+saw explain tokens.mode      # the value in every layer, which one won, and why one was ignored
+saw profile apply team       # a whole recommended profile (reference/profiles.md); --dry-run first
 ```
 
 Lists are JSON: `saw config set agents.enabled '["claude","codex"]'`. For one task only, add `--set key=value` to any command. Run `saw doctor` after changes: it reports unknown keys, bad values and weakened guardrails.

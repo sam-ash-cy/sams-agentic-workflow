@@ -85,7 +85,7 @@ export const DEFAULTS: Table = {
   checks: {},
   verify: {
     trivial: { run: ["test"] },
-    standard: { run: ["format", "lint", "typecheck", "test", "code_review", "security_review"] },
+    standard: { run: ["format", "lint", "typecheck", "test", "code_review", "security_review", "docs"] },
     complex: { extends: "standard", run: [] },
     critical: { extends: "complex", run: ["e2e", "dep_audit", "threat_model", "rollback_plan"] },
   },

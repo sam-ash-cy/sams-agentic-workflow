@@ -18,8 +18,8 @@ import { dataVersion, renderHtml, renderMarkdown } from "./dashboard";
 import { logEvent, readEvents } from "./events";
 import { appendMetric, buildMetric, readMetrics } from "./metrics";
 import { compare, summarise, type Comparison, type Summary } from "./evals";
-import { readProposals, retro } from "./retro";
-import { compareUrl, eccProblem, pin, readLock, verifyLock } from "./deps";
+import { configSuggestions, readProposals, retro } from "./retro";
+import { compareUrl, eccProblem, gateguardWarning, pin, readLock, verifyLock } from "./deps";
 import { depAuditFor, guessType, init, recordInstalled, uninstall, upgrade, type ChangeReport, type InitReport } from "./init";
 import { lintContext, lintMemory } from "./lint";
 import { outline } from "./outline";
@@ -29,12 +29,15 @@ import { applyPlan, gh, readState, repoName, repoPlan, type Gh } from "./repo";
 import { formatHook, runCheck, TRUSTED_LAYERS } from "./run";
 import { currentTask, endTask, gate, markUntaskedEdit, pickTier, recordCheck, startTask, taskReport, taskStatus, taskSteps } from "./task";
 import { patchToml, readToml, stringifyToml } from "./toml";
+import { applyProfile, parseProfiles } from "./profiles";
 
 const USAGE = `usage: saw <command>
   config show [--resolved]           resolved settings (with the layer each came from)
   config get <key>
   config set <key> <value> [--scope global|project|local]   (default: project)
   config unset <key> [--scope ...]
+  explain <key>                      the value in every layer, which one won, and why one was ignored
+  profile list | show <name> | apply <name> [--dry-run]   merge a recommended profile (docs/reference/profiles.md) into the layers it names
   doctor [--hooks] [--no-plugin]     check settings, environment and the Claude Code plugin install (--hooks: run each plugin hook once)
   init [--dry-run] [--force] [--type <t>] [--hooks] [--agents a,b] [--repo [o/n]]   add workflow.toml, AGENTS.md, CI and the docs/ vault (+ agent adapters; --repo: show the repo plan)
   init --upgrade [--dry-run]         update unedited template files to the current template; edited ones are kept
@@ -46,6 +49,7 @@ const USAGE = `usage: saw <command>
   deps diff <name> <sha>             compare URL to review before updating a pin
   deps pin <name> <sha> --reviewed-by <who>
   task start --tier <t> --playbook <p> [--tone <t>] [--max-words <n>] [--unit phase|stage|feature --unit-id <name>]   open a task (the router does this)
+  task adhoc [--playbook <p>]        open a trivial task for a one-off edit (same as task start --tier trivial)
   task status                        report label + which required checks passed, failed or are missing
   task record <check> pass|fail [--note "..."]   record a judgement check (code_review, ...)
   task report [--post [--pr <n>] [--yes]]   Markdown verification section for a PR (--post: gh pr comment, per autonomy.actions.open_pr)
@@ -242,13 +246,59 @@ export function run(argv: string[], cwd = process.cwd()): number {
     console.log(`${sub === "set" ? "set" : "unset"} ${key} in ${path}`);
     return 0;
   }
+  if (command === "explain" && sub) {
+    // Every layer's value for one key, and which one won (or why one was ignored).
+    const paths = layerPaths(cwd);
+    const final = flatten(resolved.config);
+    if (!(sub in final)) return fail(`unknown key "${sub}"`);
+    console.log(`${sub} = ${JSON.stringify(final[sub])}  (from ${resolved.sources[sub]})`);
+    console.log(`  default  ${JSON.stringify(flatten(DEFAULTS)[sub] ?? null)}`);
+    for (const layer of ["global", "project", "local"] as const) {
+      const value = flatten(readToml(paths[layer]) ?? {})[sub];
+      console.log(`  ${layer.padEnd(8)} ${value === undefined ? "-" : JSON.stringify(value)}  ${paths[layer]}`);
+    }
+    if (sub in args.overrides) console.log(`  override ${JSON.stringify(args.overrides[sub])}  (--set)`);
+    for (const w of resolved.warnings.filter((w) => w.includes(sub))) console.log(`  note: ${w}`);
+    return 0;
+  }
+  if (command === "profile") {
+    const profiles = parseProfiles(readFileSync(join(PLUGIN_ROOT, "docs", "reference", "profiles.md"), "utf8"));
+    if (!sub || sub === "list") {
+      for (const p of profiles) console.log(`  ${p.name.padEnd(10)} ${p.title}  (${p.blocks.map((b) => b.layer).join(" + ")})`);
+      return 0;
+    }
+    const profile = profiles.find((p) => p.name === key);
+    if ((sub !== "show" && sub !== "apply") || !profile) return fail(`usage: saw profile list | show <name> | apply <name> [--dry-run]; names: ${profiles.map((p) => p.name).join(", ")}`);
+    if (sub === "show") {
+      for (const b of profile.blocks) {
+        console.log(`${b.layer} (${layerPaths(cwd)[b.layer]}):`);
+        for (const [k, v] of Object.entries(b.values)) console.log(`  ${k} = ${JSON.stringify(v)}`);
+      }
+      return 0;
+    }
+    const dryRun = args.flags.has("--dry-run");
+    let problems = 0;
+    for (const r of applyProfile(cwd, profile, dryRun)) {
+      console.log(`${r.layer}: ${r.path}${dryRun ? " (dry run)" : ""}`);
+      for (const s of r.set) console.log(`  set ${s}`);
+      for (const p of r.problems) console.error(`  skipped: ${p}`);
+      problems += r.problems.length;
+    }
+    console.log(`saw profile apply ${profile.name}: ${dryRun ? "dry run, nothing written" : "done"}; then run saw doctor`);
+    return problems ? 1 : 0;
+  }
   if (command === "doctor") {
     const weakened = weakenedSafety(resolved);
     for (const w of weakened) console.log(`weakened guardrail: ${w}`);
     const lint = lintContext(cwd, resolved.config);
     const problems = [...resolved.warnings, ...lint];
     for (const p of lint) console.error(`warning: ${p}`);
-    if (!args.flags.has("--no-plugin") && process.env.SAW_NO_PLUGIN !== "1") problems.push(...checkPlugin());
+    if (!args.flags.has("--no-plugin") && process.env.SAW_NO_PLUGIN !== "1") problems.push(...checkPlugin(resolved.config));
+    const claudeDir = process.env.CLAUDE_CONFIG_DIR ?? join(homedir(), ".claude");
+    const read = (p: string): string | undefined => (existsSync(p) ? readFileSync(p, "utf8") : undefined);
+    // A recommendation, not a failure: GateGuard works, it just duplicates saw guard.
+    const gg = gateguardWarning(read(join(claudeDir, "plugins", "installed_plugins.json")), read(join(claudeDir, "settings.json")), process.env.ECC_GATEGUARD);
+    if (gg) console.error(`warning: ${gg}`);
     if (args.flags.has("--hooks")) problems.push(...checkHooks(cwd));
     if ((resolved.config.features as Record<string, boolean>).ecc) {
       const installed = join(process.env.CLAUDE_CONFIG_DIR ?? join(homedir(), ".claude"), "plugins", "installed_plugins.json");
@@ -423,6 +473,8 @@ export function run(argv: string[], cwd = process.cwd()): number {
     for (const f of result.written) console.log(`  proposal -> ${join(r.proposals_dir, f)}`);
     for (const p of result.open) console.log(`  open: ${p.file} (${p.check})`);
     console.log(`saw retro: ${result.pending.length} new, ${result.open.length} open; fill each with the retro-promote skill`);
+    const suggestions = configSuggestions(readMetrics(cwd), resolved.config, r.repeat_threshold);
+    if (suggestions.length) console.log(`suggested settings (review, then run):\n${suggestions.map((s) => `  ${s}`).join("\n")}`);
     return 0;
   }
   if (command === "eval") return evalCommand(cwd, resolved.config, args);
@@ -683,7 +735,10 @@ function autopilotCommand(cwd: string, config: Table, weakened: string[], args: 
 function taskCommand(cwd: string, config: Table, args: Args): number {
   const [, sub, name, status] = args.positional;
   try {
-    if (sub === "start") {
+    // adhoc: a one-off edit outside any plan, routed as trivial so the Stop gate
+    // has something to verify against.
+    if (sub === "adhoc") args.values.tier = "trivial";
+    if (sub === "start" || sub === "adhoc") {
       const tone = args.values.tone;
       if (tone !== undefined && !(TONES as readonly string[]).includes(tone)) return fail(`--tone must be one of ${TONES.join(" | ")}`);
       const rawCap = args.values["max-words"];
@@ -871,13 +926,23 @@ export function pluginProblem(listOutput: string): string | undefined {
   return undefined;
 }
 
-function checkPlugin(): string[] {
+// features.docs_step on: the docs step runs engineering:documentation, so that
+// plugin (a dependency of saw's) must be installed and enabled too.
+export function docsPluginProblem(listOutput: string, config: Table): string | undefined {
+  if (!(config.features as Record<string, boolean>).docs_step) return undefined;
+  const block = /engineering@\S+[^]*?(?=\n\s*❯|$)/.exec(listOutput)?.[0];
+  if (block && !/disabled/i.test(block)) return undefined;
+  return `features.docs_step is on but the engineering plugin is ${block ? "disabled" : "not installed"} (it provides engineering:documentation): \`claude plugin ${block ? "enable" : "install"} engineering@sams-agentic-workflow\`, or set features.docs_step false`;
+}
+
+function checkPlugin(config: Table): string[] {
   if (!Bun.which("claude")) {
     console.log("  plugin: skipped (claude not on PATH)");
     return [];
   }
   const proc = Bun.spawnSync(["claude", "plugin", "list"], { stdout: "pipe", stderr: "pipe" });
-  const problem = proc.exitCode === 0 ? pluginProblem(proc.stdout.toString()) : `\`claude plugin list\` exited ${proc.exitCode}`;
+  const out = proc.stdout.toString();
+  const problem = proc.exitCode === 0 ? pluginProblem(out) ?? docsPluginProblem(out, config) : `\`claude plugin list\` exited ${proc.exitCode}`;
   if (problem) console.error(`problem: ${problem}`);
   else console.log("  plugin: ok");
   return problem ? [problem] : [];
