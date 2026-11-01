@@ -362,3 +362,43 @@ Legend: ✓ pass · ✗ fail (Bn = the bug below) · B1 = gate blocked again on 
 - **Note:** one guard call can log several events: `push is set to never` and `"rm -rf" is on the safety.deny list` share a timestamp, from one command.
 
 To finish the live hook check, run a headless `claude -p` session yourself, from a terminal and not inside an agent session, in a saw sandbox with a temp `SAW_HOME`, `logging.level = "debug"` and a prompt that edits a file and tries a forced push. Then look in that sandbox's `.saw/events.jsonl` for `format`, `guard.deny` and `gate.block` entries.
+
+## Real-project run
+
+aws-security-lab (Python/FastAPI + OpenTofu), branch `test/saw-e2e` from `feat/stage-10d-scenarios-opentofu`, Windows 11, 2026-11-01. `saw init` then `saw doctor` (ok, plugin ok). `logging.level = "debug"` set in `workflow.local.toml` and globally. `[checks]` added by hand (format, lint, test). Hooks were driven by headless `claude -p` sessions run inside the repo (`features.parallel_sessions` now on globally). Nothing committed.
+
+| Check | Result | Evidence (`.saw/events.jsonl`) |
+| --- | --- | --- |
+| `saw init` / `saw doctor` | pass | 18 files installed, `.gitignore` updated, CLAUDE.md kept with an `@AGENTS.md` hint |
+| `guard.*` on Bash | pass (deny only) | `guard.deny` for a recursive force delete of a missing dir (×3 retries). Allowed calls log nothing, even at debug |
+| `guard.*` on Edit | not observed | Edits are allowed, and allow decisions aren't logged, so there is no event to check |
+| `format` after an edit | partial | `format: format-hook ran` after each Edit. With `checks.format` only in `workflow.toml` (untrusted layer) the hook runs nothing but logs the same message |
+| Context nudge, no task open | pass | `UserPromptSubmit says: saw: no task open…` in the stream-json. No event is written |
+| `gate.block`, untasked edit, once per edit | pass | One `gate.block` per run, each after one untasked edit |
+| `tool.fail` on a failed command | pass | `Bash failed: ls does-not-exist-dir .` and a failed `saw task start` |
+| `hook.error` with invalid `workflow.toml` | pass (after a second try) | `hook.error` from context, style-check and gate on `bad = `. File restored |
+| Task flow: start, edit, `saw run`, end | pass after fixes | `tier` → `check test fail` → pass → `task end` Verified, metrics row with rework 2 |
+
+### Found during the real-project run
+
+- **B7 (candidate): an unclosed table header passes as valid TOML.** Appending `[broken` to `workflow.toml` leaves `saw config get` exiting 0 and every hook running as normal, so `hook.error` never fires. `bad = ` is rejected as expected.
+- **B8 (candidate): checks run under cmd.exe on Windows.** `DATABASE_PROVIDER=memory uv run pytest` fails with `'DATABASE_PROVIDER' is not recognized`. A POSIX-style `checks.*` line in a committed `workflow.toml` can't work on both Windows and CI. The workaround was a `set X=..&&` form in `workflow.local.toml`.
+- **B9 (candidate): allowed guard decisions aren't logged at debug.** `guard.*` shows up only for deny, ask or rewrite, so "the guard ran on this Edit" can't be confirmed from events.
+- **B10 (candidate): the format event doesn't say when it skipped.** `format-hook ran` is logged at debug even when `checks.format` comes from the project layer and is skipped by the `TRUSTED_LAYERS` rule. Neither doctor nor init says that the committed `checks.format` won't run on edits.
+- **B11 (candidate): the router nudge isn't logged.** It fires on each prompt with no task open but writes no event.
+- **B12 (candidate): deny matching still hits quoted data after the B5 fix (84e193f).** In the driving session, a Bash call with a deny-listed pattern inside a double-quoted `claude -p "…"` argument was denied, and so was a heredoc whose body only mentioned it. File-fed prompts avoid it.
+- **B13 (candidate): `saw init` guessed `project.type = "web"`** for a repo that is a FastAPI backend plus OpenTofu (`api` or `infra` fits better).
+- **Note:** an invalid `--playbook fix` gives a clear error listing the valid playbooks. The repo isn't `ruff format`-clean (25 files), so `checks.format` uses `ruff check` locally.
+- **B14: tests read the real `~/.saw/config.toml`.** With `review_session.enabled = true` and `features.obsidian = false` set globally, `review-session.test.ts` and `metrics.test.ts` fail. Fixed: `bunfig.toml` (root and `cli/`) preloads `cli/test/setup.ts`, which points `SAW_HOME` at an empty temp dir. 147/147 pass from both directories with the real global config in place.
+
+### Fixes (B7–B13)
+
+Tests in `cli/test/real-project.test.ts`. 147/147 pass with an empty `SAW_HOME`.
+
+- **B7:** `parseToml` rejects a line outside a multi-line value that opens with `[` but isn't a whole header. Live: `[broken` now logs `hook.error … line 19: bad table header`.
+- **B8:** checks run with `sh -c` on Windows when `sh` is on PATH (Git Bash), and fall back to `cmd /c`. Live: the committed `DATABASE_PROVIDER=memory uv run pytest -q` passes with no local override.
+- **B9:** an allowed guard call logs `guard.allow` at debug, with the tool and target.
+- **B10:** the `format` event says `format-hook skipped: …` (no command, or one from the untrusted project layer), or `format-hook ran: checks.format passed`.
+- **B11:** the router nudge logs a `nudge` event at debug.
+- **B12:** read-only commands (`cd`, `ls`, `cat`, `head`, `tail`, `wc`, `sort`, `uniq`, `cut`) count as data-only neighbours. A `cat`/`tee` heredoc with a quoted delimiter that isn't piped or chained has its body blanked. Piped heredocs, unquoted delimiters and a shell on the line still deny.
+- **B13:** `saw init` guesses `project.type` from manifests up to two levels down: server framework → `api`, frontend → `web`, package.json `bin` → `cli`, only `*.tf` → `infra`. It prints the guess. aws-security-lab → `api`.

@@ -157,3 +157,42 @@ export function depAuditFor(target: string): string | undefined {
   const found = [...new Set(AUDITS.filter(([f]) => existsSync(join(target, f))).map(([, cmd]) => cmd))];
   return found.length ? found.join(" && ") : undefined;
 }
+
+// project.type from the manifests in the repo (the root and two levels down),
+// so the template's "web" isn't kept for an API or infra repo. A server
+// framework wins over a frontend one: a backend + frontend repo is an api.
+const TYPE_HINTS: [RegExp, string][] = [
+  [/\b(fastapi|flask|django|starlette|express|fastify|hono|koa|@nestjs\/core|laravel\/framework|gin-gonic|actix-web|axum)\b/, "api"],
+  [/\b(next|react|vue|svelte|vite|nuxt|astro|@angular\/core)\b/, "web"],
+];
+const MANIFESTS = ["package.json", "pyproject.toml", "requirements.txt", "composer.json", "go.mod", "Cargo.toml"];
+const SKIP_DIRS = new Set(["node_modules", ".git", "vendor", "dist", "build", ".venv", "target"]);
+
+export function guessType(target: string): { type: string; from: string } | undefined {
+  const manifests: string[] = [];
+  let tf = "";
+  const walk = (dir: string, depth: number): void => {
+    let entries;
+    try {
+      entries = readdirSync(join(target, dir), { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const e of entries) {
+      const rel = dir ? `${dir}/${e.name}` : e.name;
+      if (e.isDirectory()) {
+        if (depth < 2 && !SKIP_DIRS.has(e.name) && !e.name.startsWith(".")) walk(rel, depth + 1);
+      } else if (MANIFESTS.includes(e.name)) manifests.push(rel);
+      else if (!tf && e.name.endsWith(".tf")) tf = rel;
+    }
+  };
+  walk("", 0);
+  for (const [re, type] of TYPE_HINTS) {
+    const hit = manifests.find((m) => re.test(readFileSync(join(target, m), "utf8")));
+    if (hit) return { type, from: hit };
+  }
+  const root = manifests.find((m) => m === "package.json");
+  if (root && /"bin"\s*:/.test(readFileSync(join(target, root), "utf8"))) return { type: "cli", from: root };
+  if (tf && manifests.length === 0) return { type: "infra", from: tf };
+  return undefined;
+}

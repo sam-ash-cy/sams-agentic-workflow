@@ -62,10 +62,16 @@ const normalise = (s: string): string =>
 // holding `$(` or a backtick, or holding no space, is never blanked.
 // Matched against the line as written: git's global options (`-c core.editor=...`)
 // and rg's --pre can run a string, so neither form counts as data-only.
-const DATA_ONLY = /^(echo|printf|grep|claude|true|git (commit|tag|log|notes)|gh (pr|issue) (create|comment|edit|close|review))\b/;
+// Read-only commands that never run their arguments (cd, ls, cat, tail...) can
+// share the line without making the quoted text live.
+const DATA_ONLY = /^(echo|printf|grep|claude|true|cd|ls|cat|head|tail|wc|sort|uniq|cut|git (commit|tag|log|notes)|gh (pr|issue) (create|comment|edit|close|review))\b/;
 const QUOTED = /"((?:[^"\\]|\\.)*)"|'([^']*)'/g;
+// A heredoc with a quoted delimiter expands nothing, and fed to cat or tee its
+// body is only written out, so it is data too (not when piped or chained on).
+const DATA_HEREDOC = /^(\s*(?:cat|tee(?: -a)?)\b[^\n|;&`$]*<<-?\s*(['"])(\w+)\2[^\n|;&`$]*\n)[\s\S]*?\n\3[ \t]*$/gm;
 
 export function blankQuotedData(cmd: string): string {
+  cmd = cmd.replace(DATA_HEREDOC, (_, head: string, _q: string, tag: string) => `${head}${tag}`);
   const outside = cmd.replace(QUOTED, "Q");
   if (/[`$<>]\(|`|\$\(/.test(outside)) return cmd;
   const segments = outside.split(/\s*(?:\|\|?|&&?|;|\n)\s*/).filter((s) => s.trim());
