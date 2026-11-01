@@ -372,6 +372,18 @@
         }
       }
     },
+    "agents": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "array",
+          "default": [
+            "claude"
+          ]
+        }
+      }
+    },
     "metrics": {
       "type": "object",
       "additionalProperties": false,

@@ -16,3 +16,10 @@ jobs:
       - run: bun test
       - run: bun cli/src/main.ts doctor
       - run: bun cli/src/main.ts deps verify
+      # Tier 2 smoke test: a fresh project set up for every agent reads AGENTS.md.
+      - name: agent adapters smoke test
+        shell: bash
+        run: |
+          dir="$RUNNER_TEMP/smoke" && mkdir -p "$dir" && cd "$dir" && git init -q
+          bun "$GITHUB_WORKSPACE/cli/src/main.ts" init --agents codex,cursor,gemini
+          bun "$GITHUB_WORKSPACE/cli/src/main.ts" agents check --set 'agents.enabled=["claude","codex","cursor","gemini"]'
