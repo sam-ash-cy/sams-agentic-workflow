@@ -96,7 +96,7 @@ test("the global fragment stays within 150 lines", () => {
 // Each bootstrap script: dry run writes nothing; a real run imports the
 // fragment, backs up the existing CLAUDE.md and keeps an existing settings.json.
 const shells: [string, string[]][] = [["bootstrap.sh", ["sh", join(ROOT, "bootstrap.sh")]]];
-if (process.platform === "win32") shells.push(["bootstrap.ps1", ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", join(ROOT, "bootstrap.ps1")]]);
+if (process.platform === "win32") shells.push(["bootstrap.ps1", ["powershell", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", join(ROOT, "bootstrap.ps1")]]);
 for (const [name, cmd] of shells) {
   test(`${name}: dry run, backup, idempotent`, () => {
     const home = tmp("saw-boot-");
@@ -119,5 +119,6 @@ for (const [name, cmd] of shells) {
     expect(backups()).toBe(1);
     expect(go(false)).not.toContain("append");
     expect(backups()).toBe(1);
-  });
+    // Windows PowerShell can take tens of seconds to start on a cold CI runner.
+  }, 120_000);
 }
