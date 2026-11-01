@@ -42,7 +42,19 @@ export function startTask(cwd: string, tier: string, playbook: string, style?: T
   if (style && (style.tone || style.max_words)) task.style = style;
   mkdirSync(dir(cwd), { recursive: true });
   writeFileSync(join(dir(cwd), "task.json"), JSON.stringify(task, null, 2) + "\n");
+  rmSync(join(dir(cwd), "untasked-edits"), { force: true });
   return task;
+}
+
+// A saw project: one with workflow.toml. The plugin's hooks run in every repo,
+// so routing is only enforced where the workflow was set up.
+export const isSawProject = (cwd: string): boolean => existsSync(join(cwd, "workflow.toml"));
+
+// Post-edit hook: remembers that files changed while no task was open.
+export function markUntaskedEdit(cwd: string): void {
+  if (!isSawProject(cwd) || currentTask(cwd)) return;
+  mkdirSync(dir(cwd), { recursive: true });
+  writeFileSync(join(dir(cwd), "untasked-edits"), new Date().toISOString() + "\n");
 }
 
 export function currentTask(cwd: string): Task | undefined {
@@ -191,7 +203,18 @@ export function gate(
   const task = currentTask(cwd);
   if (task && typeof hookInput.transcript_path === "string") saveTranscript(cwd, task, hookInput.transcript_path);
   const features = (config.features ?? {}) as Record<string, boolean>;
-  if (!features.verify_hook || hookInput.stop_hook_active || !task) return undefined;
+  if (!features.verify_hook || hookInput.stop_hook_active) return undefined;
+  if (!task) {
+    // Files changed but routing never ran, so there is nothing to verify against.
+    const marker = join(dir(cwd), "untasked-edits");
+    if (!existsSync(marker)) return undefined;
+    // Block once per batch of edits; the next edit sets the marker again.
+    rmSync(marker, { force: true });
+    return {
+      decision: "block",
+      reason: "Files were edited but no saw task is open, so nothing was verified. Use the router skill to classify the work, run `saw task start --tier <t> --playbook <p>` (trivial is fine for a one-line change), then run its checks.",
+    };
+  }
   const s = taskStatus(cwd, config, task);
   if (s.label === "Verified") return undefined;
   const parts = [

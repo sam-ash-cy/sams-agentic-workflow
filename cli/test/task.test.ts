@@ -1,11 +1,13 @@
 import { expect, test } from "bun:test";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { resolve } from "../src/config";
 import { lintContext } from "../src/lint";
 import { runCheck, tail } from "../src/run";
-import { gate, recordCheck, requiredChecks, startTask, taskStatus } from "../src/task";
+import { endTask, gate, markUntaskedEdit, recordCheck, requiredChecks, startTask, taskStatus } from "../src/task";
+import { routerNudge } from "../src/context";
+import { pluginProblem } from "../src/main";
 
 function project(toml = ""): string {
   const dir = mkdtempSync(join(tmpdir(), "saw-task-"));
@@ -83,4 +85,37 @@ test("context lint enforces line limits", () => {
   const dir = project("[context]\nagents_md_max_lines = 2");
   writeFileSync(join(dir, "AGENTS.md"), "a\nb\nc\n");
   expect(lintContext(dir, config(dir))[0]).toContain("AGENTS.md has 3 lines (max 2)");
+});
+
+test("gate blocks edits made with no task open, once per stop", () => {
+  const dir = project();
+  const c = config(dir);
+  markUntaskedEdit(dir);
+  expect(gate(dir, c, {})?.reason).toContain("no saw task is open");
+  expect(gate(dir, c, { stop_hook_active: true })).toBeUndefined();
+  startTask(dir, "trivial", "feature"); // opening a task clears the marker
+  endTask(dir);
+  expect(gate(dir, c, {})).toBeUndefined();
+});
+
+test("untasked edits are ignored outside a saw project", () => {
+  const dir = mkdtempSync(join(tmpdir(), "saw-plain-"));
+  markUntaskedEdit(dir);
+  expect(existsSync(join(dir, ".saw"))).toBe(false);
+});
+
+test("router nudge fires only in a saw project with no task", () => {
+  const dir = project();
+  const c = config(dir);
+  expect(JSON.stringify(routerNudge(dir, c))).toContain("router skill");
+  startTask(dir, "standard", "feature");
+  expect(routerNudge(dir, c)).toBeUndefined();
+  expect(routerNudge(mkdtempSync(join(tmpdir(), "saw-plain-")), c)).toBeUndefined();
+});
+
+test("doctor reads the plugin list", () => {
+  const ok = "Installed plugins:\n\n  ❯ sams-agentic-workflow@sams-agentic-workflow\n    Version: 0.1.0\n    Status: ✔ enabled\n\n  ❯ ecc@ecc\n    Status: ✘ disabled\n";
+  expect(pluginProblem(ok)).toBeUndefined();
+  expect(pluginProblem("Installed plugins:\n\n  ❯ ecc@ecc\n    Status: ✔ enabled\n")).toContain("not installed");
+  expect(pluginProblem("  ❯ sams-agentic-workflow@sams-agentic-workflow\n    Status: ✘ disabled\n\n  ❯ ecc@ecc\n    Status: ✔ enabled\n")).toContain("disabled");
 });

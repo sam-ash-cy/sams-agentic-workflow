@@ -19,7 +19,7 @@ sh bootstrap.sh
 
 On Windows PowerShell: `.\bootstrap.ps1 -DryRun`, then `.\bootstrap.ps1`.
 
-The bootstrap copies `global/CLAUDE.md` to `~/.claude/saw-workflow.md` and imports it from your `~/.claude/CLAUDE.md`, copies `global/settings.example.json` only if you have no `settings.json`, then installs the Claude Code plugin (and its pinned `mattpocock-skills` dependency) from this folder's marketplace.
+The bootstrap copies `global/CLAUDE.md` to `~/.claude/saw-workflow.md` and imports it from your `~/.claude/CLAUDE.md`, copies `global/settings.example.json` only if you have no `settings.json`, then installs the Claude Code plugin (and its pinned `mattpocock-skills` dependency) from this folder's marketplace. Cloning alone doesn't install the plugin, and if `claude` isn't on your PATH the bootstrap skips that step with a `skip: plugin install` line. `saw doctor` catches both.
 
 The bootstrap doesn't touch your `PATH`. Put this folder's `bin/` on it yourself (or run `bun cli/src/main.ts` instead of `saw`); [docs/install.md](../how-to/install.md) shows how on each OS. Then check the setup:
 
@@ -60,7 +60,7 @@ saw config set features.unslop true
 Its `scripts/` (Playwright and ffmpeg) run only when you invoke them.
 
 ## 5. Your first task
-Ask Claude Code for something as usual. The `router` skill classifies it as trivial, standard, complex or critical, and opens it:
+Ask Claude Code for something as usual. In a project with `workflow.toml`, the `context` hook reminds Claude on each prompt that no task is open, so it uses the `router` skill, which classifies the work as trivial, standard, complex or critical and opens it:
 
 ```bash
 saw task start --tier standard --playbook feature
@@ -69,7 +69,7 @@ saw task start --tier standard --playbook feature
 It prints the steps for that tier. While you work:
 - `saw run test` runs a check quietly and records the result.
 - `saw task record code_review pass --note "..."` records a judgement check.
-- `saw task status` shows which checks passed, failed or are missing. The `gate` hook won't let the agent say "done" until they pass.
+- `saw task status` shows which checks passed, failed or are missing. The `gate` hook won't let the agent say "done" until they pass, and if files were edited with no task open it asks for one first.
 - `saw task report` writes the verification section for the PR, and `saw task end` appends the task's metrics.
 
 ## 6. Improve from evidence
