@@ -27,7 +27,7 @@ A task isn't done until its checks pass.
 - `saw run <check>` runs `checks.<check>` quietly, keeps the full log in `output.full_logs`, and records the result. `--changed` runs only the tests for changed files.
 - `saw task record <check> pass|fail --note "..."` records a judgement check (code review, threat model).
 - `saw task status` shows which required checks passed, failed or are missing.
-- The **gate** (a Stop hook) blocks the agent from saying "done" until the tier's checks pass. The result is labelled Verified, Partially verified, Not verified or Blocked. If files were edited while no task was open, it blocks once and asks for the router and `saw task start`, so skipping routing doesn't skip verification.
+- The **gate** (a Stop hook) blocks the agent from saying "done" until the tier's checks pass. The result is labelled Verified, Partially verified, Not verified or Blocked. If files were edited while no task was open, it blocks once and asks for the router and `saw task start` (or `saw task adhoc`, a trivial task for a one-off edit), so skipping routing doesn't skip verification.
 - With no task open, the **context** hook adds a one-line reminder to each prompt to use the router skill. Both only apply in a project with `workflow.toml`, and both are off when `features.verify_hook` is false.
 - `saw task report` writes the verification section for a PR (`--post` comments it, if `autonomy.actions.open_pr` allows).
 
@@ -64,7 +64,7 @@ One session per unit of work (`[sessions]`): after a session finishes a phase, s
 ## Docs and launch
 
 - **Implementer** (`features.implementer`, off): on standard-or-higher tasks the session writes the plan and reviews; the `implementer` agent writes each unit's code and tests on the model `models.roles.implement` names (strong by default; set it to `cheap` or `mid` to save tokens). It never commits, pushes or adds dependencies.
-- **Docs step** (`features.docs_step`, on): `feature` and `foundation` tasks end by updating the docs with `engineering:documentation`, sorted into the Diátaxis split: `docs/tutorials/`, `docs/how-to/`, `docs/reference/`, `docs/explanation/` (the skeleton `saw init` creates). `AGENTS.md`, `CLAUDE.md` and skill files are written with `mattpocock-skills:writing-for-agents`.
+- **Docs step** (`features.docs_step`, on): `feature` and `foundation` tasks end by updating the docs with `engineering:documentation`, sorted into the Diátaxis split: `docs/tutorials/`, `docs/how-to/`, `docs/reference/`, `docs/explanation/` (the skeleton `saw init` creates). `AGENTS.md`, `CLAUDE.md` and skill files are written with `mattpocock-skills:writing-for-agents`. It's a required check, not a suggestion: `docs` is in `verify.standard.run` (so complex and critical inherit it), and the gate blocks until `saw task record docs pass --note "<files changed>"` (or `--note "none needed: <why>"`). Other playbooks (debug, design, audit, ...) don't owe it. `engineering:documentation` comes from Anthropic's `engineering` plugin, a dependency of saw's that's pinned in `deps.lock.toml`; `saw doctor` reports it if it's missing or disabled. With the feature off, the check is dropped and `saw sync` denies the skill.
 - **Launch video** (`features.brag`, off): after a `feature` or `foundation` PR merges, the agent offers a short launch video with the pinned [brag](https://github.com/latent-spaces/brag) skill. It needs Hyperframes and its skills ([install.md](../how-to/install.md)); the bundled music is CC BY 4.0 by Sascha Ende and needs crediting.
 
 ## ECC
@@ -82,7 +82,7 @@ One session per unit of work (`[sessions]`): after a session finishes a phase, s
 
 - `saw task end` appends the task's outcome, failed checks, rework, duration and tokens to `.saw/metrics.jsonl`.
 - `saw dashboard` (`[dashboard]`) writes a static HTML page (and optionally a Markdown note): outcomes, first-pass rate, failures by check, rework, tokens per task, promotion effect, autopilot.
-- `saw retro` (`[retro]`) turns a check that fails in `repeat_threshold` or more tasks into a proposal; the `retro-promote` skill turns it into one enforceable fix with an eval case.
+- `saw retro` (`[retro]`) turns a check that fails in `repeat_threshold` or more tasks into a proposal; the `retro-promote` skill turns it into one enforceable fix with an eval case. It also prints settings the evidence supports, as `saw config set` commands for you to review and run (never applied): a tier's token budget when `repeat_threshold`+ tasks went over it (the median overrun, rounded up), and `features.tdd` when `test` keeps failing with it off.
 - `saw eval` (`[evals]`) runs the eval suite in `evals/` with `claude plugin eval` and compares it with a saved baseline; `--save-baseline` records the first one.
 
 ## Other agents

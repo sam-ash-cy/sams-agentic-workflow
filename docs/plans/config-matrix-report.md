@@ -51,6 +51,8 @@ Legend: ✓ pass · ✗ fail (Bn = the bug below) · B1 = gate blocked again on 
 
 ## Bugs
 
+Status (2026-11-01): all four are fixed. B1: `gate` clears the marker when it blocks. B2: `validate` rejects an unknown `extends`. B3: `saw profile apply <name>` merges a profile into the existing tables, and the profiles page says so. B4: every format-hook run is logged at debug. `cli/test/workflow-additions.test.ts` applies every documented profile to a `saw init` project twice, and checks the review and docs toggles in every combination against the gate.
+
 **B1 – the untasked-edit gate blocks on every later stop, not once.** No config needed: it happens with defaults and with every case where `features.verify_hook = true` (249 of 255; it didn't show in the 4 `verify_hook=false` cases or the 2 broken profiles). Repro:
 1. Run `echo '{"tool_name":"Edit","tool_input":{"file_path":"x"}}' | saw format-hook`.
 2. Run `echo '{}' | saw gate`: it blocks.

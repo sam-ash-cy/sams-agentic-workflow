@@ -13,6 +13,11 @@
       "description": "Matt Pocock's engineering skills (MIT), pinned at the commit in deps.lock.toml: grilling, tdd and more."
     },
     {
+      "name": "engineering",
+      "source": { "source": "git-subdir", "url": "https://github.com/anthropics/knowledge-work-plugins.git", "path": "engineering", "sha": "2574e29377c7173d0cecffef29a6ecbd7f8ccb5d" },
+      "description": "Anthropic's engineering plugin (Apache-2.0), pinned at the commit in deps.lock.toml: documentation (the docs step, features.docs_step), code-review, architecture and more. Its MCP connectors stay off until you authorize them."
+    },
+    {
       "name": "ecc",
       "source": { "source": "url", "url": "https://github.com/affaan-m/ECC.git", "sha": "b38be6a7f6350964d59328b52f0624e1d1d552d1" },
       "description": "ECC by Affaan Mustafa (MIT), optional (features.ecc), pinned at the commit in deps.lock.toml: strategic-compact, context-budget, verification-loop and more. See docs/how-to/install.md for the hooks saw recommends turning off."

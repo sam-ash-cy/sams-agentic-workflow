@@ -9,6 +9,17 @@ licence = "MIT"
 reviewed_by = "pending"
 reviewed_on = ""
 
+# Anthropic's engineering plugin (Apache-2.0), the engineering/ folder of knowledge-work-plugins.
+# Installed as a plugin dependency (.claude-plugin/marketplace.json, git-subdir, same sha) for the
+# docs step (engineering:documentation). Reviewed at this SHA: skills only, no hooks; its .mcp.json
+# lists http connectors (Slack, Linear, Asana, ...) that do nothing until you authorize them.
+[engineering]
+repo = "https://github.com/anthropics/knowledge-work-plugins"
+sha = "2574e29377c7173d0cecffef29a6ecbd7f8ccb5d"
+licence = "Apache-2.0"
+reviewed_by = "pending"
+reviewed_on = ""
+
 # UI de-slop skill by Damir Sokolovsky (CC BY 4.0: credit him and link the repo).
 # Reviewed: SKILL.md + references only load; scripts/ run Playwright and ffmpeg locally, only when invoked.
 [unslop]

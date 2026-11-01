@@ -12,6 +12,7 @@ export const FEATURE_SKILLS: Record<string, string[]> = {
   retro: ["sams-agentic-workflow:retro-promote"],
   unslop: ["unslop"],
   brag: ["brag", "brag-slim"],
+  docs_step: ["engineering:documentation"],
 };
 
 const TRACK = join(".saw", "skill-denies.json");

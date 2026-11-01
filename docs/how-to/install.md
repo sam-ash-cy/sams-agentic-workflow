@@ -43,7 +43,7 @@ Works when: `saw doctor` runs. Until step 2 it reports one problem, `Claude Code
 The bootstrap script does three things in `~/.claude` (or `$CLAUDE_CONFIG_DIR`):
 1. copies `global/CLAUDE.md` to `~/.claude/saw-workflow.md` and adds `@saw-workflow.md` to `~/.claude/CLAUDE.md`, so every session gets the workflow rules
 2. copies `global/settings.example.json` to `~/.claude/settings.json` only if there is no `settings.json` yet (otherwise it says `kept:` and leaves merging to you)
-3. adds this folder as a plugin marketplace and installs the `sams-agentic-workflow` plugin, which pulls in its `mattpocock-skills` dependency (pinned by commit)
+3. adds this folder as a plugin marketplace and installs the `sams-agentic-workflow` plugin, which pulls in its `mattpocock-skills` and `engineering` dependencies (pinned by commit; `engineering` provides `engineering:documentation` for the docs step, and its MCP connectors stay off until you authorize them)
 
 ```bash
 sh bootstrap.sh --dry-run
@@ -63,13 +63,13 @@ Works when:
 claude plugin list
 ```
 
-shows both `sams-agentic-workflow@sams-agentic-workflow` and `mattpocock-skills@sams-agentic-workflow` with `Status: ✔ enabled`, and `saw doctor` prints `saw doctor: ok` (it runs `claude plugin list` and reports the plugin if it's missing or disabled).
+shows `sams-agentic-workflow@sams-agentic-workflow`, `mattpocock-skills@sams-agentic-workflow` and `engineering@sams-agentic-workflow` with `Status: ✔ enabled`, and `saw doctor` prints `saw doctor: ok` (it runs `claude plugin list` and reports the plugin, or `engineering` while `features.docs_step` is on, if it's missing or disabled).
 
 Cloning the repo doesn't install the plugin: Claude Code only loads it after the bootstrap's install step. Without it no hook runs, so nothing is guarded or verified even though `saw` itself works.
 
 If it didn't:
 - `skip: plugin install (claude not on PATH)`: the bootstrap prints this and carries on, so it's easy to miss. Make sure `claude --version` works in the same terminal, then re-run the bootstrap; it skips what's already done.
-- `failed to load ... Dependency "mattpocock-skills..."`: run `claude plugin install mattpocock-skills@sams-agentic-workflow`.
+- `failed to load ... Dependency "mattpocock-skills..."`: run `claude plugin install mattpocock-skills@sams-agentic-workflow`. The same goes for `engineering`: `claude plugin install engineering@sams-agentic-workflow`.
 - Set `SAW_NO_PLUGIN=1` to do only the CLAUDE.md and settings steps.
 
 ### Personal settings: `~/.saw/config.toml`
@@ -126,6 +126,7 @@ To enable the plugin for a single project instead of user-wide (the team gets it
 claude plugin marketplace add https://github.com/sam-ash-cy/sams-agentic-workflow.git --scope project
 claude plugin install sams-agentic-workflow@sams-agentic-workflow --scope project
 claude plugin install mattpocock-skills@sams-agentic-workflow --scope project
+claude plugin install engineering@sams-agentic-workflow --scope project
 ```
 
 Use the URL, not a local path: a path in a committed settings file only works on your machine.
@@ -161,7 +162,7 @@ runs each plugin hook once. Works when every line says `ok` and it ends with `sa
 
   The bundled music is CC BY 4.0 by Sascha Ende (ende.app): credit him wherever you publish a video.
 
-- **ECC** (`features.ecc`): a Claude Code plugin by Affaan Mustafa (MIT), [affaan-m/ECC](https://github.com/affaan-m/ECC). Install it from saw's marketplace, which pins it at the commit in `deps.lock.toml` (or set `SAW_WITH_ECC=1` before running the bootstrap). Then turn off the ECC hooks that duplicate saw's: add an `env` block to `~/.claude/settings.json`.
+- **ECC** (`features.ecc`): a Claude Code plugin by Affaan Mustafa (MIT), [affaan-m/ECC](https://github.com/affaan-m/ECC). Install it from saw's marketplace, which pins it at the commit in `deps.lock.toml` (or set `SAW_WITH_ECC=1` before running the bootstrap). Then turn off the ECC hooks that duplicate saw's: add an `env` block to `~/.claude/settings.json`. `saw doctor` warns while ECC is installed and `ECC_GATEGUARD` isn't `off` (its Fact-Forcing Gate blocks the first shell call and the first edit of every file until the agent restates facts).
 
   ```bash
   claude plugin install ecc@sams-agentic-workflow

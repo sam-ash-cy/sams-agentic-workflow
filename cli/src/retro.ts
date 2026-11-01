@@ -37,6 +37,24 @@ export function candidates(metrics: TaskMetric[], threshold: number): Candidate[
   return [...by.values()].filter((c) => c.tasks >= threshold).sort((a, b) => b.tasks - a.tasks || a.check.localeCompare(b.check));
 }
 
+// Settings changes the evidence supports, as `saw config set` commands for a
+// person to run: printed, never applied.
+export function configSuggestions(metrics: TaskMetric[], config: Record<string, unknown>, threshold: number): string[] {
+  const out: string[] = [];
+  const budget = ((config.tokens ?? {}) as { budget?: Record<string, number> }).budget ?? {};
+  for (const [tier, cap] of Object.entries(budget)) {
+    const over = metrics.filter((m) => m.tier === tier && m.tokens !== undefined && m.tokens > cap).map((m) => m.tokens!).sort((a, b) => a - b);
+    if (over.length < threshold) continue;
+    // The median overrun, rounded up to 10k: enough for typical work, not the worst case.
+    const next = Math.ceil(over[Math.floor(over.length / 2)]! / 10000) * 10000;
+    out.push(`saw config set tokens.budget.${tier} ${next} --scope local   # ${over.length} ${tier} tasks went over ${cap}`);
+  }
+  const features = (config.features ?? {}) as Record<string, boolean>;
+  const tests = candidates(metrics, threshold).find((c) => c.check === "test");
+  if (tests && !features.tdd) out.push(`saw config set features.tdd true   # test failed in ${tests.tasks} tasks; write the failing test first`);
+  return out;
+}
+
 // Frontmatter keys only (`key: value` lines between --- fences); no YAML parser needed.
 function frontmatter(text: string): Record<string, string> {
   const m = /^---\r?\n([\s\S]*?)\r?\n---/.exec(text);
