@@ -63,6 +63,7 @@ One session per unit of work (`[sessions]`): after a session finishes a phase, s
 
 ## Docs and launch
 
+- **Implementer** (`features.implementer`, off): on standard-or-higher tasks the session writes the plan and reviews; the `implementer` agent writes each unit's code and tests on the model `models.roles.implement` names (strong by default; set it to `cheap` or `mid` to save tokens). It never commits, pushes or adds dependencies.
 - **Docs step** (`features.docs_step`, on): `feature` and `foundation` tasks end by updating the docs with `engineering:documentation`, sorted into the Diátaxis split: `docs/tutorials/`, `docs/how-to/`, `docs/reference/`, `docs/explanation/` (the skeleton `saw init` creates). `AGENTS.md`, `CLAUDE.md` and skill files are written with `mattpocock-skills:writing-for-agents`.
 - **Launch video** (`features.brag`, off): after a `feature` or `foundation` PR merges, the agent offers a short launch video with the pinned [brag](https://github.com/latent-spaces/brag) skill. It needs Hyperframes and its skills ([install.md](../how-to/install.md)); the bundled music is CC BY 4.0 by Sascha Ende and needs crediting.
 

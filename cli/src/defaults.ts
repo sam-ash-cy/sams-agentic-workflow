@@ -42,6 +42,9 @@ export const DEFAULTS: Table = {
     ecc: false,
     // feature and foundation tasks end with a docs step (Diataxis split).
     docs_step: true,
+    // Standard-or-higher tasks: the session plans and reviews; the implementer
+    // agent (models.roles.implement) writes each planned unit.
+    implementer: false,
   },
   project: { type: "web" },
   autonomy: {

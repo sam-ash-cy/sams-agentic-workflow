@@ -21,7 +21,7 @@ Tones: **normal** plain answer · **structured** bullets and tables, little pros
 
 ## 2. Path by tier
 - **trivial**: implement → run the checks for touched files → report. No plan, no grilling, no subagents.
-- **standard**: write acceptance criteria → tdd → `saw run` each required check → code review + security review → report → PR.
+- **standard**: write acceptance criteria → tdd → `saw run` each required check → code review + security review → report → PR. With `features.implementer` on, you plan and review: after the criteria, hand each unit to the `implementer` agent, then review its diff here before the checks.
 - **complex**: grilling (always) → research → 2–3 options with trade-offs → independent review → ADR in `docs/decisions/` → wait for design approval → staged plan → the standard path per unit.
 - **critical**: the complex path + threat model + rollback plan + the hardening playbook. Ask before any deploy.
 

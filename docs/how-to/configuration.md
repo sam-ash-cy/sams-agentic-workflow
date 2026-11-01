@@ -105,7 +105,7 @@ saw config set style.mode hard                         # ask for a rewrite when 
 
 ## Step 5: turn features on or off
 
-All of these are on by default except `trail`, `parallel_sessions`, `unslop`, `brag` and `ecc`:
+All of these are on by default except `trail`, `parallel_sessions`, `unslop`, `brag`, `ecc` and `implementer`:
 
 ```bash
 saw config set features.grilling false     # skip the up-front questions on complex tasks
@@ -114,6 +114,8 @@ saw config set features.unslop true        # after installing it (install.md)
 saw config set features.brag true          # launch videos, after installing it (install.md)
 saw config set features.ecc true           # ECC skills in nudges and playbooks, after installing it (install.md)
 saw config set features.docs_step false    # skip the docs step at the end of feature tasks
+saw config set features.implementer true   # plan here, the implementer agent writes each unit
+saw config set models.roles.implement cheap   # ...on a cheap model
 saw sync                                   # denies the skills of features you turned off
 ```
 
