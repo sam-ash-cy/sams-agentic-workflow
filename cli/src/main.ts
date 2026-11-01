@@ -1,6 +1,6 @@
 // saw: the sams-agentic-workflow CLI.
 
-import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { isAbsolute, join, relative, resolve as resolvePath } from "node:path";
 import { flatten, layerPaths, parseValue, resolve, setPath, unsetPath, validate, weakenedSafety, type Layer } from "./config";
 import type { Table, Value } from "./defaults";
@@ -18,6 +18,7 @@ import { compareUrl, pin, readLock, verifyLock } from "./deps";
 import { depAuditFor, init, recordInstalled, uninstall, upgrade, type ChangeReport, type InitReport } from "./init";
 import { lintContext, lintMemory } from "./lint";
 import { outline } from "./outline";
+import { syncSkillDenies } from "./skills";
 import { applyPlan, gh, readState, repoName, repoPlan, type Gh } from "./repo";
 import { formatHook, runCheck } from "./run";
 import { currentTask, endTask, gate, pickTier, recordCheck, startTask, taskReport, taskStatus, taskSteps } from "./task";
@@ -29,12 +30,12 @@ const USAGE = `usage: saw <command>
   config set <key> <value> [--scope global|project|local]   (default: project)
   config unset <key> [--scope ...]
   doctor [--hooks]                   check settings and environment (--hooks: run each plugin hook once)
-  init [--dry-run] [--force] [--type <t>] [--hooks] [--agents a,b]   add workflow.toml, AGENTS.md, CI and the docs/ vault (+ agent adapters)
+  init [--dry-run] [--force] [--type <t>] [--hooks] [--agents a,b] [--repo [o/n]]   add workflow.toml, AGENTS.md, CI and the docs/ vault (+ agent adapters; --repo: show the repo plan)
   init --upgrade [--dry-run]         update unedited template files to the current template; edited ones are kept
   uninstall [--dry-run]              remove template files you haven't edited
   agents check                       smoke test: will each agent in agents.enabled read AGENTS.md?
   vault sync [--dry-run]             index this project (and its learnings) in the central vault
-  sync [--plugin-dir <dir>] [--dry-run]   write .saw/resolved.json; set agent models from [models]
+  sync [--plugin-dir <dir>] [--dry-run]   write .saw/resolved.json; set agent models from [models]; deny skills of disabled features
   deps list | verify [--strict]      pinned third-party skills (deps.lock.toml)
   deps diff <name> <sha>             compare URL to review before updating a pin
   deps pin <name> <sha> --reviewed-by <who>
@@ -47,7 +48,7 @@ const USAGE = `usage: saw <command>
   task end [--tokens <n>]            close the task and append its metrics (.saw/metrics.jsonl)
   dashboard                          write the static metrics page (and the Obsidian note if set)
   retro [--dry-run]                  write a proposal for each check failing in repeat_threshold+ tasks
-  eval [--case <glob>] [--save-baseline]   run the eval suite (claude plugin eval) and compare with the baseline
+  eval [--case <glob>] [--runs <n>] [--dry-run] [--save-baseline]   run the eval suite (claude plugin eval) and compare with the baseline
   eval compare <before.json> <after.json>  compare two saved eval results
   run <check> [--changed]            run checks.<check> quietly and record the result (--changed: only tests for changed files)
   gate                               Stop hook: block "done" until the tier's checks pass
@@ -68,7 +69,7 @@ interface Args {
   values: Record<string, string>;
 }
 
-const VALUE_FLAGS = ["--repo", "--pr", "--tier", "--playbook", "--note", "--plugin-dir", "--reviewed-by", "--type", "--tokens", "--case", "--agents", "--tone", "--max-words"];
+const VALUE_FLAGS = ["--runs", "--repo", "--pr", "--tier", "--playbook", "--note", "--plugin-dir", "--reviewed-by", "--type", "--tokens", "--case", "--agents", "--tone", "--max-words"];
 const PLUGIN_ROOT = join(import.meta.dir, "..", "..");
 
 function parseArgs(argv: string[]): Args {
@@ -79,7 +80,11 @@ function parseArgs(argv: string[]): Args {
     else if (a === "--set") {
       const [key, ...rest] = (argv[++i] ?? "").split("=");
       args.overrides[key!] = parseValue(rest.join("="));
-    } else if (VALUE_FLAGS.includes(a)) args.values[a.slice(2)] = argv[++i] ?? "";
+    } else if (VALUE_FLAGS.includes(a)) {
+      // A value flag given bare (saw init --repo) doesn't swallow the next flag.
+      const next = argv[i + 1];
+      args.values[a.slice(2)] = next !== undefined && !next.startsWith("--") ? argv[++i]! : "";
+    }
     else if (a.startsWith("--")) args.flags.add(a);
     else args.positional.push(a);
   }
@@ -116,6 +121,15 @@ export function repoCommand(config: Table, sub: "plan" | "apply", args: Args, ru
   } catch (e) {
     return fail((e as Error).message);
   }
+}
+
+// saw init --repo: what saw repo apply would change, read-only whatever
+// repo.enabled says. A failure (no gh, no remote) is a note, not an init failure.
+export function initRepoPlan(cwd: string, args: Args, run: Gh = gh): number {
+  const config = resolve(cwd, args.overrides).config;
+  const code = repoCommand({ ...config, repo: { ...(config.repo as Table), enabled: true } }, "plan", args, run);
+  console.log(code === 0 ? "  to apply: set repo.enabled = true, review, then saw repo apply --yes" : "  (repo plan skipped)");
+  return code;
 }
 
 function printChanges(head: string, doneLabel: string, keptLabel: string, r: ChangeReport, dryRun: boolean): number {
@@ -236,6 +250,7 @@ export function run(argv: string[], cwd = process.cwd()): number {
       console.log('  saw task start --tier complex --playbook foundation');
       if (!args.flags.has("--hooks")) console.log("  optional: saw init --hooks  (runs the context lint before each commit)");
     }
+    if ("repo" in args.values) initRepoPlan(cwd, args);
     return 0;
   }
   if (command === "outline" && sub) {
@@ -261,6 +276,13 @@ export function run(argv: string[], cwd = process.cwd()): number {
     }
     const models = resolved.config.models as { mode?: string; strong?: string };
     if (models.mode === "single") console.log(`  single-model mode: agents inherit; to pin one model for all subagents set CLAUDE_CODE_SUBAGENT_MODEL=${models.strong}`);
+    try {
+      const s = syncSkillDenies(cwd, resolved.config, dryRun);
+      for (const e of s.added) console.log(`  deny ${e}${dryRun ? " (would add)" : ""} (feature off)`);
+      for (const e of s.removed) console.log(`  allow ${e}${dryRun ? " (would remove deny)" : ""} (feature on)`);
+    } catch (e) {
+      return fail((e as Error).message);
+    }
     return 0;
   }
   if (command === "agents" && sub === "check") {
@@ -518,12 +540,18 @@ function evalCommand(cwd: string, config: Table, args: Args): number {
     if (sub !== undefined) return fail(USAGE);
     const baseline = inside(PLUGIN_ROOT, e.baseline);
     if (!baseline) return fail("evals.baseline must be a path inside the plugin");
+    const runs = args.values.runs ? Number(args.values.runs) : e.runs;
+    if (!Number.isInteger(runs) || runs < 1) return fail("--runs must be a whole number of at least 1");
     const out = join(cwd, ".saw", "evals", `${new Date().toISOString().replace(/[:.]/g, "-")}.json`);
-    mkdirSync(join(out, ".."), { recursive: true });
     // No ablation arm: before/after compares two versions of the plugin, not plugin vs none.
-    const cmd = ["claude", "plugin", "eval", PLUGIN_ROOT, "--no-publish", "--ablation", "none", "--runs", String(e.runs), "--threshold", "0", "--json", out];
+    const cmd = ["claude", "plugin", "eval", PLUGIN_ROOT, "--no-publish", "--ablation", "none", "--runs", String(runs), "--threshold", "0", "--json", out];
     if (args.values.case) cmd.push("--case", args.values.case);
-    console.log(`saw eval: ${cmd.join(" ")}`);
+    // A paid run: say how big it is first.
+    const cases = readdirSync(join(PLUGIN_ROOT, "evals"), { withFileTypes: true }).filter((d) => d.isDirectory() && (!args.values.case || new Bun.Glob(args.values.case).match(d.name))).length;
+    console.log(`saw eval: ${cases} case(s) x ${runs} run(s) = ${cases * runs} agent sessions (paid)`);
+    console.log(`  ${cmd.join(" ")}`);
+    if (args.flags.has("--dry-run")) return 0;
+    mkdirSync(join(out, ".."), { recursive: true });
     const run = Bun.spawnSync(cmd, { cwd, stdout: "inherit", stderr: "inherit" });
     if (!existsSync(out)) return fail(`claude plugin eval wrote no result (exit ${run.exitCode})`);
     // --threshold 0 means a non-zero exit is an error or a partial run (exit 2: cost ceiling), never a low score.

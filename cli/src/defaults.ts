@@ -28,6 +28,10 @@ export const DEFAULTS: Table = {
     dashboard: true,
     retro: true,
     audit: true,
+    // Phase 10 groundwork: saw task start suggests them; saw guard denies
+    // `git worktree add` / `claude -p` when off.
+    worktrees: true,
+    parallel_sessions: false,
   },
   project: { type: "web" },
   autonomy: {
@@ -39,6 +43,7 @@ export const DEFAULTS: Table = {
       add_dependency: "ask",
       self_improve: "propose",
       edit_global: "never",
+      spawn_sessions: "ask",
     },
   },
   routing: { default_tier: "auto", always_grill: ["complex", "critical"] },
@@ -80,7 +85,9 @@ export const DEFAULTS: Table = {
     suggest_compact_at: [0.5, 0.7],
     handoff_at: 0.85,
   },
-  output: { quiet: true, max_lines: 60, full_logs: ".saw/logs" },
+  // rewrite_commands: saw guard runs a Bash call that is exactly a [checks]
+  // command as `saw run <check>` instead.
+  output: { quiet: true, max_lines: 60, full_logs: ".saw/logs", rewrite_commands: false },
   // Reply shape and length. max_words caps prose only (code blocks don't count);
   // by_tier overrides it per tier, 0 = use max_words. saw style-check enforces it.
   style: {

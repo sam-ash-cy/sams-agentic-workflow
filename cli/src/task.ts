@@ -111,6 +111,9 @@ export function taskSteps(config: Table, tier: string, playbook = "feature"): st
   if (features.grilling && grill.includes(tier)) steps.push("grilling first");
   if (features.trail) steps.push("trail ask/skeleton before reading code");
   if (features.tdd && tier !== "trivial") steps.push("tdd (failing test first)");
+  const big = tier === "complex" || tier === "critical";
+  if (features.worktrees && big) steps.push("one worktree per task");
+  if (features.parallel_sessions && big) steps.push("split independent steps into sessions (autonomy.actions.spawn_sessions)");
   const checks = requiredChecks(config, tier);
   steps.push(checks.length ? `checks: ${checks.join(", ")}` : "checks: none");
   const audit = (config.audit ?? {}) as { auditors?: string[]; triggers?: string[]; token_budget?: number };

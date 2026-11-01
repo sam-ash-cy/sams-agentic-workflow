@@ -28,11 +28,19 @@ Source: [AUDIT-2026-11](../AUDIT-2026-11.md). Branch `feat/audit-fixes`, cut fro
 16. **`saw repo plan|apply`** (ADR 0015) — `[repo]` merge, protect, security, labels; plan is read-only; apply needs `--yes` (and the guard asks), reports plan-gated 403/404 as skipped, then re-reads to verify. Uses branch protection, not rulesets.
 17. **`saw outline <file>`** — regex signatures for TS/JS, Python, PHP, Go, Rust, Java, C#, Ruby.
 
+## Round 3 (branch `feat/audit-fixes-2`)
+18. **Eval baseline** — `saw eval --save-baseline --runs 1` (paid; the case count and runs are printed first). `--runs` overrides `evals.runs` for one run.
+19. **Command rewrite** — `output.rewrite_commands` (default off). When on, `saw guard` rewrites a Bash call that is exactly a `[checks]` command into `saw run <check>` (`updatedInput`, no permission decision, so the usual prompt still applies). `saw run` stays.
+20. **Bootstrap** — `bootstrap.sh` / `bootstrap.ps1`: install the plugin when `claude` is on PATH, copy `global/CLAUDE.md` (≤150 lines, tested) to `~/.claude/CLAUDE.md` with a timestamped backup, and `global/settings.example.json` to `~/.claude/settings.json` only when there is none. `--dry-run` / `-DryRun`. Tested in CI.
+21. **Sessions and worktrees** (Phase 10 groundwork; BLUEPRINT marks it):
+    - `autonomy.actions.spawn_sessions` (ask): `saw guard` applies it to `claude -p` / `--print` session starts.
+    - `features.parallel_sessions` (off): when off, guard denies session starts; when on, `saw task start` adds a "split independent steps into sessions" step on complex and critical.
+    - `features.worktrees` (on): `saw task start` adds "one worktree per task" on complex and critical; off, guard denies `git worktree add`.
+22. **Skill toggles** — `saw sync` adds `Skill(<plugin>:<skill>)` to `permissions.deny` in `.claude/settings.json` for disabled features (grilling, tdd, retro). The entries it added are tracked in `.saw/skill-denies.json`; re-enabling removes only those. User entries are never touched.
+23. **`saw init --repo`** — after init, prints the `saw repo plan` diff (read-only, even with `repo.enabled = false`). Never applies.
+
 ## Still open
-- Eval baseline: run `saw eval --save-baseline` yourself (paid run).
-- `saw run` as a PreToolUse rewrite (ADR 0012): kept as an explicit command.
-- Bootstrap scripts and `global/` fragment: Phase 11.
-- `saw init --repo` offering a plan (ADR 0015): not added.
+- Phase 10 proper (`[sessions]`, handoff-or-block hook) and Phase 11 (release).
 
 ## Questions (earlier round, now answered)
 - **Removed keys** — bring back `spawn_sessions`, `parallel_sessions` and `worktrees` with Phase 10 (sessions) when they get a mechanism? `features.router`: is disabling the plugin enough? Per-playbook toggles from the blueprint were never added: wanted?

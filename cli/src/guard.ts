@@ -9,12 +9,17 @@ import type { Table } from "./defaults";
 type Decision = "deny" | "ask";
 type Verdict = { decision: Decision; reason: string } | undefined;
 
+const SPAWN = /\bclaude\s+(-p|--print)\b/;
+const WORKTREE = /\bgit\s+worktree\s+add\b/;
+
 // Shell commands that count as each autonomy action.
 const ACTIONS: Record<string, RegExp> = {
   push: /\bgit\s+push\b/,
   commit: /\bgit\s+commit\b/,
   open_pr: /\bgh\s+pr\s+create\b/,
   add_dependency: /\b(bun|npm|pnpm|yarn)\s+(add|install|i)\s+\S|\bcomposer\s+require\b|\bpip\s+install\s+\S|\bcargo\s+add\b/,
+  // A new headless Claude session (Phase 10 groundwork).
+  spawn_sessions: SPAWN,
 };
 
 // safety.destructive_approval / deploy_approval: always ask, whatever the autonomy level.
@@ -46,6 +51,9 @@ export function guardCommand(config: Table, command: string): Verdict {
     if (pattern && cmd.includes(normalise(pattern))) return { decision: "deny", reason: `"${pattern}" is on the safety.deny list` };
   }
   if (safety.no_secrets && SECRETS.test(cmd)) return { decision: "deny", reason: "safety.no_secrets: don't print secrets files into the session" };
+  const features = (config.features ?? {}) as Record<string, boolean>;
+  if (!features.parallel_sessions && SPAWN.test(cmd)) return { decision: "deny", reason: "features.parallel_sessions is off: no new sessions" };
+  if (!features.worktrees && WORKTREE.test(cmd)) return { decision: "deny", reason: "features.worktrees is off" };
   const autonomy = (config.autonomy ?? {}) as { level?: string; actions?: Record<string, string> };
   const actions = autonomy.actions ?? {};
   const levels: Record<string, string | undefined> = { ...actions, push: strictest(safety.push, actions.push) };
@@ -76,6 +84,17 @@ function strictest(a?: string, b?: string): string | undefined {
   return a ?? b;
 }
 
+// output.rewrite_commands: a Bash call that is exactly a [checks] command runs
+// as `saw run <check>` instead, so its output is quiet and the result recorded.
+export function rewriteCommand(config: Table, command: string): string | undefined {
+  if (!((config.output ?? {}) as { rewrite_commands?: boolean }).rewrite_commands) return undefined;
+  const cmd = normalise(command);
+  const check = Object.entries((config.checks ?? {}) as Record<string, unknown>).find(([, c]) => typeof c === "string" && c.trim() && normalise(c) === cmd)?.[0];
+  if (!check) return undefined;
+  const root = process.env.CLAUDE_PLUGIN_ROOT;
+  return `${root ? `"${root}/bin/saw"` : "saw"} run ${check}`;
+}
+
 // Returns the hook's JSON output, or undefined to let the call through.
 export function guardHook(config: Table, input: { tool_name?: string; tool_input?: { command?: unknown; file_path?: unknown } }): Record<string, unknown> | undefined {
   const t = input.tool_input;
@@ -84,6 +103,10 @@ export function guardHook(config: Table, input: { tool_name?: string; tool_input
     : typeof t?.file_path === "string" && ["Edit", "Write", "MultiEdit", "NotebookEdit"].includes(input.tool_name ?? "")
       ? guardEdit(config, t.file_path)
       : undefined;
-  if (!g) return undefined;
+  if (!g) {
+    const rewritten = input.tool_name === "Bash" && typeof t?.command === "string" ? rewriteCommand(config, t.command) : undefined;
+    // No permission decision: the rewritten command still goes through the usual prompt.
+    return rewritten ? { hookSpecificOutput: { hookEventName: "PreToolUse", updatedInput: { ...t, command: rewritten } } } : undefined;
+  }
   return { hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: g.decision, permissionDecisionReason: `saw guard: ${g.reason}` } };
 }
