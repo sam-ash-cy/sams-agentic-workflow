@@ -8,5 +8,5 @@ description: Use when the user wants to change how the workflow behaves — enab
    - `project` (workflow.toml, committed): team-wide behaviour.
    - `local` (workflow.local.toml, git-ignored): personal preference for this repo.
    - `global` (~/.saw/config.toml): personal default for every repo.
-   Safety keys (`safety.*`) can only be loosened in `global` or `local`.
+   Guardrail keys (`safety.*`, `autonomy.*`, `features.parallel_sessions`, `features.worktrees`) can only be loosened in `global` or `local`; a committed workflow.toml may only tighten them. Changing them asks the user (saw guard).
 3. Apply with `saw config set <key> <value> --scope <layer>`, then run `saw doctor` and report its result.

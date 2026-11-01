@@ -1,4 +1,4 @@
-// `saw repo plan|apply` (ADR 0015): GitHub settings as code. plan reads the
+// `saw repo plan|apply`: GitHub settings as code. plan reads the
 // live settings with gh and prints a diff; apply changes them only with
 // --yes, then re-reads them to verify. It never changes visibility, deletes
 // anything, or sets secret values, and uses the user's own gh auth.

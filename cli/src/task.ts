@@ -116,6 +116,9 @@ export function taskSteps(config: Table, tier: string, playbook = "feature"): st
   if (features.worktrees && big) steps.push("one worktree per task");
   if (features.parallel_sessions && big) steps.push("split independent steps into sessions (autonomy.actions.spawn_sessions)");
   if (features.unslop && playbook === "design") steps.push("unslop polish pass before screenshots");
+  const delivers = playbook === "feature" || playbook === "foundation";
+  if (features.docs_step && delivers) steps.push("docs step: engineering:documentation in the Diataxis split (tutorial, how-to, reference, explanation); mattpocock-skills:writing-for-agents for AGENTS.md, CLAUDE.md and skill files");
+  if (features.brag && delivers) steps.push("optional after the PR merges: a launch video with the brag skill");
   const checks = requiredChecks(config, tier);
   steps.push(checks.length ? `checks: ${checks.join(", ")}` : "checks: none");
   const audit = (config.audit ?? {}) as { auditors?: string[]; triggers?: string[]; token_budget?: number };

@@ -14,7 +14,7 @@ function config(toml = ""): ReturnType<typeof resolve>["config"] {
   const dir = tmp("saw-r3-");
   writeFileSync(join(dir, "workflow.toml"), toml);
   const none = join(dir, "none.toml");
-  return resolve(dir, {}, { global: none, project: join(dir, "workflow.toml"), local: none }).config;
+  return resolve(dir, {}, { global: none, project: none, local: join(dir, "workflow.toml") }).config;
 }
 
 test("output.rewrite_commands rewrites an exact check command into saw run", () => {
@@ -49,7 +49,7 @@ test("saw sync denies disabled features' skills and removes only its own entries
   mkdirSync(join(dir, ".claude"));
   const path = join(dir, ".claude", "settings.json");
   writeFileSync(path, JSON.stringify({ model: "x", permissions: { deny: ["Bash(rm:*)", "Skill(mattpocock-skills:tdd)"] } }));
-  const off = config("[features]\ngrilling = false\ntdd = false\nunslop = true\n");
+  const off = config("[features]\ngrilling = false\ntdd = false\nunslop = true\nbrag = true\n");
   expect(syncSkillDenies(dir, off, true).added).toEqual(["Skill(mattpocock-skills:grilling)"]);
   expect(JSON.parse(readFileSync(path, "utf8")).permissions.deny).toHaveLength(2);
   syncSkillDenies(dir, off);
@@ -57,7 +57,7 @@ test("saw sync denies disabled features' skills and removes only its own entries
   expect(s.model).toBe("x");
   expect(s.permissions.deny).toEqual(["Bash(rm:*)", "Skill(mattpocock-skills:tdd)", "Skill(mattpocock-skills:grilling)"]);
   // Re-enabled: saw's entry goes; the user's own tdd deny stays.
-  expect(syncSkillDenies(dir, config("[features]\nunslop = true\n"))).toEqual({ added: [], removed: ["Skill(mattpocock-skills:grilling)"] });
+  expect(syncSkillDenies(dir, config("[features]\nunslop = true\nbrag = true\n"))).toEqual({ added: [], removed: ["Skill(mattpocock-skills:grilling)"] });
   expect(JSON.parse(readFileSync(path, "utf8")).permissions.deny).toEqual(["Bash(rm:*)", "Skill(mattpocock-skills:tdd)"]);
   expect(existsSync(join(dir, ".saw", "skill-denies.json"))).toBe(false);
   writeFileSync(path, "{ not json");

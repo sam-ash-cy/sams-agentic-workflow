@@ -27,6 +27,49 @@ function scalar(v: Value): string {
   return String(v);
 }
 
+// Sets (or with undefined, removes) one dotted key in TOML text in place, so
+// comments and layout survive `saw config set`. Returns undefined when the
+// edit can't be made safely (inline tables, multi-line values); the caller
+// then re-serialises the whole file.
+export function patchToml(text: string, key: string, value: Value | undefined, expected: Table): string | undefined {
+  const parts = key.split(".");
+  const leaf = parts.pop()!;
+  const section = parts.join(".");
+  const lines = text.split(/\r?\n/);
+  let current = "";
+  let lastInSection = section === "" ? -1 : undefined as number | undefined;
+  let firstHeader = lines.length;
+  let hit: number | undefined;
+  lines.forEach((line, i) => {
+    const h = /^\s*\[([^\][]+)\]\s*(#.*)?$/.exec(line);
+    if (h) {
+      current = h[1]!.replace(/\s/g, "");
+      firstHeader = Math.min(firstHeader, i);
+      if (current === section) lastInSection = i;
+      return;
+    }
+    if (current !== section) return;
+    if (line.trim() && !line.trim().startsWith("#")) lastInSection = i;
+    if (new RegExp(`^\\s*${leaf.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\s*=`).test(line)) hit = i;
+  });
+  const entry = value === undefined ? undefined : `${leaf} = ${scalar(value)}`;
+  if (hit !== undefined) {
+    if (entry === undefined) lines.splice(hit, 1);
+    else lines[hit] = entry + (/\s+#[^"']*$/.exec(lines[hit]!)?.[0] ?? "");
+  } else if (entry !== undefined) {
+    if (lastInSection !== undefined && lastInSection >= 0) lines.splice(lastInSection + 1, 0, entry);
+    else if (section === "") lines.splice(Math.min(firstHeader, lines.length), 0, entry);
+    else lines.push(...(lines.at(-1)?.trim() ? [""] : []), `[${section}]`, entry);
+  } else return undefined;
+  let out = lines.join("\n");
+  if (!out.endsWith("\n")) out += "\n";
+  try {
+    return Bun.deepEquals(parseToml(out), expected) ? out : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 export function stringifyToml(table: Table, prefix = ""): string {
   const lines: string[] = [];
   const subtables: [string, Table][] = [];

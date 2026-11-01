@@ -43,7 +43,7 @@ function config(toml = ""): Table {
   const dir = mkdtempSync(join(tmpdir(), "saw-set-"));
   writeFileSync(join(dir, "workflow.toml"), toml);
   const none = join(dir, "none.toml");
-  return resolve(dir, {}, { global: none, project: join(dir, "workflow.toml"), local: none }).config;
+  return resolve(dir, {}, { global: none, project: none, local: join(dir, "workflow.toml") }).config;
 }
 
 test("grilling, tdd, trail and routing.always_grill shape the task steps", () => {
@@ -73,9 +73,9 @@ test("routing.default_tier picks the tier when --tier is left out", () => {
   expect(pickTier(config('[routing]\ndefault_tier = "trivial"\n'), "critical")).toBe("critical");
 });
 
-test("model_routing off makes every agent inherit the session model", () => {
+test("models.mode = single makes every agent inherit the session model", () => {
   expect(modelFor(config(), "review")).toBe("sonnet");
-  expect(modelFor(config("[features]\nmodel_routing = false\n"), "review")).toBe("inherit");
+  expect(modelFor(config('[models]\nmode = "single"\n'), "review")).toBe("inherit");
 });
 
 test("autonomy.level = suggest denies every action; safety approvals ask", () => {
@@ -83,7 +83,7 @@ test("autonomy.level = suggest denies every action; safety approvals ask", () =>
   expect(guardCommand(config(), "git reset --hard HEAD~1")?.decision).toBe("ask");
   expect(guardCommand(config(), "terraform apply")?.decision).toBe("ask");
   expect(guardCommand(config(), "cat .env")?.decision).toBe("deny");
-  expect(guardCommand(config(), "cat .env.example")?.decision).toBe("deny");
+  expect(guardCommand(config(), "cat .env.example")).toBeUndefined();
   expect(guardCommand(config(), "cat README.md")).toBeUndefined();
   // Weakening safety is allowed only outside the committed layer; the override layer works in tests.
   const relaxed = resolve(mkdtempSync(join(tmpdir(), "saw-set-")), {

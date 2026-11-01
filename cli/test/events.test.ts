@@ -68,11 +68,11 @@ test("the events panel escapes every field and follows [dashboard].panels", () =
   expect(html).not.toContain("<script>alert");
   expect(html).not.toContain("<img");
   expect(html).toContain("&#60;script&#62;");
-  expect(renderHtml([], ["outcomes", "events"], [], new Date(), [evil])).toContain("<h2>Events</h2>");
-  expect(renderHtml([], ["outcomes"], [], new Date(), [evil])).not.toContain("<h2>Events</h2>");
+  expect(renderHtml([], ["outcomes", "events"], [], [], new Date(), [evil])).toContain("<h2>Events</h2>");
+  expect(renderHtml([], ["outcomes"], [], [], new Date(), [evil])).not.toContain("<h2>Events</h2>");
   // The static page carries no script; only the served one polls for changes.
-  expect(renderHtml([], ["events"], [], new Date(), [])).not.toContain("<script");
-  expect(renderHtml([], ["events"], [], new Date(), [], true)).toContain("/version");
+  expect(renderHtml([], ["events"], [], [], new Date(), [])).not.toContain("<script");
+  expect(renderHtml([], ["events"], [], [], new Date(), [], true)).toContain("/version");
 });
 
 let server: ReturnType<typeof Bun.serve> | undefined;

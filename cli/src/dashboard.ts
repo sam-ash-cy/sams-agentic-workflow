@@ -8,6 +8,7 @@ import { statSync } from "node:fs";
 import { join } from "node:path";
 import type { WorkflowEvent } from "./events";
 import type { TaskMetric } from "./metrics";
+import type { RunRecord } from "./autopilot";
 import type { Proposal } from "./retro";
 import { TIERS } from "./task";
 
@@ -41,7 +42,7 @@ function byTier(metrics: TaskMetric[], f: (ms: TaskMetric[]) => { value: number;
   });
 }
 
-export const PANELS: Record<string, (ms: TaskMetric[], proposals: Proposal[]) => Panel> = {
+export const PANELS: Record<string, (ms: TaskMetric[], proposals: Proposal[], runs: RunRecord[]) => Panel> = {
   first_pass_rate: (ms) => ({
     title: "First-pass rate",
     hint: "Tasks that reached Verified with no failed check along the way.",
@@ -102,10 +103,19 @@ export const PANELS: Record<string, (ms: TaskMetric[], proposals: Proposal[]) =>
       return [{ label: `${p.check} (${after.length} after)`, value: rate(after), text: `${pct(rate(before))} → ${pct(rate(after))}` }];
     }),
   }),
+  autopilot: (_ms, _p, runs) => ({
+    title: "Autopilot",
+    hint: "saw autopilot items by outcome, and usage-limit waits, with their cost.",
+    bars: (["pr", "parked", "waiting"] as const).flatMap((o) => {
+      const rs = runs.filter((r) => r.outcome === o);
+      const usd = rs.reduce((a, r) => a + r.cost_usd, 0);
+      return rs.length ? [{ label: { pr: "finished", parked: "parked", waiting: "limit waits" }[o], value: rs.length, text: `${rs.length} · $${usd.toFixed(2)}` }] : [];
+    }),
+  }),
 };
 
-export function buildPanels(metrics: TaskMetric[], names: string[], proposals: Proposal[] = []): Panel[] {
-  return names.filter((n) => n in PANELS).map((n) => PANELS[n]!(metrics, proposals));
+export function buildPanels(metrics: TaskMetric[], names: string[], proposals: Proposal[] = [], runs: RunRecord[] = []): Panel[] {
+  return names.filter((n) => n in PANELS).map((n) => PANELS[n]!(metrics, proposals, runs));
 }
 
 function panelHtml(p: Panel): string {
@@ -153,7 +163,7 @@ export function dataVersion(cwd: string): string {
     .join("|");
 }
 
-export function renderHtml(metrics: TaskMetric[], names: string[], proposals: Proposal[] = [], generated = new Date(), events: WorkflowEvent[] = [], live = false): string {
+export function renderHtml(metrics: TaskMetric[], names: string[], proposals: Proposal[] = [], runs: RunRecord[] = [], generated = new Date(), events: WorkflowEvent[] = [], live = false): string {
   const verified = metrics.filter((m) => m.label === "Verified").length;
   const kpis = [
     ["Tasks", String(metrics.length)],
@@ -183,14 +193,14 @@ h2{font-size:15px;margin:0}.hint{color:var(--muted);font-size:13px;margin:2px 0 
 </style></head><body><main>
 <h1>Workflow metrics</h1><p class="sub">${metrics.length} tasks · generated ${esc(generated.toISOString().slice(0, 16).replace("T", " "))} UTC</p>
 <div class="kpis">${kpis.map(([k, v]) => `<div class="kpi"><b>${esc(v!)}</b><span>${esc(k!)}</span></div>`).join("")}</div>
-<div class="grid">${buildPanels(metrics, names, proposals).map(panelHtml).join("")}${names.includes("events") ? eventsHtml(events) : ""}</div>
+<div class="grid">${buildPanels(metrics, names, proposals, runs).map(panelHtml).join("")}${names.includes("events") ? eventsHtml(events) : ""}</div>
 </main>${live ? LIVE_SCRIPT : ""}</body></html>
 `;
 }
 
-export function renderMarkdown(metrics: TaskMetric[], names: string[], proposals: Proposal[] = []): string {
+export function renderMarkdown(metrics: TaskMetric[], names: string[], proposals: Proposal[] = [], runs: RunRecord[] = []): string {
   const out = ["---", "tags: [metrics]", "---", "# Workflow metrics", "", `${metrics.length} tasks.`, ""];
-  for (const p of buildPanels(metrics, names, proposals)) {
+  for (const p of buildPanels(metrics, names, proposals, runs)) {
     out.push(`## ${p.title}`, "", p.hint, "");
     if (!p.bars.length) out.push("No data yet.", "");
     else out.push("| | |", "|---|---|", ...p.bars.map((b) => `| ${b.label} | ${b.text} |`), "");

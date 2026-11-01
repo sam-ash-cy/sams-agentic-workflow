@@ -32,10 +32,6 @@
           "type": "boolean",
           "default": true
         },
-        "model_routing": {
-          "type": "boolean",
-          "default": true
-        },
         "compact_nudge": {
           "type": "boolean",
           "default": true
@@ -83,6 +79,14 @@
         "unslop": {
           "type": "boolean",
           "default": false
+        },
+        "brag": {
+          "type": "boolean",
+          "default": false
+        },
+        "docs_step": {
+          "type": "boolean",
+          "default": true
         }
       }
     },
@@ -474,6 +478,40 @@
         }
       }
     },
+    "autopilot": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "default": false
+        },
+        "queue": {
+          "type": "string",
+          "default": "docs/plans/queue.md"
+        },
+        "per_item_usd": {
+          "type": "number",
+          "default": 5
+        },
+        "max_total_usd": {
+          "type": "number",
+          "default": 30
+        },
+        "max_failures": {
+          "type": "number",
+          "default": 2
+        },
+        "max_wait": {
+          "type": "string",
+          "default": "6h"
+        },
+        "resume_on_limit": {
+          "type": "boolean",
+          "default": true
+        }
+      }
+    },
     "knowledge": {
       "type": "object",
       "additionalProperties": false,
@@ -547,7 +585,8 @@
             "rework",
             "cost_per_task",
             "promotion_effect",
-            "events"
+            "events",
+            "autopilot"
           ]
         },
         "port": {
@@ -770,6 +809,7 @@
           "default": [
             "rm -rf",
             "git push --force",
+            "git push -f",
             "curl | sh"
           ]
         }

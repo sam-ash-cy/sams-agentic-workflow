@@ -1,5 +1,5 @@
-// `saw lint-context`: keep always-loaded context files short (ADR 0011/0012:
-// long or generated context files cost tokens and can lower success rates).
+// `saw lint-context`: keep always-loaded context files short (long or
+// generated context files cost tokens and can lower success rates).
 
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";

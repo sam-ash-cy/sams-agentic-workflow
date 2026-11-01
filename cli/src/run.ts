@@ -3,6 +3,7 @@
 
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { inside } from "./config";
 import type { Table } from "./defaults";
 import { recordCheck } from "./task";
 
@@ -55,13 +56,15 @@ export function runCheck(cwd: string, config: Table, name: string, opts: { chang
     if (tests.length) command = `${command} ${tests.join(" ")}`;
   }
   const output = (config.output ?? {}) as { quiet?: boolean; max_lines?: number; full_logs?: string };
+  // A committed workflow.toml must not make saw write outside the project.
+  const logDir = inside(cwd, output.full_logs ?? ".saw/logs");
+  if (!logDir) throw new Error("output.full_logs must be a path inside the project");
 
   const shell = process.platform === "win32" ? ["cmd", "/c", command] : ["sh", "-c", command];
   const proc = Bun.spawnSync(shell, { cwd, stdout: "pipe", stderr: "pipe" });
   const text = proc.stdout.toString() + proc.stderr.toString();
   const code = proc.exitCode ?? 1;
 
-  const logDir = join(cwd, output.full_logs ?? ".saw/logs");
   mkdirSync(logDir, { recursive: true });
   const log = join(logDir, `${name}.log`);
   writeFileSync(log, text);

@@ -13,7 +13,7 @@ function config(toml = ""): ReturnType<typeof resolve>["config"] {
   const dir = mkdtempSync(join(tmpdir(), "saw-rev-"));
   writeFileSync(join(dir, "workflow.toml"), toml);
   const none = join(dir, "none.toml");
-  return resolve(dir, {}, { global: none, project: join(dir, "workflow.toml"), local: none }).config;
+  return resolve(dir, {}, { global: none, project: none, local: join(dir, "workflow.toml") }).config;
 }
 
 const ON = "[review_session]\nenabled = true\n";
@@ -30,14 +30,14 @@ test("off by default; on, it applies to the when kinds and skips budget-0 tiers"
   expect(reviewApplies(config(ON + "[review_session.budget_by_tier]\ntrivial = 5000\n"), "feature", "trivial")).toBe(true);
 });
 
-test("the brief follows mode, names the plan, blueprint and base branch, and is read-only", () => {
+test("the brief follows mode, names the plan, roadmap and base branch, and is read-only", () => {
   const cwd = mkdtempSync(join(tmpdir(), "saw-rev-"));
   mkdirSync(join(cwd, "docs", "plans"), { recursive: true });
   writeFileSync(join(cwd, "docs", "plans", "phase-11.md"), "# plan\n");
-  writeFileSync(join(cwd, "docs", "BLUEPRINT.md"), "# bp\n");
+  writeFileSync(join(cwd, "docs", "plans", "roadmap.md"), "# roadmap\n");
   const both = reviewBrief(cwd, config(ON), "phase", "phase-11", "complex");
   expect(both).toContain("docs/plans/phase-11.md");
-  expect(both).toContain("docs/BLUEPRINT.md");
+  expect(both).toContain("docs/plans/roadmap.md");
   expect(both).toContain("git diff main...HEAD");
   expect(both).toContain("Read-only");
   expect(both).toContain("80000 tokens");
@@ -47,7 +47,8 @@ test("the brief follows mode, names the plan, blueprint and base branch, and is 
   expect(grill).not.toContain("Audit:");
   expect(reviewBrief(cwd, config(ON + 'mode = "audit"\n'), "phase", "x", "complex")).not.toContain("Grill:");
   expect(reviewBrief(cwd, config(ON), "phase", "x", "complex")).toContain("none found");
-  expect(reviewArgv("b")).toContain("--disallowedTools");
+  expect(reviewArgv()).toContain("--disallowedTools");
+  expect(reviewArgv().join(" ")).not.toContain("\n");
 });
 
 test("records count findings, keep unit ids inside .saw/reviews, and feed the task metric", () => {

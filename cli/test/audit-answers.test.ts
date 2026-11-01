@@ -170,3 +170,22 @@ test("features.unslop adds the polish step to design tasks only, and saw sync de
   expect(syncSkillDenies(dir, config(), true).added).toContain("Skill(unslop)");
   expect(syncSkillDenies(dir, on, true).added).not.toContain("Skill(unslop)");
 });
+
+test("features.brag adds an optional launch-video step to feature and foundation only, and saw sync denies it when off", async () => {
+  const { syncSkillDenies } = await import("../src/skills");
+  const on = config("[features]\nbrag = true\n");
+  expect(taskSteps(on, "standard", "feature").join(" ")).toContain("launch video with the brag skill");
+  expect(taskSteps(on, "complex", "foundation").join(" ")).toContain("brag");
+  expect(taskSteps(on, "standard", "debug").join(" ")).not.toContain("brag");
+  expect(taskSteps(config(), "standard", "feature").join(" ")).not.toContain("brag");
+  const dir = mkdtempSync(join(tmpdir(), "saw-brag-"));
+  expect(syncSkillDenies(dir, config(), true).added).toEqual(expect.arrayContaining(["Skill(brag)", "Skill(brag-slim)"]));
+  expect(syncSkillDenies(dir, on, true).added).not.toContain("Skill(brag)");
+});
+
+test("features.docs_step (on by default) adds the Diataxis docs step to feature and foundation", () => {
+  expect(taskSteps(config(), "standard", "feature").join(" ")).toContain("docs step: engineering:documentation");
+  expect(taskSteps(config(), "complex", "foundation").join(" ")).toContain("writing-for-agents");
+  expect(taskSteps(config(), "standard", "debug").join(" ")).not.toContain("docs step");
+  expect(taskSteps(config("[features]\ndocs_step = false\n"), "standard", "feature").join(" ")).not.toContain("docs step");
+});

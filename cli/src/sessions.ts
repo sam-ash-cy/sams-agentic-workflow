@@ -25,7 +25,7 @@ interface Unit {
 
 interface SessionState {
   session_id: string;
-  current?: Unit;
+  current?: Unit & { opened?: string };
   finished?: Unit & { at: string };
 }
 
@@ -81,6 +81,9 @@ function handoffSince(cwd: string, at: string): boolean {
   return readdirSync(dir).some((f) => /^handoff-.*\.md$/.test(f) && statSync(join(dir, f)).mtimeMs >= since);
 }
 
+// A review counts for the unit it was recorded in: one from an earlier unit
+// with the same id (opened before this one) doesn't unlock the PR, but fix
+// commits after the review don't invalidate it either.
 // Returns the hook's JSON output, or undefined to stay silent.
 export function sessionHook(cwd: string, config: Table, input: SessionHookInput, now = new Date()): Record<string, unknown> | undefined {
   const command = input.tool_input?.command;
@@ -95,14 +98,14 @@ export function sessionHook(cwd: string, config: Table, input: SessionHookInput,
   if (input.hook_event_name === "PreToolUse" && reviewOn && PR_CREATE.test(command)) {
     const open = load(cwd, input.session_id).current;
     const tier = currentTask(cwd)?.tier ?? "standard";
-    if (open?.id && reviewApplies(config, open.kind, tier) && !reviewedSince(cwd, open.id)) {
+    if (open?.id && reviewApplies(config, open.kind, tier) && !reviewedSince(cwd, open.id, open.opened ?? "")) {
       const reason = `saw review-session: ${open.kind} ${open.id} needs its independent review before the PR. Run \`saw review-session run --unit ${open.kind} --unit-id ${open.id}\` (or open a read-only sub-session with \`saw review-session brief ...\` and \`saw review-session record <file> ...\`), then fix or answer each finding.`;
       return { hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: reason } };
     }
   }
   if (!newPer.length) {
     // Only the review gate is on: still track the open unit for it.
-    if (input.hook_event_name === "PostToolUse" && unit && !failed(input.tool_response)) save(cwd, { ...load(cwd, input.session_id), current: unit });
+    if (input.hook_event_name === "PostToolUse" && unit && !failed(input.tool_response)) save(cwd, { ...load(cwd, input.session_id), current: { ...unit, opened: now.toISOString() } });
     return undefined;
   }
 
@@ -111,7 +114,7 @@ export function sessionHook(cwd: string, config: Table, input: SessionHookInput,
     const state = load(cwd, input.session_id);
     // A commit with no unit open finishes nothing; one chained before a task start finishes the old unit first.
     if (FINISH.test(command) && state.current) state.finished = { ...state.current, at: now.toISOString() };
-    if (unit) state.current = unit;
+    if (unit) state.current = { ...unit, opened: now.toISOString() };
     save(cwd, state);
     return undefined;
   }

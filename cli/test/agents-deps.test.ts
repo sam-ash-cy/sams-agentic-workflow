@@ -51,10 +51,10 @@ test("pin writes the new sha and reviewer, and refuses without a reviewer", () =
   const dir = mkdtempSync(join(tmpdir(), "saw-lock-"));
   const path = join(dir, "deps.lock.toml");
   cpSync(join(ROOT, "deps.lock.toml"), path);
-  expect(() => pin(path, "rederive", "b".repeat(40), "")).toThrow("--reviewed-by");
-  pin(path, "rederive", "b".repeat(40), "sam", "2026-11-01");
-  expect(readLock(path).rederive).toMatchObject({ sha: "b".repeat(40), reviewed_by: "sam", reviewed_on: "2026-11-01", licence: "MIT" });
-  expect(readLock(path)["mattpocock-skills"]?.reviewed_by).toBe("pending");
+  expect(() => pin(path, "mattpocock-skills", "b".repeat(40), "")).toThrow("--reviewed-by");
+  pin(path, "mattpocock-skills", "b".repeat(40), "sam", "2026-11-01");
+  expect(readLock(path)["mattpocock-skills"]).toMatchObject({ sha: "b".repeat(40), reviewed_by: "sam", reviewed_on: "2026-11-01", licence: "MIT" });
+  expect(readLock(path).unslop?.reviewed_by).toBe("owner");
 });
 
 test("sync keeps CRLF line endings", () => {

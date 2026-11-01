@@ -9,18 +9,22 @@ licence = "MIT"
 reviewed_by = "pending"
 reviewed_on = ""
 
-[rederive]
-repo = "https://github.com/EricJujianZou/rederive"
-sha = "7f43edc0ee0e098e98f77b01187027238aba77c8"
-licence = "MIT"
-reviewed_by = "pending"
-reviewed_on = ""
-
 # UI de-slop skill by Damir Sokolovsky (CC BY 4.0: credit him and link the repo).
 # Reviewed: SKILL.md + references only load; scripts/ run Playwright and ffmpeg locally, only when invoked.
 [unslop]
 repo = "https://github.com/heydamir/unslop"
 sha = "1d13095e4bef6ad6c74f1dd828d84c4ba309a4dc"
 licence = "CC-BY-4.0"
+reviewed_by = "owner"
+reviewed_on = "2026-11-01"
+
+# Launch-video skills (brag, brag-slim) by Shunit Haviv Hakimi (MIT). The bundled music in
+# skills/brag/assets/music is CC BY 4.0 by Sascha Ende (ende.app): credit him when you publish a video.
+# Reviewed at this SHA: no hooks and no commands that run when the skill loads; it calls
+# Hyperframes (npx hyperframes, unpinned upstream) and optionally uv + Python when invoked.
+[brag]
+repo = "https://github.com/latent-spaces/brag"
+sha = "669ab9286aa28b6c3ee30e75f181ee74319d012a"
+licence = "MIT"
 reviewed_by = "owner"
 reviewed_on = "2026-11-01"

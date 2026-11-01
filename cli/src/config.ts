@@ -3,7 +3,7 @@
 // which layer each one came from.
 
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { isAbsolute, join, relative, resolve as resolvePath } from "node:path";
 import { DEFAULTS, ENUMS, type Table, type Value } from "./defaults";
 import { readToml } from "./toml";
 
@@ -90,9 +90,22 @@ const PUSH_RANK = ["never", "ask", "allow"];
 
 function tightens(key: string, current: Value, next: Value): boolean {
   if (key === "safety.push") return PUSH_RANK.indexOf(String(next)) <= PUSH_RANK.indexOf(String(current));
+  const rank = key === "autonomy.level" ? LEVEL_RANK : key.startsWith("autonomy.actions.") ? ACTION_RANK : undefined;
+  // An unknown value (indexOf -1) never counts as tightening.
+  if (rank) return rank.includes(String(next)) && rank.indexOf(String(next)) <= rank.indexOf(String(current));
+  if (LOOSER_WHEN_ON.includes(key)) return next === false || current === true;
   if (typeof current === "boolean") return next === true || current === false;
   return true;
 }
+
+// Besides [safety], the keys the guard enforces: a committed workflow.toml (any
+// cloned repo) may make these stricter, never looser.
+const LEVEL_RANK = ["suggest", "propose", "act"];
+const ACTION_RANK = ["never", "ask", "propose", "allow"];
+const LOOSER_WHEN_ON = ["features.parallel_sessions", "features.worktrees"];
+const guarded = (key: string): boolean => key.startsWith("safety.") || key.startsWith("autonomy.") || LOOSER_WHEN_ON.includes(key);
+// Whether the project layer would ignore this value as looser than the default.
+export const loosens = (key: string, value: Value): boolean => guarded(key) && key in DEFAULT_KEYS && !tightens(key, DEFAULT_KEYS[key]!, value);
 
 export function parseValue(raw: string): Value {
   if (raw === "true" || raw === "false") return raw === "true";
@@ -127,7 +140,7 @@ export function resolve(cwd: string, overrides: Record<string, Value> = {}, path
         sources[key] = layer;
         continue;
       }
-      if (layer === "project" && key.startsWith("safety.") && !tightens(key, flat[key]!, value)) {
+      if (layer === "project" && guarded(key) && !tightens(key, flat[key]!, value)) {
         warnings.push(`project: workflow.toml tries to weaken ${key} to ${JSON.stringify(value)}; set it in ~/.saw/config.toml or workflow.local.toml instead (ignored)`);
         continue;
       }
@@ -148,4 +161,15 @@ export function weakenedSafety(resolved: Resolved): string[] {
     .filter((k) => k.startsWith("safety.") && k !== "safety.deny")
     .filter((k) => !tightens(k, DEFAULT_KEYS[k]!, flat[k]!))
     .map((k) => `${k} = ${JSON.stringify(flat[k])} (from ${resolved.sources[k]})`);
+}
+
+// The branch PRs target: repo.protect.branch, or main.
+export const baseBranch = (config: Table): string => ((config.repo ?? {}) as { protect?: { branch?: string } }).protect?.branch || "main";
+
+// Resolves a configured path, or undefined if it escapes the project (a
+// committed workflow.toml must not be able to write elsewhere).
+export function inside(cwd: string, path: string): string | undefined {
+  const full = resolvePath(cwd, path);
+  const rel = relative(resolvePath(cwd), full);
+  return rel && !rel.startsWith("..") && !isAbsolute(rel) ? full : undefined;
 }
