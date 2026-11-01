@@ -205,7 +205,10 @@ export function gate(
   if (!features.verify_hook || hookInput.stop_hook_active) return undefined;
   if (!task) {
     // Files changed but routing never ran, so there is nothing to verify against.
-    if (!existsSync(join(dir(cwd), "untasked-edits"))) return undefined;
+    const marker = join(dir(cwd), "untasked-edits");
+    if (!existsSync(marker)) return undefined;
+    // Block once per batch of edits; the next edit sets the marker again.
+    rmSync(marker, { force: true });
     return {
       decision: "block",
       reason: "Files were edited but no saw task is open, so nothing was verified. Use the router skill to classify the work, run `saw task start --tier <t> --playbook <p>` (trivial is fine for a one-line change), then run its checks.",

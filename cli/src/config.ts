@@ -78,6 +78,9 @@ export function validate(key: string, value: Value): string | undefined {
   const allowed = ENUMS[key];
   if (allowed && !allowed.includes(String(value))) return `"${key}" must be one of ${allowed.join(" | ")}`;
   if (key.startsWith("checks.") && typeof value !== "string") return `"${key}" must be a command string`;
+  // An unknown parent would silently drop every inherited check.
+  const tiers = Object.keys((DEFAULTS.verify ?? {}) as Table);
+  if (/^verify\.[a-z_]+\.extends$/.test(key) && !tiers.includes(String(value))) return `"${key}" must be one of ${tiers.join(" | ")}`;
   const def = DEFAULT_KEYS[key];
   if (def !== undefined && typeof def !== typeof value) return `"${key}" must be a ${Array.isArray(def) ? "list" : typeof def}`;
   return undefined;

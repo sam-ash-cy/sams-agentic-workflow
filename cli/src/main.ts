@@ -470,7 +470,7 @@ export function run(argv: string[], cwd = process.cwd()): number {
       else logEvent(cwd, resolved.config, h.permissionDecision === "deny" ? "warn" : "info", `guard.${h.permissionDecision}`, String(h.permissionDecisionReason));
     }
     if (command === "format-hook") markUntaskedEdit(cwd);
-    if (command === "format-hook" && out) logEvent(cwd, resolved.config, "debug", "format", "format-hook ran");
+    if (command === "format-hook") logEvent(cwd, resolved.config, out ? "warn" : "debug", "format", out ? "checks.format failed" : "format-hook ran");
     return 0;
   }
   if (command === "memory" && sub === "lint") {
