@@ -171,6 +171,13 @@ test("features.unslop adds the polish step to design tasks only, and saw sync de
   expect(syncSkillDenies(dir, on, true).added).not.toContain("Skill(unslop)");
 });
 
+test("features.implementer hands planned units to the implementer agent on standard-or-higher tasks", () => {
+  const on = config("[features]\nimplementer = true\n");
+  expect(taskSteps(on, "standard", "feature").join(" ")).toContain("implementer agent");
+  expect(taskSteps(on, "trivial", "feature").join(" ")).not.toContain("implementer");
+  expect(taskSteps(config(), "complex", "feature").join(" ")).not.toContain("implementer");
+});
+
 test("features.brag adds an optional launch-video step to feature and foundation only, and saw sync denies it when off", async () => {
   const { syncSkillDenies } = await import("../src/skills");
   const on = config("[features]\nbrag = true\n");

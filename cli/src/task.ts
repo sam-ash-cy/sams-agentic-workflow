@@ -127,6 +127,7 @@ export function taskSteps(config: Table, tier: string, playbook = "feature"): st
   const big = tier === "complex" || tier === "critical";
   if (features.worktrees && big) steps.push("one worktree per task");
   if (features.parallel_sessions && big) steps.push("split independent steps into sessions (autonomy.actions.spawn_sessions)");
+  if (features.implementer && tier !== "trivial") steps.push("after the plan: hand each unit to the implementer agent (models.roles.implement), then review its diff here");
   if (features.unslop && playbook === "design") steps.push("unslop polish pass before screenshots");
   const delivers = playbook === "feature" || playbook === "foundation";
   if (features.docs_step && delivers) steps.push("docs step: engineering:documentation in the Diataxis split (tutorial, how-to, reference, explanation); mattpocock-skills:writing-for-agents for AGENTS.md, CLAUDE.md and skill files");

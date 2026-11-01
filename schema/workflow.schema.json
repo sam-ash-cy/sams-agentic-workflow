@@ -91,6 +91,10 @@
         "docs_step": {
           "type": "boolean",
           "default": true
+        },
+        "implementer": {
+          "type": "boolean",
+          "default": false
         }
       }
     },
