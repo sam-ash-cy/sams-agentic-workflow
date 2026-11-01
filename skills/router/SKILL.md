@@ -13,7 +13,7 @@ Say: `Tier: <tier> · Playbook: <playbook> · Style: <tone>, ≤<n> words · <re
 | complex | new subsystem, new integration, cross-cutting change, unclear design |
 | critical | auth, permissions, secrets, payments, data migration, infra, production |
 
-When unsure between two tiers, pick the higher. Then run `saw task start --tier <tier> --playbook <playbook>`. If the task begins a new phase, stage or feature, add `--unit <phase|stage|feature> --unit-id <name>` (e.g. `--unit phase --unit-id phase-10`); a follow-up fix within it leaves them out. If the session already finished a unit, `saw session-hook` warns or blocks ([sessions]): write the handoff (prompts/handoff.md) and suggest a fresh session.
+When unsure between two tiers, pick the higher. Then run `saw task start --tier <tier> --playbook <playbook>`. If the task begins a new phase, stage or feature, add `--unit <phase|stage|feature> --unit-id <name>` (e.g. `--unit phase --unit-id phase-10`); a follow-up fix within it leaves them out. If the session already finished a unit, `saw session-hook` warns or blocks ([sessions]): write the handoff (prompts/handoff.md) and suggest a fresh session. With `features.ecc` on, use `ecc:strategic-compact` to decide where to `/compact` and `ecc:context-budget` when context is tight from loaded skills, agents or MCP servers.
 
 Playbooks (read only the one you picked, from `playbooks/<name>.md`): foundation · design · feature · integration · debug · spike · hardening · audit.
 

@@ -130,6 +130,7 @@ export function taskSteps(config: Table, tier: string, playbook = "feature"): st
   if (features.unslop && playbook === "design") steps.push("unslop polish pass before screenshots");
   const delivers = playbook === "feature" || playbook === "foundation";
   if (features.docs_step && delivers) steps.push("docs step: engineering:documentation in the Diataxis split (tutorial, how-to, reference, explanation); mattpocock-skills:writing-for-agents for AGENTS.md, CLAUDE.md and skill files");
+  if (features.ecc && delivers) steps.push("before the PR: ecc:verification-loop (build, types, lint, tests, diff review)");
   if (features.brag && delivers) steps.push("optional after the PR merges: a launch video with the brag skill");
   const checks = requiredChecks(config, tier);
   steps.push(checks.length ? `checks: ${checks.join(", ")}` : "checks: none");

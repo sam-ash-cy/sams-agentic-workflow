@@ -15,6 +15,7 @@ saw config set output.quiet true                  # passing checks print nothing
 saw config set output.max_lines 30
 saw config set output.rewrite_commands true       # a raw "bun test" runs as saw run test (quiet, recorded)
 saw config set context.suggest_compact_at '[0.4,0.6]'   # nudge /compact earlier
+saw config set features.ecc true                  # nudges hand off to ecc:strategic-compact (install ECC first)
 saw config set tokens.mode hard                   # stop at the tier's budget, write a handoff
 saw config set style.max_words 150 --scope global # shorter replies
 saw config set features.trail true --scope local  # if Trail is installed: map lookups instead of reading files
