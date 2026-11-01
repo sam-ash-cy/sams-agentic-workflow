@@ -104,6 +104,18 @@ test("edit_global guards edits under ~/.claude and ~/.saw", () => {
   expect(guardEdit(config('[autonomy.actions]\nedit_global = "allow"\n'), join(home, ".saw", "config.toml"))).toBeUndefined();
 });
 
+test("edit_global leaves Claude Code's own plan and memory files alone", () => {
+  const home = homedir();
+  expect(guardEdit(config(), join(home, ".claude", "plans", "a-plan.md"))).toBeUndefined();
+  expect(guardEdit(config(), join(home, ".claude", "projects", "C--repo", "memory", "MEMORY.md"))).toBeUndefined();
+  // Only those files: settings, hooks, skills and anything climbing out stay guarded.
+  expect(guardEdit(config(), join(home, ".claude", "plans", "..", "settings.json"))?.decision).toBe("deny");
+  expect(guardEdit(config(), join(home, ".claude", "plans", "x", "hook.cjs"))?.decision).toBe("deny");
+  expect(guardEdit(config(), join(home, ".claude", "projects", "C--repo", "settings.json"))?.decision).toBe("deny");
+  expect(guardEdit(config(), join(home, ".claude", "skills", "a", "SKILL.md"))?.decision).toBe("deny");
+  expect(guardEdit(config(), join(home, ".saw", "plans", "a.md"))?.decision).toBe("deny");
+});
+
 test("format_hook off, or a format command from the committed layer, runs nothing", () => {
   const dir = mkdtempSync(join(tmpdir(), "saw-set-"));
   const c = config('[checks]\nformat = "exit 3"\n');
