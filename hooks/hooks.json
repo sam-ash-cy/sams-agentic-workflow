@@ -8,6 +8,9 @@
       { "matcher": "Bash", "hooks": [{ "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/saw\" session-hook" }] },
       { "matcher": "Edit|Write|MultiEdit", "hooks": [{ "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/saw\" format-hook" }] }
     ],
+    "PostToolUseFailure": [
+      { "hooks": [{ "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/saw\" failure-hook" }] }
+    ],
     "Stop": [
       { "hooks": [{ "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/saw\" gate" }] },
       { "hooks": [{ "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/saw\" style-check" }] }

@@ -80,7 +80,7 @@ export function blankQuotedData(cmd: string): string {
 // A settings file is this project's when it sits in the working directory, one
 // of its ancestors (a parent layer) or below it. Anything else (another repo, a
 // sandbox under the temp dir) isn't a layer the agent here runs under.
-// Git Bash drive paths (/c/Users/...) are read as C:/Users/... on Windows.
+// On Windows a Git Bash drive path (/c/...) is read as the C: drive.
 export function isProjectSettings(path: string, cwd = process.cwd()): boolean {
   if (/[$~%`]/.test(path)) return true;
   const win = process.platform === "win32";
