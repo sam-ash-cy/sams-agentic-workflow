@@ -5,6 +5,7 @@
 import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Table } from "./defaults";
+import { readReviews } from "./review-session";
 import { checkResults, taskStatus, type Label, type Task } from "./task";
 
 export interface TaskMetric {
@@ -49,6 +50,9 @@ export function buildMetric(cwd: string, config: Table, task: Task, tokens?: num
   const fails = results.filter((r) => r.status === "fail");
   const findings: Record<string, number> = {};
   for (const r of fails) findings[r.name] = (findings[r.name] ?? 0) + 1;
+  // Findings from [review_session] sub-sessions recorded during this task.
+  const reviewed = readReviews(cwd).filter((r) => r.at >= task.started).reduce((n, r) => n + r.findings, 0);
+  if (reviewed) findings.review_session = reviewed;
 
   const metric: TaskMetric = {
     at: now.toISOString(),

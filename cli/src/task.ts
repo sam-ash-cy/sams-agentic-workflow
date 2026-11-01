@@ -6,6 +6,7 @@
 import { appendFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Table } from "./defaults";
+import { reviewBudget, type ReviewSettings } from "./review-session";
 
 export const TIERS = ["trivial", "standard", "complex", "critical"] as const;
 export const PLAYBOOKS = ["foundation", "design", "feature", "integration", "debug", "spike", "hardening", "audit"] as const;
@@ -120,6 +121,10 @@ export function taskSteps(config: Table, tier: string, playbook = "feature"): st
   const triggered = (audit.triggers ?? []).some((t) => t === tier || t === playbook);
   if (features.audit && triggered && audit.auditors?.length) {
     steps.push(`audit: ${audit.auditors.join(", ")} (≤${audit.token_budget} tokens each; findings in one list)`);
+  }
+  const review = (config.review_session ?? {}) as ReviewSettings;
+  if (review.enabled && reviewBudget(config, tier) > 0 && review.when?.length) {
+    steps.push(`review session for a ${review.when.join("/")} unit before the PR: saw review-session run (${review.mode}, ≤${reviewBudget(config, tier)} tokens); fix or answer each finding`);
   }
   return steps;
 }

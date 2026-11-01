@@ -2,17 +2,21 @@
 // PostToolUse records the unit `saw task start --unit` opened and marks it
 // finished on a commit or PR. PreToolUse steps in when a session that has
 // finished a unit starts a different one: soft warns, hard denies until a
-// handoff is written and a fresh session takes over.
+// handoff is written and a fresh session takes over. With [review_session] on,
+// PreToolUse also denies `gh pr create` until the open unit's review is recorded.
 
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Table } from "./defaults";
+import { reviewApplies, reviewedSince } from "./review-session";
+import { currentTask } from "./task";
 
 export const UNITS = ["phase", "stage", "feature"] as const;
 
 const TASK_START = /\b(saw|main\.ts)\s+task\s+start\b/;
 // At the start of a command or after a separator, so `echo "git commit"` doesn't count.
 const FINISH = /(^|[;&|]\s*)(git\s+commit\b(?!.*--dry-run)|gh\s+pr\s+create\b)/;
+const PR_CREATE = /(^|[;&|]\s*)gh\s+pr\s+create\b(?!.*--dry-run)/;
 
 interface Unit {
   kind: string;
@@ -83,8 +87,24 @@ export function sessionHook(cwd: string, config: Table, input: SessionHookInput,
   if (input.tool_name !== "Bash" || typeof command !== "string" || !input.session_id) return undefined;
   const sessions = (config.sessions ?? {}) as { new_per?: string[]; mode?: string };
   const newPer = sessions.new_per ?? [];
-  if (!newPer.length) return undefined;
+  const reviewOn = (config.review_session as { enabled?: boolean } | undefined)?.enabled === true;
+  if (!newPer.length && !reviewOn) return undefined;
   const unit = unitOf(command);
+
+  // [review_session]: no PR for a unit until its independent review is recorded.
+  if (input.hook_event_name === "PreToolUse" && reviewOn && PR_CREATE.test(command)) {
+    const open = load(cwd, input.session_id).current;
+    const tier = currentTask(cwd)?.tier ?? "standard";
+    if (open?.id && reviewApplies(config, open.kind, tier) && !reviewedSince(cwd, open.id)) {
+      const reason = `saw review-session: ${open.kind} ${open.id} needs its independent review before the PR. Run \`saw review-session run --unit ${open.kind} --unit-id ${open.id}\` (or open a read-only sub-session with \`saw review-session brief ...\` and \`saw review-session record <file> ...\`), then fix or answer each finding.`;
+      return { hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: reason } };
+    }
+  }
+  if (!newPer.length) {
+    // Only the review gate is on: still track the open unit for it.
+    if (input.hook_event_name === "PostToolUse" && unit && !failed(input.tool_response)) save(cwd, { ...load(cwd, input.session_id), current: unit });
+    return undefined;
+  }
 
   if (input.hook_event_name === "PostToolUse") {
     if (failed(input.tool_response) || (!unit && !FINISH.test(command))) return undefined;

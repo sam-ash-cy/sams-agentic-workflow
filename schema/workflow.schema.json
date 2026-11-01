@@ -421,6 +421,55 @@
         }
       }
     },
+    "review_session": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "default": false
+        },
+        "when": {
+          "type": "array",
+          "default": [
+            "feature",
+            "phase",
+            "stage"
+          ]
+        },
+        "mode": {
+          "type": "string",
+          "default": "both",
+          "enum": [
+            "grill",
+            "audit",
+            "both"
+          ]
+        },
+        "budget_by_tier": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "trivial": {
+              "type": "number",
+              "default": 0
+            },
+            "standard": {
+              "type": "number",
+              "default": 40000
+            },
+            "complex": {
+              "type": "number",
+              "default": 80000
+            },
+            "critical": {
+              "type": "number",
+              "default": 150000
+            }
+          }
+        }
+      }
+    },
     "knowledge": {
       "type": "object",
       "additionalProperties": false,

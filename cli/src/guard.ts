@@ -20,6 +20,8 @@ const ACTIONS: Record<string, RegExp> = {
   add_dependency: /\b(bun|npm|pnpm|yarn)\s+(add|install|i)\s+\S|\bcomposer\s+require\b|\bpip\s+install\s+\S|\bcargo\s+add\b/,
   // A new headless Claude session (Phase 10 groundwork).
   spawn_sessions: SPAWN,
+  // The [review_session] sub-session; one after the other, so features.parallel_sessions doesn't apply.
+  spawn_review: /\b(saw|main\.ts)\s+review-session\s+run\b(?!.*--dry-run)/,
 };
 
 // safety.destructive_approval / deploy_approval: always ask, whatever the autonomy level.
@@ -56,7 +58,7 @@ export function guardCommand(config: Table, command: string): Verdict {
   if (!features.worktrees && WORKTREE.test(cmd)) return { decision: "deny", reason: "features.worktrees is off" };
   const autonomy = (config.autonomy ?? {}) as { level?: string; actions?: Record<string, string> };
   const actions = autonomy.actions ?? {};
-  const levels: Record<string, string | undefined> = { ...actions, push: strictest(safety.push, actions.push) };
+  const levels: Record<string, string | undefined> = { ...actions, push: strictest(safety.push, actions.push), spawn_review: actions.spawn_sessions };
   for (const [action, re] of Object.entries(ACTIONS)) {
     if (!re.test(cmd)) continue;
     // suggest: the agent only suggests, so it never takes these actions itself.
