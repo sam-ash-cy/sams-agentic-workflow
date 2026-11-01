@@ -36,7 +36,7 @@ saw doctor
 
 On Windows, add `%USERPROFILE%\sams-agentic-workflow\bin` to the user PATH (System Properties → Environment Variables), then open a new terminal.
 
-Works when: `saw doctor` prints `saw doctor: ok`.
+Works when: `saw doctor` runs. Until step 2 it reports one problem, `Claude Code plugin sams-agentic-workflow is not installed`; that is expected. `saw doctor --no-plugin` skips that check.
 
 ## 2. Global setup (once per machine)
 
@@ -63,10 +63,12 @@ Works when:
 claude plugin list
 ```
 
-shows both `sams-agentic-workflow@sams-agentic-workflow` and `mattpocock-skills@sams-agentic-workflow` with `Status: ✔ enabled`.
+shows both `sams-agentic-workflow@sams-agentic-workflow` and `mattpocock-skills@sams-agentic-workflow` with `Status: ✔ enabled`, and `saw doctor` prints `saw doctor: ok` (it runs `claude plugin list` and reports the plugin if it's missing or disabled).
+
+Cloning the repo doesn't install the plugin: Claude Code only loads it after the bootstrap's install step. Without it no hook runs, so nothing is guarded or verified even though `saw` itself works.
 
 If it didn't:
-- `skip: plugin install (claude not on PATH)`: install Claude Code, then re-run the bootstrap; it skips what's already done.
+- `skip: plugin install (claude not on PATH)`: the bootstrap prints this and carries on, so it's easy to miss. Make sure `claude --version` works in the same terminal, then re-run the bootstrap; it skips what's already done.
 - `failed to load ... Dependency "mattpocock-skills..."`: run `claude plugin install mattpocock-skills@sams-agentic-workflow`.
 - Set `SAW_NO_PLUGIN=1` to do only the CLAUDE.md and settings steps.
 

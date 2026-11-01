@@ -7,7 +7,7 @@ import type { Table, Value } from "./defaults";
 import { syncAgents } from "./agents";
 import { AGENTS, checkAdapters, installAdapters } from "./adapters";
 import { syncVault, vaultPath } from "./vault";
-import { budgetHook, contextHook } from "./context";
+import { budgetHook, contextHook, routerNudge } from "./context";
 import { guardHook } from "./guard";
 import { sessionHook, UNITS } from "./sessions";
 import { recordReview, reviewApplies, reviewArgv, reviewBrief, writeChange, type ReviewSettings } from "./review-session";
@@ -26,7 +26,7 @@ import { sanitize, sanitizeHistory } from "./sanitize";
 import { syncSkillDenies } from "./skills";
 import { applyPlan, gh, readState, repoName, repoPlan, type Gh } from "./repo";
 import { formatHook, runCheck } from "./run";
-import { currentTask, endTask, gate, pickTier, recordCheck, startTask, taskReport, taskStatus, taskSteps } from "./task";
+import { currentTask, endTask, gate, markUntaskedEdit, pickTier, recordCheck, startTask, taskReport, taskStatus, taskSteps } from "./task";
 import { patchToml, readToml, stringifyToml } from "./toml";
 
 const USAGE = `usage: saw <command>
@@ -34,7 +34,7 @@ const USAGE = `usage: saw <command>
   config get <key>
   config set <key> <value> [--scope global|project|local]   (default: project)
   config unset <key> [--scope ...]
-  doctor [--hooks]                   check settings and environment (--hooks: run each plugin hook once)
+  doctor [--hooks] [--no-plugin]     check settings, environment and the Claude Code plugin install (--hooks: run each plugin hook once)
   init [--dry-run] [--force] [--type <t>] [--hooks] [--agents a,b] [--repo [o/n]]   add workflow.toml, AGENTS.md, CI and the docs/ vault (+ agent adapters; --repo: show the repo plan)
   init --upgrade [--dry-run]         update unedited template files to the current template; edited ones are kept
   uninstall [--dry-run]              remove template files you haven't edited
@@ -239,6 +239,7 @@ export function run(argv: string[], cwd = process.cwd()): number {
     const lint = lintContext(cwd, resolved.config);
     const problems = [...resolved.warnings, ...lint];
     for (const p of lint) console.error(`warning: ${p}`);
+    if (!args.flags.has("--no-plugin") && process.env.SAW_NO_PLUGIN !== "1") problems.push(...checkPlugin());
     if (args.flags.has("--hooks")) problems.push(...checkHooks(cwd));
     const ok = problems.length === 0;
     console.log(ok ? "saw doctor: ok" : `saw doctor: ${problems.length} problem(s)`);
@@ -440,10 +441,10 @@ export function run(argv: string[], cwd = process.cwd()): number {
     }
     const budget = budgetHook(cwd, resolved.config, currentTask(cwd), input);
     if (budget) logEvent(cwd, resolved.config, "warn", "budget", String(budget.systemMessage));
-    const outs = [contextHook(cwd, resolved.config, input), budget].filter((o) => o !== undefined);
+    const outs = [routerNudge(cwd, resolved.config), contextHook(cwd, resolved.config, input), budget].filter((o) => o !== undefined);
     if (outs.length === 1) console.log(JSON.stringify(outs[0]));
-    else if (outs.length === 2) {
-      // One hook, one JSON object: join the two nudges.
+    else if (outs.length > 1) {
+      // One hook, one JSON object: join the nudges.
       const text = (o: Record<string, unknown>, k: string): string => k === "systemMessage" ? o.systemMessage as string : (o.hookSpecificOutput as { additionalContext: string }).additionalContext;
       console.log(JSON.stringify({
         systemMessage: outs.map((o) => text(o, "systemMessage")).join("\n"),
@@ -468,6 +469,7 @@ export function run(argv: string[], cwd = process.cwd()): number {
       if (h.updatedInput) logEvent(cwd, resolved.config, "info", "guard.rewrite", `rewritten to ${h.updatedInput.command}`);
       else logEvent(cwd, resolved.config, h.permissionDecision === "deny" ? "warn" : "info", `guard.${h.permissionDecision}`, String(h.permissionDecisionReason));
     }
+    if (command === "format-hook") markUntaskedEdit(cwd);
     if (command === "format-hook" && out) logEvent(cwd, resolved.config, "debug", "format", "format-hook ran");
     return 0;
   }
@@ -614,7 +616,10 @@ function autopilotCommand(cwd: string, config: Table, weakened: string[], args: 
       sleep: (ms) => Bun.sleepSync(ms),
       now: () => new Date(),
       uuid: () => crypto.randomUUID(),
-      log: (l) => console.log(`saw autopilot: ${l}`),
+      log: (l) => {
+        console.log(`saw autopilot: ${l}`);
+        logEvent(cwd, config, l.startsWith("stop:") || l.includes("parked") ? "warn" : "info", "autopilot", l);
+      },
     }, { once: args.flags.has("--once") });
   } finally {
     rmSync(lock, { force: true });
@@ -801,6 +806,27 @@ function checkHooks(cwd: string): string[] {
     }
   }
   return problems;
+}
+
+// saw doctor: the CLI can be fine while Claude Code never loads the plugin
+// (bootstrap skips the install when `claude` isn't on PATH), so no hook runs.
+export function pluginProblem(listOutput: string): string | undefined {
+  const block = /sams-agentic-workflow@\S+[^]*?(?=\n\s*❯|$)/.exec(listOutput)?.[0];
+  if (!block) return "Claude Code plugin sams-agentic-workflow is not installed: rerun the bootstrap with `claude` on PATH, or `claude plugin install sams-agentic-workflow@sams-agentic-workflow`";
+  if (/disabled/i.test(block)) return "Claude Code plugin sams-agentic-workflow is installed but disabled: `claude plugin enable sams-agentic-workflow@sams-agentic-workflow`";
+  return undefined;
+}
+
+function checkPlugin(): string[] {
+  if (!Bun.which("claude")) {
+    console.log("  plugin: skipped (claude not on PATH)");
+    return [];
+  }
+  const proc = Bun.spawnSync(["claude", "plugin", "list"], { stdout: "pipe", stderr: "pipe" });
+  const problem = proc.exitCode === 0 ? pluginProblem(proc.stdout.toString()) : `\`claude plugin list\` exited ${proc.exitCode}`;
+  if (problem) console.error(`problem: ${problem}`);
+  else console.log("  plugin: ok");
+  return problem ? [problem] : [];
 }
 
 // run() returns this when a server is running: the entrypoint must not exit.

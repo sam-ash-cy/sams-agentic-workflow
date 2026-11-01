@@ -7,6 +7,19 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Table } from "./defaults";
 import { transcriptTokens } from "./metrics";
+import { currentTask, isSawProject } from "./task";
+
+// With no task open, routing depends on the agent picking the router skill
+// among every other skill it has, so say it on each prompt until a task opens.
+export function routerNudge(cwd: string, config: Table): Record<string, unknown> | undefined {
+  const features = (config.features ?? {}) as Record<string, boolean>;
+  if (!features.verify_hook || !isSawProject(cwd) || currentTask(cwd)) return undefined;
+  const message = "No saw task is open. If this prompt asks for a code or config change, use the router skill first: classify it, then run `saw task start --tier <t> --playbook <p>`. Skip this for questions.";
+  return {
+    systemMessage: "saw: no task open; the router skill opens one",
+    hookSpecificOutput: { hookEventName: "UserPromptSubmit", additionalContext: `[saw context] ${message}` },
+  };
+}
 
 // Current context size = the prompt tokens of the latest assistant turn
 // (input + cache creation + cache reads). The transcript isn't a documented

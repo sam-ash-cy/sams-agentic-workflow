@@ -27,7 +27,8 @@ A task isn't done until its checks pass.
 - `saw run <check>` runs `checks.<check>` quietly, keeps the full log in `output.full_logs`, and records the result. `--changed` runs only the tests for changed files.
 - `saw task record <check> pass|fail --note "..."` records a judgement check (code review, threat model).
 - `saw task status` shows which required checks passed, failed or are missing.
-- The **gate** (a Stop hook) blocks the agent from saying "done" until the tier's checks pass. The result is labelled Verified, Partially verified, Not verified or Blocked.
+- The **gate** (a Stop hook) blocks the agent from saying "done" until the tier's checks pass. The result is labelled Verified, Partially verified, Not verified or Blocked. If files were edited while no task was open, it blocks once and asks for the router and `saw task start`, so skipping routing doesn't skip verification.
+- With no task open, the **context** hook adds a one-line reminder to each prompt to use the router skill. Both only apply in a project with `workflow.toml`, and both are off when `features.verify_hook` is false.
 - `saw task report` writes the verification section for a PR (`--post` comments it, if `autonomy.actions.open_pr` allows).
 
 Settings: `[checks]` (your commands), `[verify]` (which checks each tier needs; tiers can `extends` another), `features.verify_hook`, `features.code_review`, `features.security_review`, `features.format_hook` (runs `checks.format` after each edit, from your own settings layers only).
@@ -127,4 +128,4 @@ Check your Claude plan's terms before running it unattended on a subscription; A
 
 ## Commands
 
-`saw help` lists every command with its flags. The hooks (`guard`, `gate`, `context`, `format-hook`, `session-hook`, `style-check`) are run by Claude Code; `saw doctor --hooks` runs each once to check them.
+`saw help` lists every command with its flags. The hooks (`guard`, `gate`, `context`, `format-hook`, `session-hook`, `style-check`) are run by Claude Code; `saw doctor --hooks` runs each once to check them. Plain `saw doctor` also runs `claude plugin list` and reports the plugin if it's missing or disabled (`--no-plugin` or `SAW_NO_PLUGIN=1` skips this; it's skipped when `claude` isn't on PATH).
