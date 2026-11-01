@@ -515,6 +515,25 @@
         }
       }
     },
+    "logging": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "default": true
+        },
+        "level": {
+          "type": "string",
+          "default": "info",
+          "enum": [
+            "debug",
+            "info",
+            "warn"
+          ]
+        }
+      }
+    },
     "dashboard": {
       "type": "object",
       "additionalProperties": false,
@@ -527,8 +546,17 @@
             "findings_by_category",
             "rework",
             "cost_per_task",
-            "promotion_effect"
+            "promotion_effect",
+            "events"
           ]
+        },
+        "port": {
+          "type": "number",
+          "default": 4173
+        },
+        "events_limit": {
+          "type": "number",
+          "default": 50
         },
         "output": {
           "type": "string",
