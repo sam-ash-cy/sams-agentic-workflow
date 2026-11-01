@@ -15,7 +15,8 @@ export const TEMPLATE_DIR = join(import.meta.dir, "..", "..", "templates", "proj
 const IGNORES = ["workflow.local.toml", ".saw/"];
 
 function walk(dir: string): string[] {
-  return readdirSync(dir).flatMap((name) => {
+  // Sorted: readdir order differs by filesystem (APFS isn't alphabetical).
+  return readdirSync(dir).sort().flatMap((name) => {
     const path = join(dir, name);
     return statSync(path).isDirectory() ? walk(path) : [path];
   });
