@@ -7,8 +7,11 @@ export interface Table {
 }
 
 export const DEFAULTS: Table = {
+  // Every toggle changes what the CLI or a hook does (cli/test/settings.test.ts
+  // fails on one that doesn't). grilling, tdd and trail shape the steps
+  // `saw task start` prints for the agent; code_review and security_review
+  // drop those checks from [verify].
   features: {
-    router: true,
     grilling: true,
     tdd: true,
     code_review: true,
@@ -16,18 +19,14 @@ export const DEFAULTS: Table = {
     verify_hook: true,
     budgets: true,
     model_routing: true,
-    quiet_output: true,
     compact_nudge: true,
     style_hook: true,
+    format_hook: true,
     trail: false,
     obsidian: true,
-    rederive: false,
     metrics: true,
     dashboard: true,
-    self_improve: true,
     retro: true,
-    parallel_sessions: false,
-    worktrees: true,
     audit: true,
   },
   project: { type: "web" },
@@ -37,7 +36,6 @@ export const DEFAULTS: Table = {
       commit: "ask",
       push: "never",
       open_pr: "ask",
-      spawn_sessions: "propose",
       add_dependency: "ask",
       self_improve: "propose",
       edit_global: "never",
@@ -71,7 +69,7 @@ export const DEFAULTS: Table = {
     trivial: { run: ["test"] },
     standard: { run: ["format", "lint", "typecheck", "test", "code_review", "security_review"] },
     complex: { extends: "standard", run: [] },
-    critical: { extends: "complex", run: ["e2e", "dep_audit", "threat_model"] },
+    critical: { extends: "complex", run: ["e2e", "dep_audit", "threat_model", "rollback_plan"] },
   },
   context: {
     agents_md_max_lines: 100,
@@ -95,12 +93,27 @@ export const DEFAULTS: Table = {
   knowledge: { store: "repo", vault_path: "" },
   // Agents this project supports; saw agents check verifies each reads AGENTS.md.
   agents: { enabled: ["claude"] },
-  metrics: { fields: ["tier", "verification", "findings", "rework", "tokens"] },
   dashboard: {
     panels: ["outcomes", "first_pass_rate", "findings_by_category", "rework", "cost_per_task", "promotion_effect"],
     output: ".saw/dashboard.html",
     // Also write the panels as a Markdown note, e.g. "docs/metrics.md" for the vault. Empty: off.
     obsidian_note: "",
+  },
+  // Whole-project auditors (ADR 0013): skill names run when a task's tier or
+  // playbook is in triggers; saw task start lists them with their token budget.
+  // Third-party auditors must be pinned in deps.lock.toml first.
+  audit: {
+    auditors: ["appsec-review", "dependency-audit-rules", "web-quality-audit"],
+    triggers: ["critical", "hardening", "audit"],
+    token_budget: 100000,
+  },
+  // GitHub settings as code (ADR 0015), for saw repo plan|apply. Off until enabled.
+  repo: {
+    enabled: false,
+    merge: { squash: true, merge_commit: false, rebase: false, delete_branch_on_merge: true, auto_merge: false },
+    protect: { branch: "main", require_pr: true, required_approvals: 1, required_checks: [], block_force_push: true },
+    security: { secret_scanning: true, push_protection: true, dependabot_alerts: true, dependabot_fixes: true },
+    labels: ["tier:trivial", "tier:standard", "tier:complex", "tier:critical"],
   },
   // saw retro: a check failing in this many tasks becomes a proposal.
   retro: { repeat_threshold: 2, proposals_dir: "docs/proposals" },

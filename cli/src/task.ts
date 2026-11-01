@@ -88,12 +88,42 @@ export function requiredChecks(config: Table, tier: string, seen = new Set<strin
   if (!entry || seen.has(tier)) return [];
   seen.add(tier);
   const parent = entry.extends ? requiredChecks(config, entry.extends, seen) : [];
-  return [...new Set([...parent, ...(entry.run ?? [])])];
+  // features.code_review / security_review off: those reviews aren't required.
+  const features = (config.features ?? {}) as Record<string, boolean>;
+  return [...new Set([...parent, ...(entry.run ?? [])])].filter((c) => !(c in REVIEW_FEATURES) || features[REVIEW_FEATURES[c]!] !== false);
+}
+
+const REVIEW_FEATURES: Record<string, string> = { code_review: "code_review", security_review: "security_review" };
+
+// The tier for `saw task start`: --tier, else routing.default_tier unless it's "auto".
+export function pickTier(config: Table, flag: string | undefined): string {
+  if (flag) return flag;
+  const d = ((config.routing ?? {}) as { default_tier?: string }).default_tier;
+  if (d && d !== "auto") return d;
+  throw new Error("--tier is required (routing.default_tier is auto)");
+}
+
+// Lifecycle steps `saw task start` prints for the agent, from [features] and [routing].
+export function taskSteps(config: Table, tier: string, playbook = "feature"): string[] {
+  const features = (config.features ?? {}) as Record<string, boolean>;
+  const grill = ((config.routing ?? {}) as { always_grill?: string[] }).always_grill ?? [];
+  const steps: string[] = [];
+  if (features.grilling && grill.includes(tier)) steps.push("grilling first");
+  if (features.trail) steps.push("trail ask/skeleton before reading code");
+  if (features.tdd && tier !== "trivial") steps.push("tdd (failing test first)");
+  const checks = requiredChecks(config, tier);
+  steps.push(checks.length ? `checks: ${checks.join(", ")}` : "checks: none");
+  const audit = (config.audit ?? {}) as { auditors?: string[]; triggers?: string[]; token_budget?: number };
+  const triggered = (audit.triggers ?? []).some((t) => t === tier || t === playbook);
+  if (features.audit && triggered && audit.auditors?.length) {
+    steps.push(`audit: ${audit.auditors.join(", ")} (≤${audit.token_budget} tokens each; findings in one list)`);
+  }
+  return steps;
 }
 
 // Checks judged by the agent and recorded with `saw task record`; every other
 // check needs a command in [checks] and only counts when `saw run` ran it.
-export const JUDGEMENT_CHECKS = ["code_review", "security_review", "threat_model"];
+export const JUDGEMENT_CHECKS = ["code_review", "security_review", "threat_model", "rollback_plan"];
 
 export interface Status {
   label: Label;
@@ -122,6 +152,21 @@ export function taskStatus(cwd: string, config: Table, task: Task): Status {
   if (status.failed.length) status.label = "Blocked";
   else if (status.missing.length) status.label = status.passed.length ? "Partially verified" : "Not verified";
   return status;
+}
+
+// `saw task report`: the verification section of a PR description.
+export function taskReport(cwd: string, config: Table, task: Task): string {
+  const s = taskStatus(cwd, config, task);
+  const notes = new Map([...checksSince(cwd, task.from)].map(([name, r]) => [name, r.note]));
+  const line = (name: string, label: string): string => `- ${label}: \`${name}\`${notes.get(name) ? ` (${notes.get(name)})` : ""}`;
+  return [
+    `**Verification: ${s.label}** (${task.tier} / ${task.playbook})`,
+    "",
+    ...s.passed.map((n) => line(n, "Verified")),
+    ...s.failed.map((n) => line(n, "Failed")),
+    ...s.missing.map((n) => line(n, "Not verified")),
+    ...s.unconfigured.map((n) => `- Not verified: \`${n}\` (no command configured)`),
+  ].join("\n");
 }
 
 // Stop hook: returns the JSON to print, or undefined to allow the stop.

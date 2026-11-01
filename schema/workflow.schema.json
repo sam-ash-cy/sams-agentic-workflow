@@ -8,10 +8,6 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "router": {
-          "type": "boolean",
-          "default": true
-        },
         "grilling": {
           "type": "boolean",
           "default": true
@@ -40,15 +36,15 @@
           "type": "boolean",
           "default": true
         },
-        "quiet_output": {
-          "type": "boolean",
-          "default": true
-        },
         "compact_nudge": {
           "type": "boolean",
           "default": true
         },
         "style_hook": {
+          "type": "boolean",
+          "default": true
+        },
+        "format_hook": {
           "type": "boolean",
           "default": true
         },
@@ -60,10 +56,6 @@
           "type": "boolean",
           "default": true
         },
-        "rederive": {
-          "type": "boolean",
-          "default": false
-        },
         "metrics": {
           "type": "boolean",
           "default": true
@@ -72,19 +64,7 @@
           "type": "boolean",
           "default": true
         },
-        "self_improve": {
-          "type": "boolean",
-          "default": true
-        },
         "retro": {
-          "type": "boolean",
-          "default": true
-        },
-        "parallel_sessions": {
-          "type": "boolean",
-          "default": false
-        },
-        "worktrees": {
           "type": "boolean",
           "default": true
         },
@@ -139,10 +119,6 @@
             "open_pr": {
               "type": "string",
               "default": "ask"
-            },
-            "spawn_sessions": {
-              "type": "string",
-              "default": "propose"
             },
             "add_dependency": {
               "type": "string",
@@ -438,22 +414,6 @@
         }
       }
     },
-    "metrics": {
-      "type": "object",
-      "additionalProperties": false,
-      "properties": {
-        "fields": {
-          "type": "array",
-          "default": [
-            "tier",
-            "verification",
-            "findings",
-            "rework",
-            "tokens"
-          ]
-        }
-      }
-    },
     "dashboard": {
       "type": "object",
       "additionalProperties": false,
@@ -476,6 +436,125 @@
         "obsidian_note": {
           "type": "string",
           "default": ""
+        }
+      }
+    },
+    "audit": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "auditors": {
+          "type": "array",
+          "default": [
+            "appsec-review",
+            "dependency-audit-rules",
+            "web-quality-audit"
+          ]
+        },
+        "triggers": {
+          "type": "array",
+          "default": [
+            "critical",
+            "hardening",
+            "audit"
+          ]
+        },
+        "token_budget": {
+          "type": "number",
+          "default": 100000
+        }
+      }
+    },
+    "repo": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "default": false
+        },
+        "merge": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "squash": {
+              "type": "boolean",
+              "default": true
+            },
+            "merge_commit": {
+              "type": "boolean",
+              "default": false
+            },
+            "rebase": {
+              "type": "boolean",
+              "default": false
+            },
+            "delete_branch_on_merge": {
+              "type": "boolean",
+              "default": true
+            },
+            "auto_merge": {
+              "type": "boolean",
+              "default": false
+            }
+          }
+        },
+        "protect": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "branch": {
+              "type": "string",
+              "default": "main"
+            },
+            "require_pr": {
+              "type": "boolean",
+              "default": true
+            },
+            "required_approvals": {
+              "type": "number",
+              "default": 1
+            },
+            "required_checks": {
+              "type": "array",
+              "default": []
+            },
+            "block_force_push": {
+              "type": "boolean",
+              "default": true
+            }
+          }
+        },
+        "security": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "secret_scanning": {
+              "type": "boolean",
+              "default": true
+            },
+            "push_protection": {
+              "type": "boolean",
+              "default": true
+            },
+            "dependabot_alerts": {
+              "type": "boolean",
+              "default": true
+            },
+            "dependabot_fixes": {
+              "type": "boolean",
+              "default": true
+            }
+          }
+        },
+        "labels": {
+          "type": "array",
+          "default": [
+            "tier:trivial",
+            "tier:standard",
+            "tier:complex",
+            "tier:critical"
+          ]
         }
       }
     },

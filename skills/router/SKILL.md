@@ -35,7 +35,7 @@ Reproduce before changing code. If you're still stuck after that, follow prompts
 
 ## 3. Evidence
 - Mechanical checks: `saw run <check>` (it prints only failures and records the result).
-- Judgement checks (code_review, security_review, threat_model): do the review, then `saw task record <check> pass|fail --note "<one line>"`.
+- Judgement checks (code_review, security_review, threat_model, rollback_plan for critical): do the review, then `saw task record <check> pass|fail --note "<one line>"`.
 - A check counts only if it ran in this task. Never report one from memory.
 
 ## 4. Report (end of task)
@@ -44,7 +44,7 @@ Run `saw task status` and use its label:
 - **Partially verified**: some passed, some did not run (say which and why).
 - **Not verified**: none ran (say why, e.g. no Docker here).
 - **Blocked**: a check failed and is not fixed.
-Then `saw task end`. A Stop hook blocks "done" while required checks are missing or failing. If a check failed during the task, run `saw retro`; any proposal it writes is handled with the retro-promote skill.
+For a PR description, paste `saw task report`. Then `saw task end`. A Stop hook blocks "done" while required checks are missing or failing. If a check failed during the task, run `saw retro`; any proposal it writes is handled with the retro-promote skill.
 
 ## 5. Suggest
 After the report, suggest at most two follow-up features or improvements, each one line, and ask which (if any) the user wants.
