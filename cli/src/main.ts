@@ -1,6 +1,7 @@
 // saw: the sams-agentic-workflow CLI.
 
 import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { homedir } from "node:os";
 import { isAbsolute, join, relative, resolve as resolvePath } from "node:path";
 import { baseBranch, flatten, inside, layerPaths, loosens, parseValue, resolve, setPath, unsetPath, validate, weakenedSafety, type Layer } from "./config";
 import type { Table, Value } from "./defaults";
@@ -18,7 +19,7 @@ import { logEvent, readEvents } from "./events";
 import { appendMetric, buildMetric, readMetrics } from "./metrics";
 import { compare, summarise, type Comparison, type Summary } from "./evals";
 import { readProposals, retro } from "./retro";
-import { compareUrl, pin, readLock, verifyLock } from "./deps";
+import { compareUrl, eccProblem, pin, readLock, verifyLock } from "./deps";
 import { depAuditFor, init, recordInstalled, uninstall, upgrade, type ChangeReport, type InitReport } from "./init";
 import { lintContext, lintMemory } from "./lint";
 import { outline } from "./outline";
@@ -240,6 +241,14 @@ export function run(argv: string[], cwd = process.cwd()): number {
     const problems = [...resolved.warnings, ...lint];
     for (const p of lint) console.error(`warning: ${p}`);
     if (args.flags.has("--hooks")) problems.push(...checkHooks(cwd));
+    if ((resolved.config.features as Record<string, boolean>).ecc) {
+      const installed = join(process.env.CLAUDE_CONFIG_DIR ?? join(homedir(), ".claude"), "plugins", "installed_plugins.json");
+      const ecc = eccProblem(existsSync(installed) ? readFileSync(installed, "utf8") : undefined, readLock(join(PLUGIN_ROOT, "deps.lock.toml")).ecc?.sha);
+      if (ecc) {
+        console.error(`warning: ${ecc}`);
+        problems.push(ecc);
+      }
+    }
     const ok = problems.length === 0;
     console.log(ok ? "saw doctor: ok" : `saw doctor: ${problems.length} problem(s)`);
     return ok ? 0 : 1;

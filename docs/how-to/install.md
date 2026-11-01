@@ -159,6 +159,23 @@ runs each plugin hook once. Works when every line says `ok` and it ends with `sa
 
   The bundled music is CC BY 4.0 by Sascha Ende (ende.app): credit him wherever you publish a video.
 
+- **ECC** (`features.ecc`): a Claude Code plugin by Affaan Mustafa (MIT), [affaan-m/ECC](https://github.com/affaan-m/ECC). Install it from saw's marketplace, which pins it at the commit in `deps.lock.toml` (or set `SAW_WITH_ECC=1` before running the bootstrap). Then turn off the ECC hooks that duplicate saw's: add an `env` block to `~/.claude/settings.json`.
+
+  ```bash
+  claude plugin install ecc@sams-agentic-workflow
+  saw config set features.ecc true
+  saw doctor
+  ```
+
+  ```json
+  "env": {
+    "ECC_GATEGUARD": "off",
+    "ECC_DISABLED_HOOKS": "pre:edit-write:suggest-compact,stop:format-typecheck"
+  }
+  ```
+
+  Skills saw uses: `strategic-compact`, `context-budget`, `verification-loop`; also worth a look: `token-budget-advisor`, `search-first`, `iterative-retrieval`. If you installed ECC from its own marketplace (`ecc@ecc`), `saw doctor` still accepts it but warns when its commit differs from the pin.
+
 - **Trail code map** (`features.trail`): install `@trailhq/trail-code` with bun, run `trail init` in the project, then `saw config set features.trail true`.
 - **GitHub settings as code**: `saw config set repo.enabled true`, review `saw repo plan`, then `saw repo apply --yes`.
 - **Autopilot**: see [Autopilot](../reference/features.md#autopilot). It spends money unattended: only the user turns it on.
