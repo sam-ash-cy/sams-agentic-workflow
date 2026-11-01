@@ -9,6 +9,7 @@ Each case is a folder: `prompt.md` (the task, plus `max_turns`, `allowed_tools` 
 | router-complex | a new subsystem starts with grilling, options and an ADR, and waits for approval |
 | router-critical | handling secrets gets a threat model and the hardening playbook |
 | gate-blocks | "done" is never claimed before the checks run |
+| style-normal, -structured, -detailed, -verbose | the same task under each tone stays within its word cap and keeps the verification label |
 
 ## Running
 ```

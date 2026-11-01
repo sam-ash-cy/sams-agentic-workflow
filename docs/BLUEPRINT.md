@@ -200,7 +200,11 @@ Each phase's own build is also run token-light: narrow tests, a fresh session pe
    - `max_words`: a cap on each reply's prose (default 250; code blocks, diffs and tool output don't count). Overridable per tier (e.g. trivial 80, critical 600) and per task ("this task: tone=verbose").
    - Applied through the global fragment and the router's one-line tier statement, and enforced by a Stop hook that warns, or asks for a shorter rewrite in `hard` mode, when a reply goes over the cap.
    - Evals: the same task under each tone stays within its cap and keeps the verification labels.
-10. **Public release.** Sanitisation scan, MIT licence, GETTING_STARTED walkthrough. The GitHub repo is created only with your explicit OK.
+10. **Session per unit of work.** A `[sessions]` section: `new_per = ["phase", "stage", "feature"]` (default all three) and `mode = "soft" | "hard"`.
+   - When the router classifies a task as starting a new phase, stage or feature in a session that has already finished one (committed, or its PR opened), a hook steps in. Soft mode warns. Hard mode blocks until a handoff (prompts/handoff.md) is written and a fresh session is started (through `autonomy.actions.spawn_sessions`).
+   - It complements the existing context-% handoff in cli/src/context.ts and the runner's one-item-one-session rule (ADR 0014).
+   - Evals: a second phase in the same session triggers the warning or block; a follow-up fix within the same phase doesn't.
+11. **Public release.** Sanitisation scan, MIT licence, GETTING_STARTED walkthrough. The GitHub repo is created only with your explicit OK.
 
 ## Migration from the original proposal
 - **Stays:** the stage roadmap, docs skeleton, review gates, foundation/design playbooks, collaborative suggestions, public MIT release.
@@ -244,7 +248,7 @@ Each phase's own build is also run token-light: narrow tests, a fresh session pe
 See [ADR 0013](decisions/0013-audit-layer.md). It adds an 8th playbook, `audit`, and an `[audit]` settings section, which is a catalogue of opt-in whole-project auditors: Cloudflare security-audit, Trail of Bits skills, own appsec/dependency/web-quality skills. Audits run only on configured triggers (hardening stage, critical tier, every N stages, before release, on demand) and each has its own token budget. Findings go into one schema. Roadmap: Phase 6b.
 
 ## Addendum: autonomous runner (2026-10-31)
-See [ADR 0014](decisions/0014-autonomous-runner.md). **Phase 10: `saw autopilot`.** It works through the approved items in `docs/plans/queue.md`, one item per fresh headless session, branch and PR. When it hits a usage limit it saves state, waits for the reset and resumes the same session. It is opt-in, under hard budget caps, never merges or deploys, and runs only on items the owner approved.
+See [ADR 0014](decisions/0014-autonomous-runner.md). **Phase 12: `saw autopilot`.** It works through the approved items in `docs/plans/queue.md`, one item per fresh headless session, branch and PR. When it hits a usage limit it saves state, waits for the reset and resumes the same session. It is opt-in, under hard budget caps, never merges or deploys, and runs only on items the owner approved.
 
 ## Addendum: repo settings and prompts (2026-10-31)
 - **Phase 8b: `saw repo plan|apply`** ([ADR 0015](decisions/0015-repo-settings-as-code.md)). A `[repo]` section declares the GitHub settings: merge options, branch rules, security features and labels. They're applied with `gh` / the REST API after a diff and an explicit confirmation.

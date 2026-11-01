@@ -13,6 +13,9 @@
 ## Rules that aren't obvious from the code
 -
 
+## Reply style
+- Follow `[style]` in workflow.toml (`saw style` shows this task's tone and word cap). Code blocks, diffs and tool output don't count toward the cap; the verification label is always kept.
+
 ## Where things are
 - Decisions: docs/decisions/ · Conventions: docs/conventions.md · Glossary: docs/glossary.md
 - Workflow settings: workflow.toml (`saw config show`)

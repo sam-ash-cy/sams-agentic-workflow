@@ -48,6 +48,10 @@
           "type": "boolean",
           "default": true
         },
+        "style_hook": {
+          "type": "boolean",
+          "default": true
+        },
         "trail": {
           "type": "boolean",
           "default": false
@@ -350,6 +354,56 @@
         "full_logs": {
           "type": "string",
           "default": ".saw/logs"
+        }
+      }
+    },
+    "style": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "tone": {
+          "type": "string",
+          "default": "normal",
+          "enum": [
+            "normal",
+            "structured",
+            "detailed",
+            "verbose"
+          ]
+        },
+        "max_words": {
+          "type": "number",
+          "default": 250
+        },
+        "by_tier": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "trivial": {
+              "type": "number",
+              "default": 80
+            },
+            "standard": {
+              "type": "number",
+              "default": 0
+            },
+            "complex": {
+              "type": "number",
+              "default": 0
+            },
+            "critical": {
+              "type": "number",
+              "default": 600
+            }
+          }
+        },
+        "mode": {
+          "type": "string",
+          "default": "soft",
+          "enum": [
+            "soft",
+            "hard"
+          ]
         }
       }
     },

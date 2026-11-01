@@ -1,10 +1,10 @@
 ---
 name: router
-description: Use at the start of every coding task (feature, bug, refactor, config change, design, investigation). Classifies the task into a tier and playbook, says both in one line, then follows that path. The user can override with "tier=<t>" or "playbook=<p>".
+description: Use at the start of every coding task (feature, bug, refactor, config change, design, investigation). Classifies the task into a tier and playbook, says both in one line, then follows that path. The user can override with "tier=<t>", "playbook=<p>", "tone=<t>" or "max_words=<n>".
 ---
 
 ## 1. Classify (one line, then go)
-Say: `Tier: <tier> · Playbook: <playbook> · <reason in ≤10 words>`. If the user overrides it, use theirs.
+Say: `Tier: <tier> · Playbook: <playbook> · Style: <tone>, ≤<n> words · <reason in ≤10 words>`. If the user overrides it, use theirs. The style comes from `saw style` (or the `saw task start` output); a per-task override ("this task: tone=verbose") goes to `saw task start ... --tone <t> --max-words <n>`.
 
 | Tier | Signals |
 |---|---|
@@ -16,6 +16,8 @@ Say: `Tier: <tier> · Playbook: <playbook> · <reason in ≤10 words>`. If the u
 When unsure between two tiers, pick the higher. Then run `saw task start --tier <tier> --playbook <playbook>`.
 
 Playbooks (read only the one you picked, from `playbooks/<name>.md`): foundation · design · feature · integration · debug · spike · hardening · audit.
+
+Tones: **normal** plain answer · **structured** bullets and tables, little prose · **detailed** reasoning and trade-offs · **verbose** full context and walkthroughs. The word cap counts prose only (code blocks, diffs and tool output don't count) and never drops the verification label.
 
 ## 2. Path by tier
 - **trivial**: implement → run the checks for touched files → report. No plan, no grilling, no subagents.

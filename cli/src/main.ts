@@ -8,6 +8,7 @@ import { syncAgents } from "./agents";
 import { AGENTS, checkAdapters, installAdapters } from "./adapters";
 import { syncVault, vaultPath } from "./vault";
 import { contextHook } from "./context";
+import { effectiveStyle, styleCheck, styleLine, TONES } from "./style";
 import { renderHtml, renderMarkdown } from "./dashboard";
 import { appendMetric, buildMetric, readMetrics } from "./metrics";
 import { compare, summarise, type Comparison, type Summary } from "./evals";
@@ -32,7 +33,7 @@ const USAGE = `usage: saw <command>
   deps list | verify [--strict]      pinned third-party skills (deps.lock.toml)
   deps diff <name> <sha>             compare URL to review before updating a pin
   deps pin <name> <sha> --reviewed-by <who>
-  task start --tier <t> --playbook <p>   open a task (the router does this)
+  task start --tier <t> --playbook <p> [--tone <t>] [--max-words <n>]   open a task (the router does this)
   task status                        report label + which required checks passed, failed or are missing
   task record <check> pass|fail [--note "..."]   record a judgement check (code_review, ...)
   task end [--tokens <n>]            close the task and append its metrics (.saw/metrics.jsonl)
@@ -44,6 +45,8 @@ const USAGE = `usage: saw <command>
   gate                               Stop hook: block "done" until the tier's checks pass
   lint-context                       AGENTS.md / CLAUDE.md size limits
   context                            UserPromptSubmit hook: suggest /compact as context fills
+  style                              the effective reply style for this task (tone, word cap)
+  style-check                        Stop hook: warn (soft) or ask for a rewrite (hard) when a reply is over the cap
 global flag: --set key=value         per-task override (repeatable)`;
 
 interface Args {
@@ -54,7 +57,7 @@ interface Args {
   values: Record<string, string>;
 }
 
-const VALUE_FLAGS = ["--tier", "--playbook", "--note", "--plugin-dir", "--reviewed-by", "--type", "--tokens", "--case", "--agents"];
+const VALUE_FLAGS = ["--tier", "--playbook", "--note", "--plugin-dir", "--reviewed-by", "--type", "--tokens", "--case", "--agents", "--tone", "--max-words"];
 const PLUGIN_ROOT = join(import.meta.dir, "..", "..");
 
 function parseArgs(argv: string[]): Args {
@@ -277,6 +280,21 @@ export function run(argv: string[], cwd = process.cwd()): number {
     if (out) console.log(JSON.stringify(out));
     return 0;
   }
+  if (command === "style") {
+    console.log(styleLine(effectiveStyle(resolved.config, currentTask(cwd))));
+    return 0;
+  }
+  if (command === "style-check") {
+    let input = {};
+    try {
+      input = JSON.parse(readFileSync(0, "utf8") || "{}");
+    } catch {
+      // No hook payload: nothing to count.
+    }
+    const out = styleCheck(cwd, resolved.config, input);
+    if (out) console.log(JSON.stringify(out));
+    return 0;
+  }
   if (command === "lint-context") {
     const problems = lintContext(cwd, resolved.config);
     for (const p of problems) console.error(p);
@@ -290,8 +308,15 @@ function taskCommand(cwd: string, config: Table, args: Args): number {
   const [, sub, name, status] = args.positional;
   try {
     if (sub === "start") {
-      const t = startTask(cwd, args.values.tier ?? "", args.values.playbook ?? "feature");
-      console.log(`task: ${t.tier} / ${t.playbook}`);
+      const tone = args.values.tone;
+      if (tone !== undefined && !(TONES as readonly string[]).includes(tone)) return fail(`--tone must be one of ${TONES.join(" | ")}`);
+      const rawCap = args.values["max-words"];
+      if (rawCap !== undefined && !/^[1-9]\d*$/.test(rawCap)) return fail("--max-words must be a positive whole number");
+      const t = startTask(cwd, args.values.tier ?? "", args.values.playbook ?? "feature", {
+        tone,
+        max_words: rawCap === undefined ? undefined : Number(rawCap),
+      });
+      console.log(`task: ${t.tier} / ${t.playbook} · ${styleLine(effectiveStyle(config, t))}`);
       return 0;
     }
     if (sub === "end") {
