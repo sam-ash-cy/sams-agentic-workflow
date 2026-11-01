@@ -22,7 +22,12 @@ export interface ReviewRecord {
   mode: string;
   findings: number;
   report: string;
+  // undefined: the report had no verdict line, so the review didn't finish and doesn't count.
+  verdict?: "pass" | "fail";
 }
+
+export const reportVerdict = (report: string): "pass" | "fail" | undefined =>
+  (/^\s*verdict:\s*(pass|fail)\b/im.exec(report)?.[1]?.toLowerCase() as "pass" | "fail" | undefined);
 
 const settings = (config: Table): ReviewSettings => (config.review_session ?? {}) as ReviewSettings;
 
@@ -75,6 +80,7 @@ export function reviewBrief(cwd: string, config: Table, kind: string, id: string
       : `Read ${sources.join(" and ")}, then the change: \`git diff ${base}...HEAD\` and \`git status --short\` for uncommitted work.`,
     ...jobs,
     "Report: one line per finding, most severe first, each `- [category] file:line: what is wrong, and the failure it causes`. Then `verdict: pass` or `verdict: fail`.",
+    "Your last message is the report itself and nothing else: saw reads only that. Don't save learnings or notes (no `trail note`); a finding worth keeping goes in the report.",
   ].join("\n");
 }
 
@@ -86,7 +92,7 @@ export function recordReview(cwd: string, kind: string, id: string, mode: string
   mkdirSync(dir, { recursive: true });
   const file = join(dir, `${safeId(id)}.md`);
   writeFileSync(file, report.endsWith("\n") ? report : report + "\n");
-  const rec: ReviewRecord = { at: now.toISOString(), unit: id, kind, mode, findings: countFindings(report), report: file };
+  const rec: ReviewRecord = { at: now.toISOString(), unit: id, kind, mode, findings: countFindings(report), report: file, verdict: reportVerdict(report) };
   appendFileSync(join(cwd, ".saw", "reviews.jsonl"), JSON.stringify(rec) + "\n");
   return rec;
 }
@@ -103,7 +109,7 @@ export function readReviews(cwd: string): ReviewRecord[] {
   });
 }
 
-export const reviewedSince = (cwd: string, id: string, since = ""): boolean => readReviews(cwd).some((r) => r.unit === id && r.at >= since);
+export const reviewedSince = (cwd: string, id: string, since = ""): boolean => readReviews(cwd).some((r) => r.unit === id && r.at >= since && r.verdict !== undefined);
 
 // The headless sub-session: edits and shell writes disallowed, read tools only.
 // The brief goes on stdin: a multi-line argument breaks the claude.cmd shim npm installs on Windows.

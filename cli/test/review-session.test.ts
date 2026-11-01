@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { resolve } from "../src/config";
 import { guardCommand } from "../src/guard";
 import { buildMetric } from "../src/metrics";
-import { countFindings, readReviews, recordReview, reviewApplies, reviewArgv, reviewBrief } from "../src/review-session";
+import { countFindings, readReviews, recordReview, reviewApplies, reviewArgv, reviewBrief, reviewedSince } from "../src/review-session";
 import { sessionHook, type SessionHookInput } from "../src/sessions";
 import { startTask, taskSteps } from "../src/task";
 
@@ -21,6 +21,14 @@ const bash = (event: string, command: string): SessionHookInput =>
   ({ hook_event_name: event, session_id: "s1", tool_name: "Bash", tool_input: { command } });
 const START = "saw task start --tier complex --playbook feature --unit feature --unit-id login";
 const REPORT = "- [missing] cli/src/a.ts:3: flag x is never read\n- [untested] cli/src/b.ts:9: error path\nverdict: fail\n";
+
+test("a report with no verdict line doesn't count as a review", () => {
+  const cwd = mkdtempSync(join(tmpdir(), "saw-rv-"));
+  expect(recordReview(cwd, "feature", "login", "both", "Here is a trail note to save:\n```\n...\n```\n").verdict).toBeUndefined();
+  expect(reviewedSince(cwd, "login")).toBe(false);
+  expect(recordReview(cwd, "feature", "login", "both", REPORT).verdict).toBe("fail");
+  expect(reviewedSince(cwd, "login")).toBe(true);
+});
 
 test("off by default; on, it applies to the when kinds and skips budget-0 tiers", () => {
   expect(reviewApplies(config(), "feature", "complex")).toBe(false);

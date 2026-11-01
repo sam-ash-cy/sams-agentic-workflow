@@ -509,7 +509,11 @@ export function run(argv: string[], cwd = process.cwd()): number {
       const i = input as { tool_name?: string; tool_input?: { command?: unknown; file_path?: unknown } };
       logEvent(cwd, resolved.config, "debug", "guard.allow", `${i.tool_name ?? "tool"}: ${String(i.tool_input?.command ?? i.tool_input?.file_path ?? "").slice(0, 200)}`);
     }
-    if (command === "format-hook") markUntaskedEdit(cwd);
+    if (command === "format-hook") {
+      const path = (input as { tool_input?: { file_path?: unknown; notebook_path?: unknown } }).tool_input;
+      const file = path?.file_path ?? path?.notebook_path;
+      markUntaskedEdit(cwd, typeof file === "string" ? file : undefined);
+    }
     if (command === "format-hook") {
       const source = resolved.sources["checks.format"];
       const skipped = !(resolved.config.checks as Record<string, string> | undefined)?.format ? "no checks.format set"
@@ -582,6 +586,10 @@ function reviewSessionCommand(cwd: string, config: Table, args: Args): number {
     const rec = recordReview(cwd, kind, id, review.mode ?? "both", report);
     logEvent(cwd, config, rec.findings ? "warn" : "info", "review.result", `${rec.findings} finding(s) for ${kind} ${id}`, { unit: kind, id, findings: rec.findings });
     console.log(report.trim());
+    if (!rec.verdict) {
+      console.log(`saw review-session: the report has no \`verdict:\` line, so the review didn't finish and doesn't count; run it again or record a full report with \`saw review-session record\``);
+      return 1;
+    }
     console.log(`saw review-session: ${rec.findings} finding(s) recorded for ${kind} ${id}; fix or answer each before the PR`);
     return 0;
   };

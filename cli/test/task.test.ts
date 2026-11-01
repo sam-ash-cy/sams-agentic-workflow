@@ -98,6 +98,16 @@ test("gate blocks edits made with no task open, once per stop", () => {
   expect(gate(dir, c, {})).toBeUndefined();
 });
 
+test("edits outside the project don't arm its Stop gate", () => {
+  const dir = project();
+  const c = config(dir);
+  markUntaskedEdit(dir, join(dir, "..", "other-repo", "a.ts"));
+  markUntaskedEdit(dir, join(tmpdir(), "elsewhere", "b.ts"));
+  expect(gate(dir, c, {})).toBeUndefined();
+  markUntaskedEdit(dir, join(dir, "src", "a.ts"));
+  expect(gate(dir, c, {})?.reason).toContain("no saw task is open");
+});
+
 test("untasked edits are ignored outside a saw project", () => {
   const dir = mkdtempSync(join(tmpdir(), "saw-plain-"));
   markUntaskedEdit(dir);
