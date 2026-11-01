@@ -96,6 +96,9 @@ export const DEFAULTS: Table = {
     by_tier: { trivial: 80, standard: 0, complex: 0, critical: 600 },
     mode: "soft",
   },
+  // One session per unit of work: saw session-hook steps in when a session that
+  // finished a unit (commit or PR) starts another of these kinds. [] = off.
+  sessions: { new_per: ["phase", "stage", "feature"], mode: "soft" },
   // vault_path: the central personal vault (absolute; global or local layer only).
   knowledge: { store: "repo", vault_path: "" },
   // Agents this project supports; saw agents check verifies each reads AGENTS.md.
@@ -144,6 +147,7 @@ export const ENUMS: Record<string, string[]> = {
   "tokens.mode": ["soft", "hard"],
   "style.tone": ["normal", "structured", "detailed", "verbose"],
   "style.mode": ["soft", "hard"],
+  "sessions.mode": ["soft", "hard"],
   "models.mode": ["single", "routed"],
   "knowledge.store": ["repo", "vault", "both"],
   "safety.push": ["never", "ask", "allow"],
