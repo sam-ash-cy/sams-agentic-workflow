@@ -184,7 +184,7 @@ Legend: ✓ pass · ✗ fail (Bn = the bug below) · B1 = gate blocked again on 
 | `knowledge.store="both"` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | B1 | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `knowledge.store="repo"` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | B1 | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `knowledge.store="vault"` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | B1 | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `knowledge.vault_path="C:/Users/SA/AppData/Local/Temp/claude/C--Users-SA-sams-agentic-workflow/ac5b4bf4-08c2-42ef-a003-bfc606ba7c69/scratchpad/vault"` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | B1 | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `knowledge.vault_path="<sandbox>/vault"` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | B1 | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `logging.enabled=false` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | B1 | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `logging.enabled=true` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | B1 | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `logging.level="debug"` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | B1 | ✓ | ✓ | ✓ | ✓ | ✗B4 |
@@ -335,3 +335,30 @@ Legend: ✓ pass · ✗ fail (Bn = the bug below) · B1 = gate blocked again on 
 | `verify.critical.run=[]` | ✓ | ✓ | ≈² | ✓ | ✓ | ✓ | ✓ | B1 | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `verify.standard.run=[]` | ✓ | ✓ | ≈² | ✓ | ✓ | ✓ | ✓ | B1 | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `verify.trivial.run=[]` | ✓ | ✓ | ≈² | ✓ | ✓ | ✓ | ✓ | B1 | ✓ | ✓ | ✓ | ✓ | ✓ |
+
+## Plugin re-run
+
+2026-11-01, on `feat/phase-13-autopilot` at ec25b94, in a new session with the `sams-agentic-workflow` plugin (0.1.0) installed at user scope from the local marketplace. B1–B4 were re-run in fresh sandboxes (`git init`, `bun init -y`, `saw init`, `checks.test = "bun --version"`), each with its own `SAW_HOME`, `HOME` and `USERPROFILE`. The real `~/.saw/config.toml` was not touched.
+
+| check | result | evidence |
+| --- | --- | --- |
+| B1: gate blocks once per untasked edit | ✓ pass | after `format-hook`, the 1st `gate` blocks and the 2nd allows; a new edit makes `gate` block again |
+| B2: unknown `verify.complex.extends` is rejected | ✓ pass | `doctor` exits 1 with `warning: project: "verify.complex.extends" must be one of trivial, standard, complex, critical (ignored)`; a complex task's `gate` still blocks on its checks |
+| B4: debug logs a format-hook run, no `checks.format` | ✓ pass | `{"level":"debug","kind":"format","message":"format-hook ran"}` |
+| B4: debug logs a format-hook run, `checks.format` set and passing | ✓ pass | same event |
+| B3: team profile, merged per `profiles.md` | ✓ pass | `doctor` ok (exit 0); `autonomy.level = "propose"  # project`; guard denies a forced push |
+| B3: strict profile, merged per `profiles.md` | ✓ pass | `doctor` ok (exit 0); `autonomy.level = "suggest"  # project`; guard denies a forced push |
+| doctor: plugin enabled | ✓ pass | `plugin: ok`, `saw doctor: ok`, exit 0 |
+| doctor: plugin installed but disabled (`claude plugin disable`) | ✓ pass | `problem: Claude Code plugin sams-agentic-workflow is installed but disabled: claude plugin enable sams-agentic-workflow@sams-agentic-workflow`, exit 1. Re-enabled afterwards; `doctor` is back to ok |
+| live: guard (PreToolUse) | ✓ pass | fired on this session's own Bash calls; `.saw/events.jsonl` logged `guard.deny` for `rm -rf`, a forced push and `push is set to never`, plus `guard.ask` entries |
+| live: context nudge (UserPromptSubmit) | – not run | silent in this repo, which is correct: the repo has no `workflow.toml`, so `isSawProject` is false. A sandbox session was not possible (see the last row) |
+| live: format-hook (PostToolUse) and gate (Stop) | – not run | same reason: both are no-ops outside a saw project |
+| live: sandbox session via `claude -p` | – blocked | the saw guard in this session denied it with `features.parallel_sessions is off: no new sessions`. I didn't work around the deny |
+
+### Found during the re-run
+
+- **B5 (candidate): guard deny patterns match inside quoted arguments.** A `claude -p` prompt that mentions a forced push, and `echo` of that text into a file, are both denied as on the `safety.deny` list, though neither runs a push. That errs on the safe side, but it blocks harmless commands and stopped the live-session test from starting with an inline prompt.
+- **B6 (candidate): writing to any `workflow.toml` triggers the settings ask.** Appending to a sandbox's `workflow.toml`, a file outside this repo, logged `guard.ask: changing workflow settings that guard the agent needs your approval`. The check looks at the file name, not at whether the path is this project's settings file.
+- **Note:** one guard call can log several events: `push is set to never` and `"rm -rf" is on the safety.deny list` share a timestamp, from one command.
+
+To finish the live hook check, run a headless `claude -p` session yourself, from a terminal and not inside an agent session, in a saw sandbox with a temp `SAW_HOME`, `logging.level = "debug"` and a prompt that edits a file and tries a forced push. Then look in that sandbox's `.saw/events.jsonl` for `format`, `guard.deny` and `gate.block` entries.
