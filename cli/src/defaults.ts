@@ -82,7 +82,10 @@ export const DEFAULTS: Table = {
     handoff_at: 0.85,
   },
   output: { quiet: true, max_lines: 60, full_logs: ".saw/logs" },
+  // vault_path: the central personal vault (absolute; global or local layer only).
   knowledge: { store: "repo", vault_path: "" },
+  // Agents this project supports; saw agents check verifies each reads AGENTS.md.
+  agents: { enabled: ["claude"] },
   metrics: { fields: ["tier", "verification", "findings", "rework", "tokens"] },
   dashboard: {
     panels: ["outcomes", "first_pass_rate", "findings_by_category", "rework", "cost_per_task", "promotion_effect"],

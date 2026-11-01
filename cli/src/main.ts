@@ -5,6 +5,8 @@ import { isAbsolute, join, relative, resolve as resolvePath } from "node:path";
 import { flatten, layerPaths, parseValue, resolve, setPath, unsetPath, validate, weakenedSafety, type Layer } from "./config";
 import type { Table, Value } from "./defaults";
 import { syncAgents } from "./agents";
+import { AGENTS, checkAdapters, installAdapters } from "./adapters";
+import { syncVault, vaultPath } from "./vault";
 import { contextHook } from "./context";
 import { renderHtml, renderMarkdown } from "./dashboard";
 import { appendMetric, buildMetric, readMetrics } from "./metrics";
@@ -23,7 +25,9 @@ const USAGE = `usage: saw <command>
   config set <key> <value> [--scope global|project|local]   (default: project)
   config unset <key> [--scope ...]
   doctor                             check settings and environment
-  init [--dry-run] [--force] [--type <t>] [--hooks]   add workflow.toml, AGENTS.md, CI and the docs/ vault
+  init [--dry-run] [--force] [--type <t>] [--hooks] [--agents a,b]   add workflow.toml, AGENTS.md, CI and the docs/ vault (+ agent adapters)
+  agents check                       smoke test: will each agent in agents.enabled read AGENTS.md?
+  vault sync [--dry-run]             index this project (and its learnings) in the central vault
   sync [--plugin-dir <dir>] [--dry-run]   write .saw/resolved.json; set agent models from [models]
   deps list | verify [--strict]      pinned third-party skills (deps.lock.toml)
   deps diff <name> <sha>             compare URL to review before updating a pin
@@ -50,7 +54,7 @@ interface Args {
   values: Record<string, string>;
 }
 
-const VALUE_FLAGS = ["--tier", "--playbook", "--note", "--plugin-dir", "--reviewed-by", "--type", "--tokens", "--case"];
+const VALUE_FLAGS = ["--tier", "--playbook", "--note", "--plugin-dir", "--reviewed-by", "--type", "--tokens", "--case", "--agents"];
 const PLUGIN_ROOT = join(import.meta.dir, "..", "..");
 
 function parseArgs(argv: string[]): Args {
@@ -152,6 +156,15 @@ export function run(argv: string[], cwd = process.cwd()): number {
         if (git.exitCode !== 0) return fail(`git config failed: ${git.stderr.toString().trim()}`);
       }
     }
+    if (args.values.agents !== undefined) {
+      const agents = args.values.agents.split(",").map((a) => a.trim()).filter(Boolean);
+      const unknown = agents.filter((a) => !(AGENTS as readonly string[]).includes(a));
+      if (unknown.length) return fail(`unknown agent: ${unknown.join(", ")} (one of ${AGENTS.join(", ")})`);
+      const a = installAdapters(cwd, agents, dryRun);
+      report.installed.push(...a.installed);
+      report.skipped.push(...a.skipped);
+      console.log(`agents: add them to agents.enabled so saw agents check covers them: saw config set agents.enabled '${JSON.stringify(["claude", ...agents.filter((x) => x !== "claude")])}'`);
+    }
     printReport(report, dryRun);
     if (!dryRun) {
       const claude = join(cwd, "CLAUDE.md");
@@ -174,6 +187,23 @@ export function run(argv: string[], cwd = process.cwd()): number {
     }
     const models = resolved.config.models as { mode?: string; strong?: string };
     if (models.mode === "single") console.log(`  single-model mode: agents inherit; to pin one model for all subagents set CLAUDE_CODE_SUBAGENT_MODEL=${models.strong}`);
+    return 0;
+  }
+  if (command === "agents" && sub === "check") {
+    const enabled = (resolved.config.agents as { enabled: string[] }).enabled;
+    const problems = checkAdapters(cwd, enabled);
+    for (const p of problems) console.error(p);
+    console.log(problems.length ? `saw agents check: ${problems.length} problem(s)` : `saw agents check: ok (${enabled.join(", ")})`);
+    return problems.length ? 1 : 0;
+  }
+  if (command === "vault" && sub === "sync") {
+    const k = resolved.config.knowledge as { store: string; vault_path: string };
+    const v = vaultPath(k.vault_path, resolved.sources["knowledge.vault_path"]);
+    if (!v.path) return fail(v.error!);
+    const dryRun = args.flags.has("--dry-run");
+    const r = syncVault(v.path, cwd, k.store, readMetrics(cwd), dryRun);
+    for (const w of r.warnings) console.error(`warning: ${w}`);
+    console.log(`saw vault sync${dryRun ? " (dry run)" : ""}: ${r.note}${r.copied.length ? `, ${r.copied.length} learnings` : ""}`);
     return 0;
   }
   if (command === "deps") return depsCommand(cwd, resolved.config, args);

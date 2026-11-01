@@ -195,7 +195,12 @@ Each phase's own build is also run token-light: narrow tests, a fresh session pe
 6. **Metrics + dashboard.**
 7. **Retro-promote + evals harness** (`saw eval`, before and after).
 8. **Obsidian central vault + Tier 2 agents (Cursor, Gemini) smoke tests.**
-9. **Public release.** Sanitisation scan, MIT licence, GETTING_STARTED walkthrough. The GitHub repo is created only with your explicit OK.
+9. **Response style + length.** A `[style]` section in the same layered settings:
+   - `tone = "normal" | "structured" | "detailed" | "verbose"` (default `normal`). `structured` means bullets and tables with little prose; `detailed` explains reasoning and trade-offs; `verbose` adds full context and walkthroughs.
+   - `max_words`: a cap on each reply's prose (default 250; code blocks, diffs and tool output don't count). Overridable per tier (e.g. trivial 80, critical 600) and per task ("this task: tone=verbose").
+   - Applied through the global fragment and the router's one-line tier statement, and enforced by a Stop hook that warns, or asks for a shorter rewrite in `hard` mode, when a reply goes over the cap.
+   - Evals: the same task under each tone stays within its cap and keeps the verification labels.
+10. **Public release.** Sanitisation scan, MIT licence, GETTING_STARTED walkthrough. The GitHub repo is created only with your explicit OK.
 
 ## Migration from the original proposal
 - **Stays:** the stage roadmap, docs skeleton, review gates, foundation/design playbooks, collaborative suggestions, public MIT release.
