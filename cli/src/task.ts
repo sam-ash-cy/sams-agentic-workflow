@@ -115,6 +115,7 @@ export function taskSteps(config: Table, tier: string, playbook = "feature"): st
   const big = tier === "complex" || tier === "critical";
   if (features.worktrees && big) steps.push("one worktree per task");
   if (features.parallel_sessions && big) steps.push("split independent steps into sessions (autonomy.actions.spawn_sessions)");
+  if (features.unslop && playbook === "design") steps.push("unslop polish pass before screenshots");
   const checks = requiredChecks(config, tier);
   steps.push(checks.length ? `checks: ${checks.join(", ")}` : "checks: none");
   const audit = (config.audit ?? {}) as { auditors?: string[]; triggers?: string[]; token_budget?: number };

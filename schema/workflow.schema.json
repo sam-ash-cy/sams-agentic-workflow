@@ -79,6 +79,10 @@
         "parallel_sessions": {
           "type": "boolean",
           "default": false
+        },
+        "unslop": {
+          "type": "boolean",
+          "default": false
         }
       }
     },
@@ -489,6 +493,16 @@
         }
       }
     },
+    "release": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "names": {
+          "type": "array",
+          "default": []
+        }
+      }
+    },
     "agents": {
       "type": "object",
       "additionalProperties": false,
@@ -692,7 +706,8 @@
             "Apache-2.0",
             "BSD-2-Clause",
             "BSD-3-Clause",
-            "ISC"
+            "ISC",
+            "CC-BY-4.0"
           ]
         }
       }

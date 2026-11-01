@@ -159,3 +159,14 @@ test("outline lists signatures with line numbers", () => {
   writeFileSync(join(dir, "c.xyz"), "");
   expect(() => outline(join(dir, "c.xyz"))).toThrow("no outline pattern");
 });
+
+test("features.unslop adds the polish step to design tasks only, and saw sync denies it when off", async () => {
+  const { syncSkillDenies } = await import("../src/skills");
+  const on = config("[features]\nunslop = true\n");
+  expect(taskSteps(on, "standard", "design").join(" ")).toContain("unslop polish");
+  expect(taskSteps(on, "standard", "feature").join(" ")).not.toContain("unslop");
+  expect(taskSteps(config(), "standard", "design").join(" ")).not.toContain("unslop");
+  const dir = mkdtempSync(join(tmpdir(), "saw-unslop-"));
+  expect(syncSkillDenies(dir, config(), true).added).toContain("Skill(unslop)");
+  expect(syncSkillDenies(dir, on, true).added).not.toContain("Skill(unslop)");
+});

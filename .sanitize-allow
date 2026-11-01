@@ -1,0 +1,4 @@
+# Literals saw sanitize treats as meant to be public, one per line.
+# The repo's own GitHub owner: the marketplace entry and the template CI checkout point at it.
+sam-ash-cy/sams-agentic-workflow
+"owner": { "name": "sam-ash-cy" }

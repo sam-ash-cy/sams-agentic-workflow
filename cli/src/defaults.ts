@@ -32,6 +32,9 @@ export const DEFAULTS: Table = {
     // `git worktree add` / `claude -p` when off.
     worktrees: true,
     parallel_sessions: false,
+    // Third-party UI polish skill (deps.lock.toml): a design-playbook step when
+    // on; saw sync denies the skill when off.
+    unslop: false,
   },
   project: { type: "web" },
   autonomy: {
@@ -109,6 +112,9 @@ export const DEFAULTS: Table = {
   },
   // vault_path: the central personal vault (absolute; global or local layer only).
   knowledge: { store: "repo", vault_path: "" },
+  // saw sanitize: extra names of yours to flag before going public, besides git
+  // user.name/email and the OS user (global or local layer only).
+  release: { names: [] },
   // Agents this project supports; saw agents check verifies each reads AGENTS.md.
   agents: { enabled: ["claude"] },
   dashboard: {
@@ -137,7 +143,7 @@ export const DEFAULTS: Table = {
   retro: { repeat_threshold: 2, proposals_dir: "docs/proposals" },
   // saw eval: before/after comparison of the eval suite (claude plugin eval).
   evals: { baseline: "evals/baseline.json", max_token_increase: 0.1, runs: 3 },
-  deps: { lock: "deps.lock.toml", allowed_licences: ["MIT", "Apache-2.0", "BSD-2-Clause", "BSD-3-Clause", "ISC"] },
+  deps: { lock: "deps.lock.toml", allowed_licences: ["MIT", "Apache-2.0", "BSD-2-Clause", "BSD-3-Clause", "ISC", "CC-BY-4.0"] },
   safety: {
     push: "never",
     destructive_approval: true,
