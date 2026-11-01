@@ -9,6 +9,7 @@ import { AGENTS, checkAdapters, installAdapters } from "./adapters";
 import { syncVault, vaultPath } from "./vault";
 import { budgetHook, contextHook } from "./context";
 import { guardHook } from "./guard";
+import { sessionHook, UNITS } from "./sessions";
 import { effectiveStyle, styleCheck, styleLine, TONES } from "./style";
 import { renderHtml, renderMarkdown } from "./dashboard";
 import { appendMetric, buildMetric, readMetrics } from "./metrics";
@@ -39,7 +40,7 @@ const USAGE = `usage: saw <command>
   deps list | verify [--strict]      pinned third-party skills (deps.lock.toml)
   deps diff <name> <sha>             compare URL to review before updating a pin
   deps pin <name> <sha> --reviewed-by <who>
-  task start --tier <t> --playbook <p> [--tone <t>] [--max-words <n>]   open a task (the router does this)
+  task start --tier <t> --playbook <p> [--tone <t>] [--max-words <n>] [--unit phase|stage|feature --unit-id <name>]   open a task (the router does this)
   task status                        report label + which required checks passed, failed or are missing
   task record <check> pass|fail [--note "..."]   record a judgement check (code_review, ...)
   task report [--post [--pr <n>] [--yes]]   Markdown verification section for a PR (--post: gh pr comment, per autonomy.actions.open_pr)
@@ -69,7 +70,7 @@ interface Args {
   values: Record<string, string>;
 }
 
-const VALUE_FLAGS = ["--runs", "--repo", "--pr", "--tier", "--playbook", "--note", "--plugin-dir", "--reviewed-by", "--type", "--tokens", "--case", "--agents", "--tone", "--max-words"];
+const VALUE_FLAGS = ["--runs", "--repo", "--pr", "--tier", "--playbook", "--note", "--plugin-dir", "--reviewed-by", "--type", "--tokens", "--case", "--agents", "--tone", "--max-words", "--unit", "--unit-id"];
 const PLUGIN_ROOT = join(import.meta.dir, "..", "..");
 
 function parseArgs(argv: string[]): Args {
@@ -385,14 +386,16 @@ export function run(argv: string[], cwd = process.cwd()): number {
     }
     return 0;
   }
-  if (command === "guard" || command === "format-hook") {
+  if (command === "guard" || command === "format-hook" || command === "session-hook") {
     let input = {};
     try {
       input = JSON.parse(readFileSync(0, "utf8") || "{}");
     } catch {
       // No hook payload: nothing to check.
     }
-    const out = command === "guard" ? guardHook(resolved.config, input) : formatHook(cwd, resolved.config, input, resolved.sources["checks.format"]);
+    const out = command === "guard" ? guardHook(resolved.config, input)
+      : command === "session-hook" ? sessionHook(cwd, resolved.config, input)
+      : formatHook(cwd, resolved.config, input, resolved.sources["checks.format"]);
     if (out) console.log(JSON.stringify(out));
     return 0;
   }
@@ -434,6 +437,10 @@ function taskCommand(cwd: string, config: Table, args: Args): number {
       if (tone !== undefined && !(TONES as readonly string[]).includes(tone)) return fail(`--tone must be one of ${TONES.join(" | ")}`);
       const rawCap = args.values["max-words"];
       if (rawCap !== undefined && !/^[1-9]\d*$/.test(rawCap)) return fail("--max-words must be a positive whole number");
+      // --unit / --unit-id are read by saw session-hook from the command itself.
+      const unit = args.values.unit;
+      if (unit !== undefined && !(UNITS as readonly string[]).includes(unit)) return fail(`--unit must be one of ${UNITS.join(" | ")}`);
+      if ((unit === undefined) !== (args.values["unit-id"] === undefined) || args.values["unit-id"] === "") return fail("--unit and --unit-id <name> go together");
       const playbook = args.values.playbook ?? "feature";
       if (playbook === "audit" && !(config.features as Record<string, boolean>).audit) return fail("features.audit is off");
       const t = startTask(cwd, pickTier(config, args.values.tier), playbook, {

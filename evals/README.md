@@ -10,6 +10,8 @@ Each case is a folder: `prompt.md` (the task, plus `max_turns`, `allowed_tools` 
 | router-critical | handling secrets gets a threat model and the hardening playbook |
 | gate-blocks | "done" is never claimed before the checks run |
 | style-normal, -structured, -detailed, -verbose | the same task under each tone stays within its word cap and keeps the verification label |
+| sessions-second-phase | a second phase in a session that committed one gets the `[sessions]` warning or block, and a handoff |
+| sessions-follow-up | a follow-up fix within the same phase carries on, with no warning |
 
 ## Running
 ```

@@ -399,6 +399,28 @@
         }
       }
     },
+    "sessions": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "new_per": {
+          "type": "array",
+          "default": [
+            "phase",
+            "stage",
+            "feature"
+          ]
+        },
+        "mode": {
+          "type": "string",
+          "default": "soft",
+          "enum": [
+            "soft",
+            "hard"
+          ]
+        }
+      }
+    },
     "knowledge": {
       "type": "object",
       "additionalProperties": false,

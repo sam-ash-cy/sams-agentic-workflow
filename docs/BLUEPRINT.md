@@ -205,7 +205,13 @@ Each phase's own build is also run token-light: narrow tests, a fresh session pe
    - It complements the existing context-% handoff in cli/src/context.ts and the runner's one-item-one-session rule (ADR 0014).
    - Evals: a second phase in the same session triggers the warning or block; a follow-up fix within the same phase doesn't.
    - *Already built (audit fixes, round 3):* `autonomy.actions.spawn_sessions` is enforced by `saw guard` on `claude -p` session starts. `features.parallel_sessions` (off: guard denies them) and `features.worktrees` (off: guard denies `git worktree add`) add steps to `saw task start` on complex and critical tasks. Still to build: the `[sessions]` section and the handoff-or-block hook.
-11. **Public release.** Sanitisation scan, MIT licence, GETTING_STARTED walkthrough. The GitHub repo is created only with your explicit OK.
+11. **Independent audit session per unit of work.** A toggle `[review_session] enabled = false`, with `when = ["feature", "phase", "stage"]` and `mode = "grill" | "audit" | "both"`.
+   - When a unit's work is done (checks run, before the PR), saw starts a separate sub-session, fresh and read-only, that hasn't seen the builder's reasoning.
+   - It grills the work against its plan and acceptance criteria, then audits it for holes: missing features, settings that do nothing, untested paths, gaps against the blueprint.
+   - Its findings go back to the building session as a list it must fix or answer, and are recorded in metrics (`review_session` findings) for the retro.
+   - It is gated by `autonomy.actions.spawn_sessions`, with a token budget per tier.
+   - Evals: it finds a planted gap; it stays off when disabled; a trivial tier skips it by default.
+12. **Public release.** Sanitisation scan, MIT licence, GETTING_STARTED walkthrough. The GitHub repo is created only with your explicit OK.
 
 ## Migration from the original proposal
 - **Stays:** the stage roadmap, docs skeleton, review gates, foundation/design playbooks, collaborative suggestions, public MIT release.
@@ -249,7 +255,7 @@ Each phase's own build is also run token-light: narrow tests, a fresh session pe
 See [ADR 0013](decisions/0013-audit-layer.md). It adds an 8th playbook, `audit`, and an `[audit]` settings section, which is a catalogue of opt-in whole-project auditors: Cloudflare security-audit, Trail of Bits skills, own appsec/dependency/web-quality skills. Audits run only on configured triggers (hardening stage, critical tier, every N stages, before release, on demand) and each has its own token budget. Findings go into one schema. Roadmap: Phase 6b.
 
 ## Addendum: autonomous runner (2026-10-31)
-See [ADR 0014](decisions/0014-autonomous-runner.md). **Phase 12: `saw autopilot`.** It works through the approved items in `docs/plans/queue.md`, one item per fresh headless session, branch and PR. When it hits a usage limit it saves state, waits for the reset and resumes the same session. It is opt-in, under hard budget caps, never merges or deploys, and runs only on items the owner approved.
+See [ADR 0014](decisions/0014-autonomous-runner.md). **Phase 13: `saw autopilot`.** It works through the approved items in `docs/plans/queue.md`, one item per fresh headless session, branch and PR. When it hits a usage limit it saves state, waits for the reset and resumes the same session. It is opt-in, under hard budget caps, never merges or deploys, and runs only on items the owner approved.
 
 ## Addendum: repo settings and prompts (2026-10-31)
 - **Phase 8b: `saw repo plan|apply`** ([ADR 0015](decisions/0015-repo-settings-as-code.md)). A `[repo]` section declares the GitHub settings: merge options, branch rules, security features and labels. They're applied with `gh` / the REST API after a diff and an explicit confirmation.
