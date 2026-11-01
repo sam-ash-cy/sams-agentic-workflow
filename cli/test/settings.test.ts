@@ -18,7 +18,7 @@ const INERT: Record<string, string> = {
 };
 
 // Maps whose entries are user-defined names (tiers, roles, checks): the map itself must be read.
-const MAPS = ["verify", "checks", "tokens.budget", "style.by_tier", "models.roles", "autonomy.actions"];
+const MAPS = ["verify", "checks", "tokens.budget", "style.by_tier", "review_session.budget_by_tier", "models.roles", "autonomy.actions"];
 
 const ROOT = join(import.meta.dir, "..", "..");
 const source = [

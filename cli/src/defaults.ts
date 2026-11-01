@@ -99,6 +99,14 @@ export const DEFAULTS: Table = {
   // One session per unit of work: saw session-hook steps in when a session that
   // finished a unit (commit or PR) starts another of these kinds. [] = off.
   sessions: { new_per: ["phase", "stage", "feature"], mode: "soft" },
+  // Independent audit session per unit of work: before the PR of a `when` unit,
+  // saw review-session runs a fresh read-only reviewer. budget 0 = tier skipped.
+  review_session: {
+    enabled: false,
+    when: ["feature", "phase", "stage"],
+    mode: "both",
+    budget_by_tier: { trivial: 0, standard: 40000, complex: 80000, critical: 150000 },
+  },
   // vault_path: the central personal vault (absolute; global or local layer only).
   knowledge: { store: "repo", vault_path: "" },
   // Agents this project supports; saw agents check verifies each reads AGENTS.md.
@@ -148,6 +156,7 @@ export const ENUMS: Record<string, string[]> = {
   "style.tone": ["normal", "structured", "detailed", "verbose"],
   "style.mode": ["soft", "hard"],
   "sessions.mode": ["soft", "hard"],
+  "review_session.mode": ["grill", "audit", "both"],
   "models.mode": ["single", "routed"],
   "knowledge.store": ["repo", "vault", "both"],
   "safety.push": ["never", "ask", "allow"],

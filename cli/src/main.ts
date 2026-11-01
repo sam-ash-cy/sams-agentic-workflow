@@ -10,6 +10,7 @@ import { syncVault, vaultPath } from "./vault";
 import { budgetHook, contextHook } from "./context";
 import { guardHook } from "./guard";
 import { sessionHook, UNITS } from "./sessions";
+import { recordReview, reviewApplies, reviewArgv, reviewBrief, type ReviewSettings } from "./review-session";
 import { effectiveStyle, styleCheck, styleLine, TONES } from "./style";
 import { renderHtml, renderMarkdown } from "./dashboard";
 import { appendMetric, buildMetric, readMetrics } from "./metrics";
@@ -58,6 +59,7 @@ const USAGE = `usage: saw <command>
   context                            UserPromptSubmit hook: suggest /compact as context fills; warn on the task's token budget
   guard                              PreToolUse hook: enforce [safety] deny-list and autonomy actions on Bash commands
   format-hook                        PostToolUse hook: run checks.format after each edit
+  review-session brief|run [--dry-run]|record <file> --unit <kind> --unit-id <name>   independent read-only review of a unit ([review_session])
   style                              the effective reply style for this task (tone, word cap)
   style-check                        Stop hook: warn (soft) or ask for a rewrite (hard) when a reply is over the cap
 global flag: --set key=value         per-task override (repeatable)`;
@@ -405,6 +407,7 @@ export function run(argv: string[], cwd = process.cwd()): number {
     console.log(problems.length ? `saw memory lint: ${problems.length} problem(s)` : "saw memory lint: ok");
     return problems.length ? 1 : 0;
   }
+  if (command === "review-session") return reviewSessionCommand(cwd, resolved.config, args);
   if (command === "style") {
     console.log(styleLine(effectiveStyle(resolved.config, currentTask(cwd))));
     return 0;
@@ -427,6 +430,52 @@ export function run(argv: string[], cwd = process.cwd()): number {
   }
   console.log(USAGE);
   return command === undefined || command === "help" ? 0 : 1;
+}
+
+function reviewSessionCommand(cwd: string, config: Table, args: Args): number {
+  const sub = args.positional[1];
+  const review = config.review_session as ReviewSettings;
+  if (!review.enabled) return fail("review_session.enabled is false");
+  const kind = args.values.unit;
+  const id = args.values["unit-id"];
+  if (!kind || !(UNITS as readonly string[]).includes(kind) || !id) return fail(`--unit ${UNITS.join("|")} --unit-id <name> are required`);
+  const tier = currentTask(cwd)?.tier ?? "standard";
+  if (!reviewApplies(config, kind, tier)) {
+    console.log(`saw review-session: skipped (${kind} not in review_session.when, or tier ${tier} has budget 0)`);
+    return 0;
+  }
+  const brief = reviewBrief(cwd, config, kind, id, tier);
+  const done = (report: string): number => {
+    const rec = recordReview(cwd, kind, id, review.mode ?? "both", report);
+    console.log(report.trim());
+    console.log(`saw review-session: ${rec.findings} finding(s) recorded for ${kind} ${id}; fix or answer each before the PR`);
+    return 0;
+  };
+  if (sub === "brief") {
+    console.log(brief);
+    return 0;
+  }
+  if (sub === "record") {
+    const file = args.positional[2];
+    if (!file || !existsSync(file)) return fail("usage: saw review-session record <report file> --unit <kind> --unit-id <name>");
+    return done(readFileSync(file, "utf8"));
+  }
+  if (sub === "run") {
+    const argv = reviewArgv(brief);
+    if (args.flags.has("--dry-run")) {
+      console.log(`saw review-session: would run ${argv.slice(0, 2).join(" ")} <brief> ${argv.slice(3).join(" ")}`);
+      return 0;
+    }
+    let p: ReturnType<typeof Bun.spawnSync>;
+    try {
+      p = Bun.spawnSync(argv, { cwd, stdin: "ignore", stdout: "pipe", stderr: "inherit" });
+    } catch (e) {
+      return fail(`could not start claude (${(e as Error).message}); open the review yourself with saw review-session brief`);
+    }
+    if (p.exitCode !== 0) return fail(`the review session failed (claude exit ${p.exitCode}); nothing recorded`);
+    return done(p.stdout.toString());
+  }
+  return fail("usage: saw review-session brief|run [--dry-run]|record <file> --unit <kind> --unit-id <name>");
 }
 
 function taskCommand(cwd: string, config: Table, args: Args): number {

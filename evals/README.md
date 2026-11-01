@@ -12,6 +12,9 @@ Each case is a folder: `prompt.md` (the task, plus `max_turns`, `allowed_tools` 
 | style-normal, -structured, -detailed, -verbose | the same task under each tone stays within its word cap and keeps the verification label |
 | sessions-second-phase | a second phase in a session that committed one gets the `[sessions]` warning or block, and a handoff |
 | sessions-follow-up | a follow-up fix within the same phase carries on, with no warning |
+| review-planted-gap | with `[review_session]` on, the review runs before the PR and finds a planted unread setting |
+| review-off | with `[review_session]` off, no review session starts |
+| review-trivial-skip | a trivial task skips the review session (budget 0) |
 
 ## Running
 ```
