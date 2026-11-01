@@ -71,6 +71,14 @@
         "audit": {
           "type": "boolean",
           "default": true
+        },
+        "worktrees": {
+          "type": "boolean",
+          "default": true
+        },
+        "parallel_sessions": {
+          "type": "boolean",
+          "default": false
         }
       }
     },
@@ -131,6 +139,10 @@
             "edit_global": {
               "type": "string",
               "default": "never"
+            },
+            "spawn_sessions": {
+              "type": "string",
+              "default": "ask"
             }
           }
         }
@@ -330,6 +342,10 @@
         "full_logs": {
           "type": "string",
           "default": ".saw/logs"
+        },
+        "rewrite_commands": {
+          "type": "boolean",
+          "default": false
         }
       }
     },

@@ -1,0 +1,11 @@
+{
+  "name": "sams-agentic-workflow",
+  "owner": { "name": "sam-ash-cy" },
+  "plugins": [
+    {
+      "name": "sams-agentic-workflow",
+      "source": "./",
+      "description": "A configurable, token-light agentic workflow: tiered routing, verification, reviews and evidence-driven self-improvement."
+    }
+  ]
+}

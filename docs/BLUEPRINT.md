@@ -131,7 +131,7 @@ docs/              README, GETTING_STARTED, WORKFLOW, CUSTOMISING, SKILLS (Bloom
 [features]  router=true grilling=true tdd=true code_review=true security_review=true verify_hook=true budgets=true model_routing=true trail=false obsidian=true metrics=true dashboard=true self_improve=true parallel_sessions=true
 [project]   type = "web"            # web | api | cli | lib | infra
 [autonomy]  level = "propose"
-[autonomy.actions] commit="ask" push="never" open_pr="ask" spawn_sessions="propose" add_dependency="ask" self_improve="propose" edit_global="never"
+[autonomy.actions] commit="ask" push="never" open_pr="ask" spawn_sessions="ask" add_dependency="ask" self_improve="propose" edit_global="never"
 [routing]   default_tier = "auto"  ; always_grill = ["complex","critical"]
 [verify.standard] run = ["format","lint","typecheck","test","code_review","security_review"]
 [verify.critical] extends="standard" ; run = ["e2e","dep_audit","threat_model"]
@@ -204,6 +204,7 @@ Each phase's own build is also run token-light: narrow tests, a fresh session pe
    - When the router classifies a task as starting a new phase, stage or feature in a session that has already finished one (committed, or its PR opened), a hook steps in. Soft mode warns. Hard mode blocks until a handoff (prompts/handoff.md) is written and a fresh session is started (through `autonomy.actions.spawn_sessions`).
    - It complements the existing context-% handoff in cli/src/context.ts and the runner's one-item-one-session rule (ADR 0014).
    - Evals: a second phase in the same session triggers the warning or block; a follow-up fix within the same phase doesn't.
+   - *Already built (audit fixes, round 3):* `autonomy.actions.spawn_sessions` is enforced by `saw guard` on `claude -p` session starts. `features.parallel_sessions` (off: guard denies them) and `features.worktrees` (off: guard denies `git worktree add`) add steps to `saw task start` on complex and critical tasks. Still to build: the `[sessions]` section and the handoff-or-block hook.
 11. **Public release.** Sanitisation scan, MIT licence, GETTING_STARTED walkthrough. The GitHub repo is created only with your explicit OK.
 
 ## Migration from the original proposal
