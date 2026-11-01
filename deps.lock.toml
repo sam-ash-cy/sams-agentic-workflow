@@ -15,3 +15,12 @@ sha = "7f43edc0ee0e098e98f77b01187027238aba77c8"
 licence = "MIT"
 reviewed_by = "pending"
 reviewed_on = ""
+
+# UI de-slop skill by Damir Sokolovsky (CC BY 4.0: credit him and link the repo).
+# Reviewed: SKILL.md + references only load; scripts/ run Playwright and ffmpeg locally, only when invoked.
+[unslop]
+repo = "https://github.com/heydamir/unslop"
+sha = "1d13095e4bef6ad6c74f1dd828d84c4ba309a4dc"
+licence = "CC-BY-4.0"
+reviewed_by = "owner"
+reviewed_on = "2026-11-01"

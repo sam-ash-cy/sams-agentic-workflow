@@ -10,6 +10,7 @@ export const FEATURE_SKILLS: Record<string, string[]> = {
   grilling: ["mattpocock-skills:grilling"],
   tdd: ["mattpocock-skills:tdd"],
   retro: ["sams-agentic-workflow:retro-promote"],
+  unslop: ["unslop"],
 };
 
 const TRACK = join(".saw", "skill-denies.json");

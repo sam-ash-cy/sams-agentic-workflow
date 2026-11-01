@@ -20,6 +20,7 @@ import { compareUrl, pin, readLock, verifyLock } from "./deps";
 import { depAuditFor, init, recordInstalled, uninstall, upgrade, type ChangeReport, type InitReport } from "./init";
 import { lintContext, lintMemory } from "./lint";
 import { outline } from "./outline";
+import { sanitize } from "./sanitize";
 import { syncSkillDenies } from "./skills";
 import { applyPlan, gh, readState, repoName, repoPlan, type Gh } from "./repo";
 import { formatHook, runCheck } from "./run";
@@ -56,6 +57,7 @@ const USAGE = `usage: saw <command>
   gate                               Stop hook: block "done" until the tier's checks pass
   lint-context                       AGENTS.md / CLAUDE.md size limits
   memory lint                        stale file refs in docs/learnings and docs/decisions, duplicate learnings, size limits
+  sanitize                           before going public: secrets, home paths, emails and your own names in published files
   context                            UserPromptSubmit hook: suggest /compact as context fills; warn on the task's token budget
   guard                              PreToolUse hook: enforce [safety] deny-list and autonomy actions on Bash commands
   format-hook                        PostToolUse hook: run checks.format after each edit
@@ -406,6 +408,20 @@ export function run(argv: string[], cwd = process.cwd()): number {
     for (const p of problems) console.error(p);
     console.log(problems.length ? `saw memory lint: ${problems.length} problem(s)` : "saw memory lint: ok");
     return problems.length ? 1 : 0;
+  }
+  if (command === "sanitize") {
+    if (resolved.sources["release.names"] === "project") {
+      return fail("release.names lists your own names: set it in ~/.saw/config.toml or workflow.local.toml, not workflow.toml");
+    }
+    let findings;
+    try {
+      findings = sanitize(cwd, resolved.config);
+    } catch (e) {
+      return fail((e as Error).message);
+    }
+    for (const f of findings) console.error(`${f.file}:${f.line}: ${f.kind}: ${f.match}`);
+    console.log(findings.length ? `saw sanitize: ${findings.length} finding(s)` : "saw sanitize: ok");
+    return findings.length ? 1 : 0;
   }
   if (command === "review-session") return reviewSessionCommand(cwd, resolved.config, args);
   if (command === "style") {

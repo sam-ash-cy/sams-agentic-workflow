@@ -2,6 +2,7 @@
   "name": "sams-agentic-workflow",
   "version": "0.1.0",
   "private": true,
+  "license": "MIT",
   "type": "module",
   "bin": { "saw": "bin/saw" },
   "scripts": { "test": "bun test", "saw": "bun cli/src/main.ts" }
