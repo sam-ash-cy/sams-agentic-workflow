@@ -469,7 +469,7 @@ export function run(argv: string[], cwd = process.cwd()): number {
       // One hook, one JSON object: join the nudges.
       const text = (o: Record<string, unknown>, k: string): string => k === "systemMessage" ? o.systemMessage as string : (o.hookSpecificOutput as { additionalContext: string }).additionalContext;
       console.log(JSON.stringify({
-        systemMessage: outs.map((o) => text(o, "systemMessage")).join("\n"),
+        systemMessage: outs.map((o) => text(o, "systemMessage")).filter(Boolean).join("\n") || undefined,
         hookSpecificOutput: { hookEventName: "UserPromptSubmit", additionalContext: outs.map((o) => text(o, "additionalContext")).join("\n") },
       }));
     }

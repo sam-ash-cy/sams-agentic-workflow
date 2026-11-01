@@ -149,8 +149,15 @@ export function guardCommand(config: Table, command: string, cwd = process.cwd()
   return undefined;
 }
 
-// autonomy.actions.edit_global: file edits under ~/.claude or ~/.saw. Edits to
-// a settings layer (workflow.toml, workflow.local.toml) always ask.
+// Folders under ~/.claude that Claude Code itself tells the agent to write: the
+// plan-mode plan file and the per-project auto memory. Blocking them breaks plan
+// mode and memory, and they hold no settings, hooks or instructions. Fixed here,
+// not a setting, so no settings layer can widen it.
+const CLAUDE_CODE_OWNED = [/^plans[\\/][^\\/]+\.md$/, /^projects[\\/][^\\/]+[\\/]memory[\\/][^\\/]+\.md$/];
+
+// autonomy.actions.edit_global: file edits under ~/.claude or ~/.saw, except
+// CLAUDE_CODE_OWNED. Edits to a settings layer (workflow.toml,
+// workflow.local.toml) always ask.
 export function guardEdit(config: Table, path: string, home = homedir(), cwd = process.cwd()): Verdict {
   if (SETTINGS_FILE.test(path) && isProjectSettings(path, cwd)) return { decision: "ask", reason: `changing workflow settings needs your approval (${path})` };
   const level = ((config.autonomy ?? {}) as { actions?: Record<string, string> }).actions?.edit_global;
@@ -158,7 +165,8 @@ export function guardEdit(config: Table, path: string, home = homedir(), cwd = p
   const full = resolvePath(path).toLowerCase();
   const global = [".claude", ".saw"].some((d) => {
     const rel = relative(resolvePath(home, d).toLowerCase(), full);
-    return !rel.startsWith("..") && !isAbsolute(rel);
+    if (rel.startsWith("..") || isAbsolute(rel)) return false;
+    return !(d === ".claude" && CLAUDE_CODE_OWNED.some((re) => re.test(rel)));
   });
   if (!global) return undefined;
   return { decision: level === "never" ? "deny" : "ask", reason: `autonomy: edit_global is ${level === "never" ? "set to never" : "ask"} (${path})` };
