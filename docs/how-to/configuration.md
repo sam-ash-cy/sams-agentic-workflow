@@ -95,6 +95,12 @@ saw sync
 
 `saw sync` writes the models into the agent files. `models.mode = "single"` makes every agent use your session's model.
 
+What the hooks enforce (routed mode):
+
+- **Review, research and implement agents**: `saw guard` denies an Agent call to a saw agent (`implementer`, `code-reviewer`, `security-reviewer`, `arch-reviewer`, `researcher`, `ui-verifier`) whose `model:` (or, when none is passed, the agent file's model) isn't `models.roles.<role>`. The message names the right model.
+- **Implementation in the main session**: with `features.implementer` on and a standard-or-higher task open, an edit to a source file from the main session is denied after `saw task phase implement`, and asks for approval in the plan and review phases. Docs, Markdown, `.saw/` and settings files stay editable. Subagent edits are told apart by the `agent_id` Claude Code puts in the hook input.
+- **Plan**: not enforceable. Planning runs in the main session, and no hook can change its model after it starts. Set `models.roles.plan` and the SessionStart hook warns when the session's model differs; restart with `claude --model <model>` or switch with `/model`.
+
 ## Step 4: choose how replies look
 
 ```bash
