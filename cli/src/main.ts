@@ -5,6 +5,7 @@ import { homedir } from "node:os";
 import { isAbsolute, join, relative, resolve as resolvePath } from "node:path";
 import { baseBranch, flatten, inside, layerPaths, loosens, parseValue, resolve, setPath, unsetPath, validate, weakenedSafety, type Layer } from "./config";
 import { DEFAULTS, type Table, type Value } from "./defaults";
+import { readIfExists } from "./fs";
 import { syncAgents } from "./agents";
 import { AGENTS, checkAdapters, installAdapters } from "./adapters";
 import { syncVault, vaultPath } from "./vault";
@@ -234,7 +235,7 @@ export function run(argv: string[], cwd = process.cwd()): number {
   if (command === "config" && (sub === "set" || sub === "unset") && key) {
     const path = layerPaths(cwd)[args.scope];
     if (!path) return fail(`--scope must be global, project or local`);
-    const text = existsSync(path) ? readFileSync(path, "utf8") : "";
+    const text = readIfExists(path) ?? "";
     const table: Table = readToml(path) ?? {};
     let value: Value | undefined;
     if (sub === "set") {
@@ -732,8 +733,9 @@ function autopilotCommand(cwd: string, config: Table, weakened: string[], args: 
   }
   // A scheduled run must not start a second runner beside one still going.
   const lock = join(cwd, ".saw", "autopilot.lock");
-  if (existsSync(lock)) {
-    const pid = Number(readFileSync(lock, "utf8"));
+  const held = readIfExists(lock);
+  if (held !== undefined) {
+    const pid = Number(held);
     try {
       process.kill(pid, 0);
       console.log(`saw autopilot: already running (pid ${pid})`);

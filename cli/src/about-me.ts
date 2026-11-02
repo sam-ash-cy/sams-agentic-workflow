@@ -30,7 +30,13 @@ export function parseAbout(text: string): Map<string, { section: string; questio
     if (question && a) out.set(question.toLowerCase(), { section, question, answer: a });
     answer = [];
   };
-  for (const line of text.replace(/<!--[\s\S]*?-->/g, "").split(/\r?\n/)) {
+  // Repeat until stable: removing one comment can join the pieces of another.
+  let stripped = text;
+  for (let prev = ""; prev !== stripped; ) {
+    prev = stripped;
+    stripped = stripped.replace(/<!--[\s\S]*?-->/g, "");
+  }
+  for (const line of stripped.split(/\r?\n/)) {
     if (line.startsWith("### ")) {
       flush();
       question = line.slice(4).trim();

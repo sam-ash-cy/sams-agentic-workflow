@@ -3,7 +3,7 @@
 // reports; fixing is a human edit.
 
 import { spawnSync } from "node:child_process";
-import { existsSync, readFileSync, statSync } from "node:fs";
+import { closeSync, existsSync, fstatSync, openSync, readFileSync, statSync } from "node:fs";
 import { userInfo } from "node:os";
 import { join } from "node:path";
 import type { Table } from "./defaults";
@@ -146,8 +146,21 @@ export function sanitize(cwd: string, config: Table): Finding[] {
   for (const file of publishedFiles(cwd)) {
     if (file === ".sanitize-allow") continue;
     const path = join(cwd, file);
-    if (!existsSync(path) || !statSync(path).isFile()) continue;
-    const text = decode(readFileSync(path));
+    // One descriptor for the check and the read, so the file can't be swapped between them.
+    let fd: number;
+    try {
+      fd = openSync(path, "r");
+    } catch {
+      continue;
+    }
+    let buf: Buffer | undefined;
+    try {
+      if (fstatSync(fd).isFile()) buf = readFileSync(fd);
+    } finally {
+      closeSync(fd);
+    }
+    if (!buf) continue;
+    const text = decode(buf);
     if (text !== undefined) findings.push(...scanText(file, text, names, allowed));
   }
   return findings;

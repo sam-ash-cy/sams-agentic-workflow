@@ -5,6 +5,7 @@
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Table } from "./defaults";
+import { readIfExists } from "./fs";
 
 export const FEATURE_SKILLS: Record<string, string[]> = {
   grilling: ["mattpocock-skills:grilling"],
@@ -25,9 +26,10 @@ export function syncSkillDenies(cwd: string, config: Table, dryRun = false): { a
     .flatMap(([, skills]) => skills.map((s) => `Skill(${s})`));
   const path = join(cwd, ".claude", "settings.json");
   let settings: { permissions?: { deny?: string[] } } = {};
-  if (existsSync(path)) {
+  const raw = readIfExists(path);
+  if (raw !== undefined) {
     try {
-      settings = JSON.parse(readFileSync(path, "utf8"));
+      settings = JSON.parse(raw);
     } catch {
       throw new Error(".claude/settings.json isn't valid JSON; fix it, then re-run saw sync");
     }
