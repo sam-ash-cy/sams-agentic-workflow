@@ -2,7 +2,7 @@
 // feature's skills are denied in .claude/settings.json instead. The entries
 // saw added are tracked, and only those are ever removed again.
 
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Table } from "./defaults";
 import { readIfExists } from "./fs";
@@ -37,9 +37,9 @@ export function syncSkillDenies(cwd: string, config: Table, dryRun = false): { a
   const trackPath = join(cwd, TRACK);
   let ours: string[] = [];
   try {
-    if (existsSync(trackPath)) ours = JSON.parse(readFileSync(trackPath, "utf8")) as string[];
+    ours = JSON.parse(readFileSync(trackPath, "utf8")) as string[];
   } catch {
-    // Corrupt tracking file: forget what we added; entries already in settings.json stay.
+    // Missing or corrupt tracking file: forget what we added; entries already in settings.json stay.
   }
   const deny = settings.permissions?.deny ?? [];
   const removed = ours.filter((e) => !want.includes(e) && deny.includes(e));
