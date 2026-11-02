@@ -1,7 +1,7 @@
 {
   "hooks": {
     "PreToolUse": [
-      { "matcher": "Bash|Edit|Write|MultiEdit|NotebookEdit", "hooks": [{ "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/saw\" guard" }] },
+      { "matcher": "Bash|Edit|Write|MultiEdit|NotebookEdit|Agent|Task|Read|Grep|Glob", "hooks": [{ "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/saw\" guard" }] },
       { "matcher": "Bash", "hooks": [{ "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/saw\" session-hook" }] }
     ],
     "PostToolUse": [
@@ -14,6 +14,9 @@
     "Stop": [
       { "hooks": [{ "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/saw\" gate" }] },
       { "hooks": [{ "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/saw\" style-check" }] }
+    ],
+    "SessionStart": [
+      { "hooks": [{ "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/saw\" session-start" }] }
     ],
     "UserPromptSubmit": [
       { "hooks": [{ "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/saw\" context" }] }

@@ -6,9 +6,10 @@
 import { appendFileSync, existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { isAbsolute, join, relative, resolve } from "node:path";
 import type { Table } from "./defaults";
-import { readReviews, reportVerdict, reviewBudget, type ReviewSettings } from "./review-session";
+import { readReviews, reportVerdict, reviewBudget, signatureValid, type ReviewSettings } from "./review-session";
 
 export const TIERS = ["trivial", "standard", "complex", "critical"] as const;
+export const PHASES = ["plan", "implement", "review"] as const;
 export const PLAYBOOKS = ["foundation", "design", "feature", "integration", "debug", "spike", "hardening", "audit"] as const;
 
 export interface Task {
@@ -21,6 +22,8 @@ export interface Task {
   transcript?: string;
   // Per-task style override ("this task: tone=verbose"), set by saw task start.
   style?: { tone?: string; max_words?: number };
+  // Where the task is (saw task phase): implement makes the implementer edit guard deny.
+  phase?: (typeof PHASES)[number];
 }
 
 export interface CheckResult {
@@ -68,6 +71,15 @@ export function markUntaskedEdit(cwd: string, filePath?: string): void {
 export function currentTask(cwd: string): Task | undefined {
   const path = join(dir(cwd), "task.json");
   return existsSync(path) ? (JSON.parse(readFileSync(path, "utf8")) as Task) : undefined;
+}
+
+export function setPhase(cwd: string, phase: string): Task {
+  if (!(PHASES as readonly string[]).includes(phase)) throw new Error(`phase must be one of ${PHASES.join(" | ")}`);
+  const task = currentTask(cwd);
+  if (!task) throw new Error("no open task; start one with saw task start --tier <t> --playbook <p>");
+  task.phase = phase as Task["phase"];
+  writeFileSync(join(dir(cwd), "task.json"), JSON.stringify(task, null, 2) + "\n");
+  return task;
 }
 
 export function endTask(cwd: string): void {
@@ -142,7 +154,7 @@ export function taskSteps(config: Table, tier: string, playbook = "feature"): st
   const big = tier === "complex" || tier === "critical";
   if (features.worktrees && big) steps.push("one worktree per task");
   if (features.parallel_sessions && big) steps.push("split independent steps into sessions (autonomy.actions.spawn_sessions)");
-  if (features.implementer && tier !== "trivial") steps.push("after the plan: hand each unit to the implementer agent (models.roles.implement), then review its diff here");
+  if (features.implementer && tier !== "trivial") steps.push("after the plan: run `saw task phase implement` and hand each unit to the implementer agent (models.roles.implement), then `saw task phase review` and review its diff here");
   if (features.unslop && playbook === "design") steps.push("unslop polish pass before screenshots");
   const delivers = DELIVERS.includes(playbook);
   if (features.docs_step && delivers) steps.push("docs step: engineering:documentation in the Diataxis split (tutorial, how-to, reference, explanation); mattpocock-skills:writing-for-agents for AGENTS.md, CLAUDE.md and skill files" +
@@ -218,15 +230,17 @@ export function reviewEvidence(
     const r = relative(join(cwd, ".saw", "reviews"), full);
     if (!r || r.startsWith("..") || isAbsolute(r)) return { problem: `--report must be a file under .saw/reviews/ (got ${reportFlag})` };
     if (!existsSync(full)) return { problem: `--report ${reportFlag} doesn't exist` };
-    if (statSync(full).mtime.toISOString() < task.started) return { problem: `--report ${reportFlag} was written before this task started` };
+    // 2s of slack: file systems store mtimes coarser than task.started's milliseconds.
+    if (statSync(full).mtimeMs < Date.parse(task.started) - 2000) return { problem: `--report ${reportFlag} was written before this task started` };
     const verdict = reportVerdict(readFileSync(full, "utf8"));
     if (verdict !== "pass") return { problem: `--report ${reportFlag} ${verdict ? "has verdict: fail" : "has no verdict: line"}, so it can't back a pass` };
     return { report: rel(full) };
   }
   // The latest finished review session since the task started decides. Under
-  // review_session only one saw spawned counts: a `review-session record`ed
-  // file is as self-attested as --report.
-  const latest = readReviews(cwd).filter((r) => r.at >= task.started && r.verdict && (mode === "agent" || r.how === "ran")).pop();
+  // review_session only one saw spawned counts, proven by its signature: a
+  // `review-session record`ed file, or a line written into reviews.jsonl by
+  // hand, is as self-attested as --report.
+  const latest = readReviews(cwd).filter((r) => r.at >= task.started && r.verdict && (mode === "agent" || (r.how === "ran" && signatureValid(cwd, r)))).pop();
   if (latest?.verdict === "pass") return { report: rel(resolve(cwd, latest.report)) };
   const how = mode === "agent"
     ? "run saw review-session run, or save the reviewer agent's report under .saw/reviews/ and pass it with --report <file>"

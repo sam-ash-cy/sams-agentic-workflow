@@ -5,6 +5,8 @@
 import { homedir } from "node:os";
 import { isAbsolute, relative, resolve as resolvePath } from "node:path";
 import type { Table } from "./defaults";
+import { guardAgent, implementerEdit } from "./model-guard";
+import { REVIEW_KEY } from "./review-session";
 
 type Decision = "deny" | "ask";
 type Verdict = { decision: Decision; reason: string } | undefined;
@@ -172,6 +174,8 @@ export function guardEdit(config: Table, path: string, home = homedir(), cwd = p
   return { decision: level === "never" ? "deny" : "ask", reason: `autonomy: edit_global is ${level === "never" ? "set to never" : "ask"} (${path})` };
 }
 
+const strictestVerdict = (a: Verdict, b: Verdict): Verdict => a?.decision === "deny" ? a : b?.decision === "deny" ? b : a ?? b;
+
 function strictest(a?: string, b?: string): string | undefined {
   for (const level of ["never", "ask"]) if (a === level || b === level) return level;
   return a ?? b;
@@ -189,13 +193,31 @@ export function rewriteCommand(config: Table, command: string): string | undefin
 }
 
 // Returns the hook's JSON output, or undefined to let the call through.
-export function guardHook(config: Table, input: { tool_name?: string; tool_input?: { command?: unknown; file_path?: unknown } }, cwd = process.cwd()): Record<string, unknown> | undefined {
+// ~/.saw/review-key signs saw's own review records (verify.require_review_evidence
+// = review_session). Any tool call that names it, or globs inside a .saw folder
+// from the shell (cat ~/.saw/r*), is denied whatever the settings say: an agent
+// holding the key could sign a review that never ran.
+const REVIEW_KEY_ACCESS = [new RegExp(REVIEW_KEY), /\.saw[\\/]+\S*[*?[]/];
+
+export function reviewKeyAccess(toolInput: unknown): boolean {
+  const text = typeof toolInput === "object" && toolInput ? Object.values(toolInput).filter((v) => typeof v === "string").join("\n") : "";
+  return REVIEW_KEY_ACCESS.some((re) => re.test(text));
+}
+
+export function guardHook(config: Table, input: { tool_name?: string; agent_id?: unknown; tool_input?: { command?: unknown; file_path?: unknown; subagent_type?: unknown; model?: unknown } }, cwd = process.cwd()): Record<string, unknown> | undefined {
   const t = input.tool_input;
-  const g = input.tool_name === "Bash" && typeof t?.command === "string"
+  if (reviewKeyAccess(t)) {
+    return { hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: "saw guard: ~/.saw/review-key signs saw's review records; no tool may read, list or change it" } };
+  }
+  const edit = ["Edit", "Write", "MultiEdit", "NotebookEdit"].includes(input.tool_name ?? "");
+  const wrongModel = ["Agent", "Task"].includes(input.tool_name ?? "") && t ? guardAgent(config, t) : undefined;
+  const g: Verdict = input.tool_name === "Bash" && typeof t?.command === "string"
     ? guardCommand(config, t.command, cwd)
-    : typeof t?.file_path === "string" && ["Edit", "Write", "MultiEdit", "NotebookEdit"].includes(input.tool_name ?? "")
-      ? guardEdit(config, t.file_path, homedir(), cwd)
-      : undefined;
+    : wrongModel
+      ? { decision: "deny", reason: wrongModel }
+      : edit
+        ? strictestVerdict(typeof t?.file_path === "string" ? guardEdit(config, t.file_path, homedir(), cwd) : undefined, implementerEdit(config, input, cwd))
+        : undefined;
   if (!g) {
     const rewritten = input.tool_name === "Bash" && typeof t?.command === "string" ? rewriteCommand(config, t.command) : undefined;
     // No permission decision: the rewritten command still goes through the usual prompt.

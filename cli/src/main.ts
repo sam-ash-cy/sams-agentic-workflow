@@ -9,6 +9,7 @@ import { syncAgents } from "./agents";
 import { AGENTS, checkAdapters, installAdapters } from "./adapters";
 import { syncVault, vaultPath } from "./vault";
 import { budgetHook, contextHook, routerNudge } from "./context";
+import { planModelWarning } from "./model-guard";
 import { guardHook } from "./guard";
 import { sessionHook, UNITS } from "./sessions";
 import { recordReview, reviewApplies, reviewArgv, reviewBrief, writeChange, type ReviewSettings } from "./review-session";
@@ -27,7 +28,7 @@ import { sanitize, sanitizeHistory } from "./sanitize";
 import { syncSkillDenies } from "./skills";
 import { applyPlan, gh, readState, repoName, repoPlan, type Gh } from "./repo";
 import { formatHook, runCheck, TRUSTED_LAYERS } from "./run";
-import { currentTask, endTask, gate, markUntaskedEdit, pickTier, recordCheck, reviewEvidence, startTask, taskReport, taskStatus, taskSteps } from "./task";
+import { currentTask, endTask, gate, markUntaskedEdit, pickTier, recordCheck, reviewEvidence, setPhase, startTask, taskReport, taskStatus, taskSteps } from "./task";
 import { patchToml, readToml, stringifyToml } from "./toml";
 import { applyProfile, parseProfiles } from "./profiles";
 
@@ -50,6 +51,7 @@ const USAGE = `usage: saw <command>
   deps pin <name> <sha> --reviewed-by <who>
   task start --tier <t> --playbook <p> [--tone <t>] [--max-words <n>] [--unit phase|stage|feature --unit-id <name>]   open a task (the router does this)
   task adhoc [--playbook <p>]        open a trivial task for a one-off edit (same as task start --tier trivial)
+  task phase plan|implement|review  mark where the open task is (implement: the main session can't edit source when features.implementer is on)
   task status                        report label + which required checks passed, failed or are missing
   task record <check> pass|fail [--note "..."] [--report <file>]   record a judgement check (code_review, ...); --report: a reviewer's report under .saw/reviews/ (verify.require_review_evidence)
   task report [--post [--pr <n>] [--yes]]   Markdown verification section for a PR (--post: gh pr comment, per autonomy.actions.open_pr)
@@ -66,7 +68,8 @@ const USAGE = `usage: saw <command>
   memory lint                        stale file refs in docs/learnings and docs/decisions, duplicate learnings, size limits
   sanitize [--history]               before going public: secrets, home paths, emails and your own names in published files (--history: in every commit)
   context                            UserPromptSubmit hook: suggest /compact as context fills; warn on the task's token budget
-  guard                              PreToolUse hook: enforce [safety] and [autonomy] on shell commands and file edits
+  guard                              PreToolUse hook: enforce [safety] and [autonomy] on shell commands and file edits, models.roles on saw agent calls
+  session-start                      SessionStart hook: warn when the session's model isn't models.roles.plan
   format-hook                        PostToolUse hook: run checks.format after each edit
   review-session brief|run [--dry-run]|record <file> --unit <kind> --unit-id <name>   independent read-only review of a unit ([review_session])
   autopilot [status] [--dry-run] [--once] [--install-schedule]   work through approved queue items, one headless session + branch each ([autopilot]; never merges)
@@ -152,7 +155,7 @@ function printChanges(head: string, doneLabel: string, keptLabel: string, r: Cha
   return 0;
 }
 
-const HOOKS = ["guard", "gate", "context", "format-hook", "session-hook", "style-check", "failure-hook"];
+const HOOKS = ["guard", "gate", "context", "format-hook", "session-hook", "style-check", "failure-hook", "session-start"];
 
 export function run(argv: string[], cwd = process.cwd()): number {
   let args: Args;
@@ -527,6 +530,20 @@ export function run(argv: string[], cwd = process.cwd()): number {
     }
     return 0;
   }
+  if (command === "session-start") {
+    let input = {};
+    try {
+      input = JSON.parse(readFileSync(0, "utf8") || "{}");
+    } catch {
+      // No hook payload: no model to check.
+    }
+    const warning = planModelWarning(resolved.config, input);
+    if (warning) {
+      console.log(JSON.stringify(warning));
+      logEvent(cwd, resolved.config, "warn", "model.plan", String(warning.systemMessage));
+    }
+    return 0;
+  }
   // PostToolUseFailure: the agent sees the error, but nothing kept it. Log
   // which tool failed, on what, and the end of the error.
   if (command === "failure-hook") {
@@ -776,6 +793,12 @@ function taskCommand(cwd: string, config: Table, args: Args): number {
     }
     const task = currentTask(cwd);
     if (!task) return fail("no open task; start one with saw task start --tier <t> --playbook <p>");
+    if (sub === "phase" && name) {
+      setPhase(cwd, name);
+      console.log(`phase: ${name}`);
+      logEvent(cwd, config, "info", "phase", name, { tier: task.tier });
+      return 0;
+    }
     if (sub === "record" && name && (status === "pass" || status === "fail")) {
       const evidence = reviewEvidence(cwd, config, task, name, status, args.values.report);
       if (evidence.problem) {

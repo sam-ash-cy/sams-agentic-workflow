@@ -3,8 +3,10 @@
 // reasoning grills the unit against its plan and audits it for holes; its
 // findings are recorded for the builder to fix or answer, and for metrics.
 
+import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { homedir } from "node:os";
+import { dirname, join, resolve } from "node:path";
 import { baseBranch } from "./config";
 import type { Table } from "./defaults";
 
@@ -27,6 +29,41 @@ export interface ReviewRecord {
   // "ran": saw review-session run spawned the reviewer; "recorded": a report
   // file handed to saw review-session record (anyone could have written it).
   how?: "ran" | "recorded";
+  // HMAC over the record and its report's contents, with the per-machine key in
+  // ~/.saw/review-key; set only when saw ran the session itself.
+  sig?: string;
+}
+
+// The key lives outside the project, where saw guard denies edits
+// (edit_global) and any tool call that names it, so the agent can't sign a
+// forged record. Created on first use; never committed, never printed.
+export const REVIEW_KEY = "review-key";
+export const reviewKeyPath = (home = process.env.SAW_HOME ?? join(homedir(), ".saw")): string => join(home, REVIEW_KEY);
+
+function reviewKey(create: boolean): Buffer | undefined {
+  const path = reviewKeyPath();
+  if (existsSync(path)) return Buffer.from(readFileSync(path, "utf8").trim(), "hex");
+  if (!create) return undefined;
+  mkdirSync(dirname(path), { recursive: true });
+  const key = randomBytes(32);
+  writeFileSync(path, key.toString("hex") + "\n", { mode: 0o600 });
+  return key;
+}
+
+function signature(key: Buffer, r: ReviewRecord, report: string): string {
+  const digest = createHash("sha256").update(report).digest("hex");
+  return createHmac("sha256", key).update(JSON.stringify([r.at, r.unit, r.kind, r.mode, r.findings, r.verdict ?? null, r.how ?? null, digest])).digest("hex");
+}
+
+// A record counts as saw-run only if its signature matches the record and the
+// report file as they are now: editing either, or writing a record by hand, fails.
+export function signatureValid(cwd: string, r: ReviewRecord): boolean {
+  const key = reviewKey(false);
+  const file = resolve(cwd, r.report);
+  if (!key || !r.sig || !existsSync(file)) return false;
+  const want = Buffer.from(signature(key, r, readFileSync(file, "utf8")), "hex");
+  const got = Buffer.from(r.sig, "hex");
+  return got.length === want.length && timingSafeEqual(got, want);
 }
 
 export const reportVerdict = (report: string): "pass" | "fail" | undefined =>
@@ -96,6 +133,7 @@ export function recordReview(cwd: string, kind: string, id: string, mode: string
   const file = join(dir, `${safeId(id)}.md`);
   writeFileSync(file, report.endsWith("\n") ? report : report + "\n");
   const rec: ReviewRecord = { at: now.toISOString(), unit: id, kind, mode, findings: countFindings(report), report: file, verdict: reportVerdict(report), how };
+  if (how === "ran") rec.sig = signature(reviewKey(true)!, rec, readFileSync(file, "utf8"));
   appendFileSync(join(cwd, ".saw", "reviews.jsonl"), JSON.stringify(rec) + "\n");
   return rec;
 }
