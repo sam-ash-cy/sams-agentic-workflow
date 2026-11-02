@@ -27,7 +27,7 @@ import { sanitize, sanitizeHistory } from "./sanitize";
 import { syncSkillDenies } from "./skills";
 import { applyPlan, gh, readState, repoName, repoPlan, type Gh } from "./repo";
 import { formatHook, runCheck, TRUSTED_LAYERS } from "./run";
-import { currentTask, endTask, gate, markUntaskedEdit, pickTier, recordCheck, startTask, taskReport, taskStatus, taskSteps } from "./task";
+import { currentTask, endTask, gate, markUntaskedEdit, pickTier, recordCheck, reviewEvidence, startTask, taskReport, taskStatus, taskSteps } from "./task";
 import { patchToml, readToml, stringifyToml } from "./toml";
 import { applyProfile, parseProfiles } from "./profiles";
 
@@ -51,7 +51,7 @@ const USAGE = `usage: saw <command>
   task start --tier <t> --playbook <p> [--tone <t>] [--max-words <n>] [--unit phase|stage|feature --unit-id <name>]   open a task (the router does this)
   task adhoc [--playbook <p>]        open a trivial task for a one-off edit (same as task start --tier trivial)
   task status                        report label + which required checks passed, failed or are missing
-  task record <check> pass|fail [--note "..."]   record a judgement check (code_review, ...)
+  task record <check> pass|fail [--note "..."] [--report <file>]   record a judgement check (code_review, ...); --report: a reviewer's report under .saw/reviews/ (verify.require_review_evidence)
   task report [--post [--pr <n>] [--yes]]   Markdown verification section for a PR (--post: gh pr comment, per autonomy.actions.open_pr)
   repo plan|apply [--repo o/n] [--yes]   GitHub settings from [repo]: diff, then apply only with --yes and re-verify
   outline <file>                     signatures with line numbers (when Trail is off)
@@ -82,7 +82,7 @@ interface Args {
   values: Record<string, string>;
 }
 
-const VALUE_FLAGS = ["--runs", "--repo", "--pr", "--tier", "--playbook", "--note", "--plugin-dir", "--reviewed-by", "--type", "--tokens", "--case", "--agents", "--tone", "--max-words", "--unit", "--unit-id", "--port"];
+const VALUE_FLAGS = ["--runs", "--repo", "--pr", "--tier", "--playbook", "--note", "--plugin-dir", "--reviewed-by", "--type", "--tokens", "--case", "--agents", "--tone", "--max-words", "--unit", "--unit-id", "--port", "--report"];
 const PLUGIN_ROOT = join(import.meta.dir, "..", "..");
 
 function parseArgs(argv: string[]): Args {
@@ -634,8 +634,8 @@ function reviewSessionCommand(cwd: string, config: Table, args: Args): number {
     return 0;
   }
   const brief = reviewBrief(cwd, config, kind, id, tier);
-  const done = (report: string): number => {
-    const rec = recordReview(cwd, kind, id, review.mode ?? "both", report);
+  const done = (report: string, how: "ran" | "recorded"): number => {
+    const rec = recordReview(cwd, kind, id, review.mode ?? "both", report, new Date(), how);
     logEvent(cwd, config, rec.findings ? "warn" : "info", "review.result", `${rec.findings} finding(s) for ${kind} ${id}`, { unit: kind, id, findings: rec.findings });
     console.log(report.trim());
     if (!rec.verdict) {
@@ -652,7 +652,7 @@ function reviewSessionCommand(cwd: string, config: Table, args: Args): number {
   if (sub === "record") {
     const file = args.positional[2];
     if (!file || !existsSync(file)) return fail("usage: saw review-session record <report file> --unit <kind> --unit-id <name>");
-    return done(readFileSync(file, "utf8"));
+    return done(readFileSync(file, "utf8"), "recorded");
   }
   if (sub === "run") {
     const argv = reviewArgv();
@@ -668,7 +668,7 @@ function reviewSessionCommand(cwd: string, config: Table, args: Args): number {
       return fail(`could not start claude (${(e as Error).message}); open the review yourself with saw review-session brief`);
     }
     if (p.exitCode !== 0) return fail(`the review session failed (claude exit ${p.exitCode}); nothing recorded`);
-    return done(p.stdout.toString());
+    return done(p.stdout.toString(), "ran");
   }
   return fail("usage: saw review-session brief|run [--dry-run]|record <file> --unit <kind> --unit-id <name>");
 }
@@ -777,8 +777,13 @@ function taskCommand(cwd: string, config: Table, args: Args): number {
     const task = currentTask(cwd);
     if (!task) return fail("no open task; start one with saw task start --tier <t> --playbook <p>");
     if (sub === "record" && name && (status === "pass" || status === "fail")) {
-      recordCheck(cwd, { name, status, how: "recorded", note: args.values.note });
-      console.log(`recorded ${name}: ${status}`);
+      const evidence = reviewEvidence(cwd, config, task, name, status, args.values.report);
+      if (evidence.problem) {
+        logEvent(cwd, config, "warn", "review.refused", `${name} pass not recorded: ${evidence.problem}`, { check: name });
+        return fail(evidence.problem);
+      }
+      recordCheck(cwd, { name, status, how: "recorded", note: args.values.note, report: evidence.report });
+      console.log(`recorded ${name}: ${status}${evidence.report ? ` (report: ${evidence.report})` : ""}`);
       return 0;
     }
     if (sub === "report") {

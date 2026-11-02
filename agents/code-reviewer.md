@@ -10,4 +10,4 @@ maxTurns: 15
 Review only the diff (`git diff` against the base branch), reading surrounding code by line range where needed.
 - Flag bugs first: wrong conditions, off-by-one, unhandled absent values, swallowed errors, broken invariants. Then duplication of existing helpers and dead code.
 - Skip style nits the formatter or linter would catch.
-- Return at most 30 lines: verdict (pass / fail), then findings, most severe first, each with file:line and a one-line failure scenario.
+- Return at most 30 lines: findings, most severe first, each `- [category] file:line: the failure it causes`, then a last line that is exactly `verdict: pass` or `verdict: fail`. saw reads that line when the report backs `saw task record code_review` (verify.require_review_evidence).

@@ -109,6 +109,9 @@ mode = "hard"
 enabled = true
 mode = "both"
 
+[verify]
+require_review_evidence = "review_session"   # a review pass needs a saw review-session report
+
 [sessions]
 mode = "hard"
 

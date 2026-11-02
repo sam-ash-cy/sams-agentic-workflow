@@ -3,10 +3,10 @@
 // Tasks are anchored to a position in checks.jsonl, not a timestamp, so a
 // result written in the same millisecond as the start can't leak in.
 
-import { appendFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { isAbsolute, join, relative, resolve } from "node:path";
 import type { Table } from "./defaults";
-import { reviewBudget, type ReviewSettings } from "./review-session";
+import { readReviews, reportVerdict, reviewBudget, type ReviewSettings } from "./review-session";
 
 export const TIERS = ["trivial", "standard", "complex", "critical"] as const;
 export const PLAYBOOKS = ["foundation", "design", "feature", "integration", "debug", "spike", "hardening", "audit"] as const;
@@ -29,6 +29,8 @@ export interface CheckResult {
   how: "ran" | "recorded";
   at: string;
   note?: string;
+  // The review report that backs a recorded review (verify.require_review_evidence).
+  report?: string;
 }
 
 export type Label = "Verified" | "Partially verified" | "Not verified" | "Blocked";
@@ -194,11 +196,53 @@ export function taskStatus(cwd: string, config: Table, task: Task): Status {
   return status;
 }
 
+export const EVIDENCE_CHECKS = ["code_review", "security_review"];
+
+// verify.require_review_evidence: a passing review is recorded only with a
+// review report from this task behind it. Returns the report to link, or the
+// reason the record is refused. Recording a fail never needs evidence.
+export function reviewEvidence(
+  cwd: string,
+  config: Table,
+  task: Task,
+  check: string,
+  status: "pass" | "fail",
+  reportFlag?: string,
+): { report?: string; problem?: string } {
+  const mode = ((config.verify ?? {}) as { require_review_evidence?: string }).require_review_evidence ?? "off";
+  if (mode === "off" || status === "fail" || !EVIDENCE_CHECKS.includes(check)) return {};
+  const rel = (p: string): string => relative(cwd, p).replaceAll("\\", "/");
+  if (reportFlag !== undefined) {
+    if (mode !== "agent") return { problem: `verify.require_review_evidence is review_session: only a saw review-session report counts, not --report` };
+    const full = resolve(cwd, reportFlag);
+    const r = relative(join(cwd, ".saw", "reviews"), full);
+    if (!r || r.startsWith("..") || isAbsolute(r)) return { problem: `--report must be a file under .saw/reviews/ (got ${reportFlag})` };
+    if (!existsSync(full)) return { problem: `--report ${reportFlag} doesn't exist` };
+    if (statSync(full).mtime.toISOString() < task.started) return { problem: `--report ${reportFlag} was written before this task started` };
+    const verdict = reportVerdict(readFileSync(full, "utf8"));
+    if (verdict !== "pass") return { problem: `--report ${reportFlag} ${verdict ? "has verdict: fail" : "has no verdict: line"}, so it can't back a pass` };
+    return { report: rel(full) };
+  }
+  // The latest finished review session since the task started decides. Under
+  // review_session only one saw spawned counts: a `review-session record`ed
+  // file is as self-attested as --report.
+  const latest = readReviews(cwd).filter((r) => r.at >= task.started && r.verdict && (mode === "agent" || r.how === "ran")).pop();
+  if (latest?.verdict === "pass") return { report: rel(resolve(cwd, latest.report)) };
+  const how = mode === "agent"
+    ? "run saw review-session run, or save the reviewer agent's report under .saw/reviews/ and pass it with --report <file>"
+    : "run saw review-session run";
+  return { problem: `verify.require_review_evidence is ${mode}: ${latest ? "the latest review session for this task has verdict: fail" : "no review report from this task backs this pass"}; ${how}` };
+}
+
 // `saw task report`: the verification section of a PR description.
 export function taskReport(cwd: string, config: Table, task: Task): string {
   const s = taskStatus(cwd, config, task);
-  const notes = new Map([...checksSince(cwd, task.from)].map(([name, r]) => [name, r.note]));
-  const line = (name: string, label: string): string => `- ${label}: \`${name}\`${notes.get(name) ? ` (${notes.get(name)})` : ""}`;
+  const results = checksSince(cwd, task.from);
+  const line = (name: string, label: string): string => {
+    const r = results.get(name);
+    const extra = [r?.note, r?.report ? `report: \`${r.report}\`` : ""].filter(Boolean).join("; ");
+    return `- ${label}: \`${name}\`${extra ? ` (${extra})` : ""}`;
+  };
   return [
     `**Verification: ${s.label}** (${task.tier} / ${task.playbook})`,
     "",

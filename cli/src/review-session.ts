@@ -24,6 +24,9 @@ export interface ReviewRecord {
   report: string;
   // undefined: the report had no verdict line, so the review didn't finish and doesn't count.
   verdict?: "pass" | "fail";
+  // "ran": saw review-session run spawned the reviewer; "recorded": a report
+  // file handed to saw review-session record (anyone could have written it).
+  how?: "ran" | "recorded";
 }
 
 export const reportVerdict = (report: string): "pass" | "fail" | undefined =>
@@ -87,12 +90,12 @@ export function reviewBrief(cwd: string, config: Table, kind: string, id: string
 // Findings are the report's lines that start with "- [".
 export const countFindings = (report: string): number => report.split("\n").filter((l) => /^\s*- \[/.test(l)).length;
 
-export function recordReview(cwd: string, kind: string, id: string, mode: string, report: string, now = new Date()): ReviewRecord {
+export function recordReview(cwd: string, kind: string, id: string, mode: string, report: string, now = new Date(), how: "ran" | "recorded" = "recorded"): ReviewRecord {
   const dir = join(cwd, ".saw", "reviews");
   mkdirSync(dir, { recursive: true });
   const file = join(dir, `${safeId(id)}.md`);
   writeFileSync(file, report.endsWith("\n") ? report : report + "\n");
-  const rec: ReviewRecord = { at: now.toISOString(), unit: id, kind, mode, findings: countFindings(report), report: file, verdict: reportVerdict(report) };
+  const rec: ReviewRecord = { at: now.toISOString(), unit: id, kind, mode, findings: countFindings(report), report: file, verdict: reportVerdict(report), how };
   appendFileSync(join(cwd, ".saw", "reviews.jsonl"), JSON.stringify(rec) + "\n");
   return rec;
 }

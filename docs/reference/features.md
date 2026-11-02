@@ -25,7 +25,11 @@ Settings: `[routing]` (`default_tier`, `always_grill`), `features.grilling`, `fe
 
 A task isn't done until its checks pass.
 - `saw run <check>` runs `checks.<check>` quietly, keeps the full log in `output.full_logs`, and records the result. `--changed` runs only the tests for changed files.
-- `saw task record <check> pass|fail --note "..."` records a judgement check (code review, threat model).
+- `saw task record <check> pass|fail --note "..."` records a judgement check (code review, threat model). By default the agent's word is enough. With `verify.require_review_evidence` on, a `code_review` or `security_review` **pass** needs a review report from this task, and `saw task report` links it in the PR description:
+  - `off` (default): no report needed.
+  - `agent`: a passing report from the `code-reviewer` / `security-reviewer` agent, saved under `.saw/reviews/` during the task and passed with `--report <file>`, or a `saw review-session` with `verdict: pass`. The main session saves that file, so this proves a review ran, not who wrote it.
+  - `review_session`: only a `saw review-session run` that saw itself started, whose latest verdict since the task started is `pass`. `--report` and `saw review-session record` don't count. This is the one the agent can't fake.
+  - It's a guardrail: a committed `workflow.toml` can raise it, and only `~/.saw/config.toml` or `workflow.local.toml` can lower it. Recording a fail never needs a report. The strict profile sets `review_session`.
 - `saw task status` shows which required checks passed, failed or are missing.
 - The **gate** (a Stop hook) blocks the agent from saying "done" until the tier's checks pass. The result is labelled Verified, Partially verified, Not verified or Blocked. If files were edited while no task was open, it blocks once and asks for the router and `saw task start` (or `saw task adhoc`, a trivial task for a one-off edit), so skipping routing doesn't skip verification.
 - With no task open, the **context** hook adds a one-line reminder to each prompt to use the router skill. Both only apply in a project with `workflow.toml`, and both are off when `features.verify_hook` is false.

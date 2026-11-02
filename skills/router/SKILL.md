@@ -36,6 +36,7 @@ Reproduce before changing code. If you're still stuck after that, follow prompts
 ## 3. Evidence
 - Mechanical checks: `saw run <check>` (it prints only failures and records the result).
 - Judgement checks (code_review, security_review, threat_model, rollback_plan for critical): do the review, then `saw task record <check> pass|fail --note "<one line>"`.
+- If `verify.require_review_evidence` is on (`saw config get verify.require_review_evidence`), a review pass needs a report from this task. `agent`: save the code-reviewer or security-reviewer agent's report, unedited, to `.saw/reviews/<check>-<short-name>.md` and add `--report <that file>` (or run `saw review-session run`). `review_session`: run `saw review-session run`; only a session saw started counts. If the record is refused, the review is not done: never write or edit a report yourself.
 - A check counts only if it ran in this task. Never report one from memory.
 
 ## 4. Report (end of task)
