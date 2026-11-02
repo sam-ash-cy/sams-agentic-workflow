@@ -3,6 +3,7 @@
 
 import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { dirname, isAbsolute, join, relative } from "node:path";
+import { readIfExists } from "./fs";
 
 export interface InitReport {
   installed: string[];
@@ -50,7 +51,7 @@ export function init(target: string, opts: { dryRun?: boolean; force?: boolean; 
   }
 
   const gitignore = join(target, ".gitignore");
-  const current = existsSync(gitignore) ? readFileSync(gitignore, "utf8") : "";
+  const current = readIfExists(gitignore) ?? "";
   const lines = current.split(/\r?\n/);
   const missing = IGNORES.filter((entry) => !lines.includes(entry));
   if (missing.length) {
@@ -122,10 +123,11 @@ export function upgrade(target: string, opts: { dryRun?: boolean; templates?: st
     const rel = relative(templates, source).replaceAll("\\", "/");
     const dest = join(target, rel);
     const text = readFileSync(source, "utf8");
-    if (existsSync(dest) && hash(readFileSync(dest, "utf8")) === hash(text)) continue;
+    const existing = readIfExists(dest);
+    if (existing !== undefined && hash(existing) === hash(text)) continue;
     // The settings file is the project's own once created; upgrade never replaces it.
-    if (rel === "workflow.toml" && existsSync(dest)) continue;
-    if (existsSync(dest) && !unedited(target, rel, templates)) {
+    if (rel === "workflow.toml" && existing !== undefined) continue;
+    if (existing !== undefined && !unedited(target, rel, templates)) {
       report.kept.push(rel);
       continue;
     }

@@ -9,6 +9,7 @@ import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { baseBranch } from "./config";
 import type { Table } from "./defaults";
+import { readIfExists } from "./fs";
 
 export interface ReviewSettings {
   enabled?: boolean;
@@ -42,11 +43,18 @@ export const reviewKeyPath = (home = process.env.SAW_HOME ?? join(homedir(), ".s
 
 function reviewKey(create: boolean): Buffer | undefined {
   const path = reviewKeyPath();
-  if (existsSync(path)) return Buffer.from(readFileSync(path, "utf8").trim(), "hex");
+  const stored = readIfExists(path);
+  if (stored !== undefined) return Buffer.from(stored.trim(), "hex");
   if (!create) return undefined;
   mkdirSync(dirname(path), { recursive: true });
   const key = randomBytes(32);
-  writeFileSync(path, key.toString("hex") + "\n", { mode: 0o600 });
+  try {
+    // wx: never replace a key another process created in the meantime.
+    writeFileSync(path, key.toString("hex") + "\n", { mode: 0o600, flag: "wx" });
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code !== "EEXIST") throw e;
+    return Buffer.from(readFileSync(path, "utf8").trim(), "hex");
+  }
   return key;
 }
 

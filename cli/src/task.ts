@@ -3,7 +3,7 @@
 // Tasks are anchored to a position in checks.jsonl, not a timestamp, so a
 // result written in the same millisecond as the start can't leak in.
 
-import { appendFileSync, existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { appendFileSync, closeSync, existsSync, fstatSync, mkdirSync, openSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { isAbsolute, join, relative, resolve } from "node:path";
 import type { Table } from "./defaults";
 import { readReviews, reportVerdict, reviewBudget, signatureValid, type ReviewSettings } from "./review-session";
@@ -229,10 +229,24 @@ export function reviewEvidence(
     const full = resolve(cwd, reportFlag);
     const r = relative(join(cwd, ".saw", "reviews"), full);
     if (!r || r.startsWith("..") || isAbsolute(r)) return { problem: `--report must be a file under .saw/reviews/ (got ${reportFlag})` };
-    if (!existsSync(full)) return { problem: `--report ${reportFlag} doesn't exist` };
+    // One descriptor for the mtime check and the read, so the file can't be swapped between them.
+    let fd: number;
+    try {
+      fd = openSync(full, "r");
+    } catch {
+      return { problem: `--report ${reportFlag} doesn't exist` };
+    }
+    let mtimeMs: number;
+    let body: string;
+    try {
+      mtimeMs = fstatSync(fd).mtimeMs;
+      body = readFileSync(fd, "utf8");
+    } finally {
+      closeSync(fd);
+    }
     // 2s of slack: file systems store mtimes coarser than task.started's milliseconds.
-    if (statSync(full).mtimeMs < Date.parse(task.started) - 2000) return { problem: `--report ${reportFlag} was written before this task started` };
-    const verdict = reportVerdict(readFileSync(full, "utf8"));
+    if (mtimeMs < Date.parse(task.started) - 2000) return { problem: `--report ${reportFlag} was written before this task started` };
+    const verdict = reportVerdict(body);
     if (verdict !== "pass") return { problem: `--report ${reportFlag} ${verdict ? "has verdict: fail" : "has no verdict: line"}, so it can't back a pass` };
     return { report: rel(full) };
   }

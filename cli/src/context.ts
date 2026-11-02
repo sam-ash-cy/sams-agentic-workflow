@@ -6,6 +6,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Table } from "./defaults";
+import { readIfExists } from "./fs";
 import { transcriptTokens } from "./metrics";
 import { currentTask, isSawProject } from "./task";
 
@@ -89,7 +90,8 @@ export function contextHook(cwd: string, config: Table, input: HookInput): Recor
   if (tokens === undefined) return undefined;
 
   const statePath = join(cwd, ".saw", "context.json");
-  const state = (existsSync(statePath) ? JSON.parse(readFileSync(statePath, "utf8")) : {}) as Record<string, number[]>;
+  const raw = readIfExists(statePath);
+  const state = (raw !== undefined ? JSON.parse(raw) : {}) as Record<string, number[]>;
   const session = input.session_id ?? "unknown";
   const fired = state[session] ?? [];
   const nudge = nudgeFor(config, tokens, fired);
@@ -136,7 +138,8 @@ export function budgetHook(cwd: string, config: Table, task: { tier: string; sta
   if (spent === undefined) return undefined;
 
   const statePath = join(cwd, ".saw", "budget.json");
-  const state = (existsSync(statePath) ? JSON.parse(readFileSync(statePath, "utf8")) : {}) as Record<string, number[]>;
+  const raw = readIfExists(statePath);
+  const state = (raw !== undefined ? JSON.parse(raw) : {}) as Record<string, number[]>;
   const fired = state[task.started] ?? [];
   const nudge = budgetNudge(config, task.tier, spent, fired);
   if (!nudge) return undefined;
