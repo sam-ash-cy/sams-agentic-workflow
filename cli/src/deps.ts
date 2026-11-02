@@ -64,7 +64,7 @@ export function gateguardWarning(installedJson: string | undefined, settingsJson
     return undefined;
   }
   if (!installed || envValue === "off" || setting === "off") return undefined;
-  return 'ECC is installed with GateGuard on; it duplicates saw guard. Add "ECC_GATEGUARD": "off" to env in ~/.claude/settings.json (docs/how-to/install.md)';
+  return 'ECC is installed with GateGuard on; it duplicates saw guard. Add "ECC_GATEGUARD": "off" to env in ~/.claude/settings.json (docs/COMMANDS.md, Optional extras)';
 }
 
 // saw doctor with features.ecc on: ECC is a whole Claude Code plugin, so it is
@@ -78,7 +78,7 @@ export function eccProblem(installedJson: string | undefined, pinnedSha: string 
     return "features.ecc is on but installed_plugins.json isn't valid JSON";
   }
   const key = Object.keys(plugins).find((k) => k.startsWith("ecc@"));
-  if (!key) return "features.ecc is on but the ecc plugin isn't installed: `claude plugin install ecc@sams-agentic-workflow` (docs/how-to/install.md), or set features.ecc false";
+  if (!key) return "features.ecc is on but the ecc plugin isn't installed: `claude plugin install ecc@sams-agentic-workflow` (docs/COMMANDS.md, Optional extras), or set features.ecc false";
   const sha = plugins[key]?.[0]?.gitCommitSha;
   if (pinnedSha && sha && sha !== pinnedSha) return `ecc plugin (${key}) is at ${sha.slice(0, 12)}, not the pinned ${pinnedSha.slice(0, 12)}: review with saw deps diff ecc ${sha}, or reinstall from the pin`;
   return undefined;

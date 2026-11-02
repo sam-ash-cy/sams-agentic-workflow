@@ -38,7 +38,7 @@ const USAGE = `usage: saw <command>
   config set <key> <value> [--scope global|project|local]   (default: project)
   config unset <key> [--scope ...]
   explain <key>                      the value in every layer, which one won, and why one was ignored
-  profile list | show <name> | apply <name> [--dry-run]   merge a recommended profile (docs/reference/profiles.md) into the layers it names
+  profile list | show <name> | apply <name> [--dry-run]   merge a recommended profile (docs/COMMANDS.md) into the layers it names
   doctor [--hooks] [--no-plugin]     check settings, environment and the Claude Code plugin install (--hooks: run each plugin hook once)
   init [--dry-run] [--force] [--type <t>] [--hooks] [--agents a,b] [--repo [o/n]]   add workflow.toml, AGENTS.md, CI and the docs/ vault (+ agent adapters; --repo: show the repo plan)
   init --upgrade [--dry-run]         update unedited template files to the current template; edited ones are kept
@@ -265,7 +265,7 @@ export function run(argv: string[], cwd = process.cwd()): number {
     return 0;
   }
   if (command === "profile") {
-    const profiles = parseProfiles(readFileSync(join(PLUGIN_ROOT, "docs", "reference", "profiles.md"), "utf8"));
+    const profiles = parseProfiles(readFileSync(join(PLUGIN_ROOT, "docs", "COMMANDS.md"), "utf8"));
     if (!sub || sub === "list") {
       for (const p of profiles) console.log(`  ${p.name.padEnd(10)} ${p.title}  (${p.blocks.map((b) => b.layer).join(" + ")})`);
       return 0;
