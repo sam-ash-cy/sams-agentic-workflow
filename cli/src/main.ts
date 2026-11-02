@@ -31,6 +31,8 @@ import { formatHook, runCheck, TRUSTED_LAYERS } from "./run";
 import { currentTask, endTask, gate, markUntaskedEdit, pickTier, recordCheck, setPhase, startTask, taskReport, taskStatus, taskSteps } from "./task";
 import { patchToml, readToml, stringifyToml } from "./toml";
 import { applyProfile, parseProfiles } from "./profiles";
+import { aboutHook, aboutPaths, createAbout, type AboutScope } from "./about-me";
+import { catalog, changedFiles, figmaFallback, findSkills, installedNames, installSteps, isInstalled, offer, readState, recommendHook, writeState } from "./recommend";
 
 const USAGE = `usage: saw <command>
   config show [--resolved]           resolved settings (with the layer each came from)
@@ -75,12 +77,17 @@ const USAGE = `usage: saw <command>
   autopilot [status] [--dry-run] [--once] [--install-schedule]   work through approved queue items, one headless session + branch each ([autopilot]; never merges)
   style                              the effective reply style for this task (tone, word cap)
   style-check                        Stop hook: warn (soft) or ask for a rewrite (hard) when a reply is over the cap
+  about-me [show] [--scope global|project|local] [--dry-run]   create the about-me profile from the template (show: the merged summary sessions get)
+  recommend list | add <id> [--scope global|project|local] [--dry-run] | dismiss <id>   suggested MCP servers and skills (recommendations.toml)
+  skills find                        skills that fit the open task's changes (what saw task end suggests)
 global flag: --set key=value         per-task override (repeatable)`;
 
 interface Args {
   positional: string[];
   flags: Set<string>;
   scope: Exclude<Layer, "default" | "override">;
+  // Whether --scope was given (saw recommend add then passes it on).
+  scoped: boolean;
   overrides: Record<string, Value>;
   values: Record<string, string>;
 }
@@ -89,10 +96,13 @@ const VALUE_FLAGS = ["--runs", "--repo", "--pr", "--tier", "--playbook", "--note
 const PLUGIN_ROOT = join(import.meta.dir, "..", "..");
 
 function parseArgs(argv: string[]): Args {
-  const args: Args = { positional: [], flags: new Set(), scope: "project", overrides: {}, values: {} };
+  const args: Args = { positional: [], flags: new Set(), scope: "project", scoped: false, overrides: {}, values: {} };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i]!;
-    if (a === "--scope") args.scope = argv[++i] as Args["scope"];
+    if (a === "--scope") {
+      args.scope = argv[++i] as Args["scope"];
+      args.scoped = true;
+    }
     else if (a === "--set") {
       const [key, ...rest] = (argv[++i] ?? "").split("=");
       args.overrides[key!] = parseValue(rest.join("="));
@@ -371,6 +381,7 @@ export function run(argv: string[], cwd = process.cwd()): number {
       console.log("next: fill in AGENTS.md by hand (commands + non-obvious rules only), then start the foundation playbook:");
       console.log('  saw task start --tier complex --playbook foundation');
       if (!args.flags.has("--hooks")) console.log("  optional: saw init --hooks  (runs the context lint before each commit)");
+      if (!Object.values(aboutPaths(cwd)).some((p) => existsSync(p))) console.log("  optional: saw about-me, then ask Claude to run the about-me skill (your goals and preferences, read by every session)");
     }
     if ("repo" in args.values) initRepoPlan(cwd, args);
     return 0;
@@ -428,6 +439,12 @@ export function run(argv: string[], cwd = process.cwd()): number {
     return 0;
   }
   if (command === "deps") return depsCommand(cwd, resolved.config, args);
+  if (command === "about-me") return aboutCommand(cwd, args);
+  if (command === "recommend") return recommendCommand(cwd, resolved.config, args);
+  if (command === "skills" && sub === "find") {
+    if (!printSkillSuggestions(cwd, resolved.config, currentTask(cwd)?.playbook ?? "")) console.log("no skill suggestions for these changes");
+    return 0;
+  }
   if (command === "dashboard") {
     const features = resolved.config.features as Record<string, boolean>;
     if (!features.dashboard) return fail("features.dashboard is off");
@@ -518,7 +535,9 @@ export function run(argv: string[], cwd = process.cwd()): number {
     if (budget) logEvent(cwd, resolved.config, "warn", "budget", String(budget.systemMessage));
     const nudge = routerNudge(cwd, resolved.config);
     if (nudge) logEvent(cwd, resolved.config, "debug", "nudge", "no saw task open: pointed the agent at the router skill");
-    const outs = [nudge, contextHook(cwd, resolved.config, input), budget].filter((o) => o !== undefined);
+    const rec = recommendHook(cwd, resolved.config, input);
+    if (rec) logEvent(cwd, resolved.config, "info", "recommend", "suggested MCP servers or skills for this prompt");
+    const outs = [nudge, contextHook(cwd, resolved.config, input), budget, rec].filter((o) => o !== undefined);
     if (outs.length === 1) console.log(JSON.stringify(outs[0]));
     else if (outs.length > 1) {
       // One hook, one JSON object: join the nudges.
@@ -538,10 +557,10 @@ export function run(argv: string[], cwd = process.cwd()): number {
       // No hook payload: no model to check.
     }
     const warning = planModelWarning(resolved.config, input);
-    if (warning) {
-      console.log(JSON.stringify(warning));
-      logEvent(cwd, resolved.config, "warn", "model.plan", String(warning.systemMessage));
-    }
+    if (warning) logEvent(cwd, resolved.config, "warn", "model.plan", String(warning.systemMessage));
+    const about = aboutHook(cwd, resolved.config.features as Record<string, boolean>);
+    const context = [(warning?.hookSpecificOutput as { additionalContext?: string } | undefined)?.additionalContext, about].filter(Boolean).join("\n\n");
+    if (context || warning) console.log(JSON.stringify({ systemMessage: warning?.systemMessage, hookSpecificOutput: { hookEventName: "SessionStart", additionalContext: context } }));
     return 0;
   }
   // PostToolUseFailure: the agent sees the error, but nothing kept it. Log
@@ -556,6 +575,8 @@ export function run(argv: string[], cwd = process.cwd()): number {
     const target = String(input.tool_input?.command ?? input.tool_input?.file_path ?? "").slice(0, 200);
     const error = String(input.error ?? "").trim().slice(-500);
     logEvent(cwd, resolved.config, "warn", "tool.fail", `${input.tool_name ?? "tool"} failed${input.is_interrupt ? " (interrupted)" : ""}: ${target}`, { tool: input.tool_name, target, error });
+    const figma = figmaFallback(resolved.config, input);
+    if (figma) console.log(JSON.stringify(figma));
     return 0;
   }
   if (command === "guard" || command === "format-hook" || command === "session-hook") {
@@ -788,6 +809,7 @@ function taskCommand(cwd: string, config: Table, args: Args): number {
       } else {
         console.log("task closed");
       }
+      if (open && features.skill_finder) printSkillSuggestions(cwd, config, open.playbook);
       endTask(cwd);
       return 0;
     }
@@ -870,6 +892,68 @@ function depsCommand(cwd: string, config: Table, args: Args): number {
     return fail((e as Error).message);
   }
   return fail(USAGE);
+}
+
+function aboutCommand(cwd: string, args: Args): number {
+  const paths = aboutPaths(cwd);
+  if (args.positional[1] === "show") {
+    const text = aboutHook(cwd, { about_me: true }, paths);
+    console.log(text ?? `no answers yet; run saw about-me, then the about-me skill (files: ${Object.values(paths).join(", ")})`);
+    return 0;
+  }
+  const scope = (args.scoped ? args.scope : "global") as AboutScope;
+  if (!(scope in paths)) return fail("--scope must be global, project or local");
+  const dryRun = args.flags.has("--dry-run");
+  const made = createAbout(paths[scope], dryRun);
+  console.log(`${made ? (dryRun ? "would create" : "created") : "kept"} ${paths[scope]}`);
+  console.log("next: fill it in by hand, or ask Claude to run the about-me skill (an interview of ~50 questions)");
+  return 0;
+}
+
+function recommendCommand(cwd: string, config: Table, args: Args): number {
+  const [, sub, id] = args.positional;
+  const inst = installedNames(cwd);
+  const state = readState(cwd);
+  if (sub === "list" || sub === undefined) {
+    for (const r of catalog()) {
+      const status = isInstalled(r, inst) ? "installed" : state.dismissed.includes(r.id) ? "dismissed" : "available";
+      console.log(`${r.kind.padEnd(7)} ${r.id.padEnd(18)} ${status.padEnd(10)} ${r.why}`);
+    }
+    return 0;
+  }
+  const rec = catalog().find((r) => r.id === id);
+  if (!rec) return fail(`no recommendation "${id ?? ""}"; see saw recommend list`);
+  if (sub === "dismiss") {
+    writeState(cwd, { ...state, dismissed: [...new Set([...state.dismissed, rec.id])] });
+    console.log(`dismissed ${rec.id}: saw won't suggest it again in this project`);
+    return 0;
+  }
+  if (sub === "add") {
+    const scope = args.scoped ? args.scope : "";
+    if (args.scoped && !["global", "project", "local"].includes(scope)) return fail("--scope must be global, project or local");
+    const steps = installSteps(rec, scope);
+    for (const argv of steps) {
+      console.log(`$ ${argv.join(" ")}`);
+      if (args.flags.has("--dry-run")) continue;
+      const p = Bun.spawnSync(argv, { cwd, stdout: "inherit", stderr: "inherit" });
+      if (p.exitCode !== 0) return fail(`${argv.slice(0, 3).join(" ")} failed (exit ${p.exitCode})`);
+    }
+    if (!args.flags.has("--dry-run")) {
+      console.log(`added ${rec.id}${rec.kind === "mcp" ? "; if it needs sign-in, run /mcp in Claude Code" : "; restart Claude Code to load it"}`);
+      logEvent(cwd, config, "info", "recommend.add", rec.id);
+    }
+    return 0;
+  }
+  return fail(USAGE);
+}
+
+// Prints catalog skills that fit the task; true when it printed any.
+function printSkillSuggestions(cwd: string, config: Table, playbook: string): boolean {
+  const found = findSkills(cwd, config, playbook, changedFiles(cwd));
+  if (found.length === 0) return false;
+  console.log("skills that may help with work like this:");
+  for (const r of found) console.log(`  ${offer(config, r)}`);
+  return true;
 }
 
 function evalCommand(cwd: string, config: Table, args: Args): number {

@@ -45,7 +45,18 @@ export const DEFAULTS: Table = {
     // Standard-or-higher tasks: the session plans and reviews; the implementer
     // agent (models.roles.implement) writes each planned unit.
     implementer: false,
+    // SessionStart adds a summary of the about-me profile (~/.saw/about-me.md,
+    // docs/about-me.md, .saw/about-me.local.md) to the session's context.
+    about_me: true,
+    // UserPromptSubmit suggests missing MCP servers and skills from
+    // recommendations.toml when the prompt or project needs them.
+    recommend: true,
+    // saw task end suggests up to 3 catalog skills that fit the finished task.
+    skill_finder: true,
   },
+  // auto: the agent offers to run `saw recommend add <id>` once the user agrees;
+  // manual: it only shows the install command.
+  recommend: { mode: "auto", mcp: true, skills: true },
   project: { type: "web" },
   autonomy: {
     level: "propose",
@@ -184,6 +195,7 @@ export const DEFAULTS: Table = {
 
 // Allowed values for enum keys; checked by `saw doctor` and `saw config set`.
 export const ENUMS: Record<string, string[]> = {
+  "recommend.mode": ["auto", "manual"],
   "project.type": ["web", "api", "cli", "lib", "infra"],
   "autonomy.level": ["suggest", "propose", "act"],
   "routing.default_tier": ["auto", "trivial", "standard", "complex", "critical"],

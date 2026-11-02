@@ -13,6 +13,7 @@ export const FEATURE_SKILLS: Record<string, string[]> = {
   unslop: ["unslop"],
   brag: ["brag", "brag-slim"],
   docs_step: ["engineering:documentation"],
+  about_me: ["sams-agentic-workflow:about-me"],
 };
 
 const TRACK = join(".saw", "skill-denies.json");

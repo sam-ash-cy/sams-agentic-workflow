@@ -95,6 +95,40 @@
         "implementer": {
           "type": "boolean",
           "default": false
+        },
+        "about_me": {
+          "type": "boolean",
+          "default": true
+        },
+        "recommend": {
+          "type": "boolean",
+          "default": true
+        },
+        "skill_finder": {
+          "type": "boolean",
+          "default": true
+        }
+      }
+    },
+    "recommend": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "mode": {
+          "type": "string",
+          "default": "auto",
+          "enum": [
+            "auto",
+            "manual"
+          ]
+        },
+        "mcp": {
+          "type": "boolean",
+          "default": true
+        },
+        "skills": {
+          "type": "boolean",
+          "default": true
         }
       }
     },

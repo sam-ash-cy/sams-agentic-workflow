@@ -1,0 +1,160 @@
+# MCP servers and skills saw suggests when a task needs them (features.recommend,
+# features.skill_finder). Each entry: why, the install command (argv, run by
+# `saw recommend add <id>`), and its triggers: prompt keywords (lowercase,
+# whole-word) and project files whose presence makes it relevant. `exts` (skills)
+# match the files a finished task changed.
+# `installed` lists the names saw looks for in .mcp.json, ~/.claude.json and
+# ~/.claude/plugins/installed_plugins.json. Nothing here stores a token: servers
+# that need auth ask for it (OAuth or /mcp) after they're added.
+
+[mcp.github]
+why = "Issues, PRs, reviews and CI runs from GitHub without leaving the session."
+install = ["claude", "mcp", "add", "--transport", "http", "github", "https://api.githubcopilot.com/mcp/"]
+installed = ["github"]
+keywords = ["github", "pull request", "pr", "issue", "issues", "ci", "workflow run", "actions"]
+files = [".github"]
+
+[mcp.figma]
+why = "Reads frames, components and variables from Figma files for design-to-code work."
+install = ["claude", "mcp", "add", "--transport", "http", "figma", "https://mcp.figma.com/mcp"]
+installed = ["figma"]
+keywords = ["figma", "mockup", "design file", "frame", "frames", "prototype"]
+files = []
+
+[mcp.context7]
+why = "Current library and framework docs, so code isn't written against stale APIs."
+install = ["claude", "mcp", "add", "--transport", "http", "context7", "https://mcp.context7.com/mcp"]
+installed = ["context7"]
+keywords = ["docs", "documentation", "upgrade", "migrate", "library", "framework", "sdk"]
+files = []
+
+[mcp.playwright]
+why = "Drives a real browser for end-to-end tests and UI checks."
+install = ["claude", "mcp", "add", "playwright", "--", "npx", "-y", "@playwright/mcp@latest"]
+installed = ["playwright"]
+keywords = ["e2e", "end-to-end", "browser", "playwright", "screenshot"]
+files = ["playwright.config.ts", "playwright.config.js"]
+
+[mcp.chrome-devtools]
+why = "Console, network, performance traces and Lighthouse from a live Chrome page."
+install = ["claude", "mcp", "add", "chrome-devtools", "--", "npx", "-y", "chrome-devtools-mcp@latest"]
+installed = ["chrome-devtools"]
+keywords = ["performance", "lighthouse", "console", "network", "slow page", "core web vitals", "devtools"]
+files = []
+
+[mcp.sentry]
+why = "Production errors and stack traces from Sentry while debugging."
+install = ["claude", "mcp", "add", "--transport", "http", "sentry", "https://mcp.sentry.dev/mcp"]
+installed = ["sentry"]
+keywords = ["sentry", "production error", "stack trace", "crash", "exception"]
+files = ["sentry.client.config.ts", "sentry.server.config.ts", ".sentryclirc"]
+
+[mcp.linear]
+why = "Reads and updates Linear issues for the task at hand."
+install = ["claude", "mcp", "add", "--transport", "http", "linear", "https://mcp.linear.app/mcp"]
+installed = ["linear"]
+keywords = ["linear", "ticket", "backlog", "sprint"]
+files = []
+
+[mcp.notion]
+why = "Specs, PRDs and meeting notes kept in Notion."
+install = ["claude", "mcp", "add", "--transport", "http", "notion", "https://mcp.notion.com/mcp"]
+installed = ["notion"]
+keywords = ["notion", "spec", "prd", "wiki", "meeting notes"]
+files = []
+
+[mcp.supabase]
+why = "Schema, SQL and logs for Supabase/Postgres projects."
+install = ["claude", "mcp", "add", "--transport", "http", "supabase", "https://mcp.supabase.com/mcp"]
+installed = ["supabase", "postgres"]
+keywords = ["supabase", "postgres", "postgresql", "sql", "database", "migration", "schema"]
+files = ["supabase"]
+
+[mcp.fetch]
+why = "Fetches a web page as clean text for research and reference."
+install = ["claude", "mcp", "add", "fetch", "--", "uvx", "mcp-server-fetch"]
+installed = ["fetch"]
+keywords = ["fetch", "scrape", "web page", "url"]
+files = []
+
+[skills.frontend-design]
+why = "Distinctive, non-generic UI: typography, colour and layout direction."
+install = ["claude", "plugin", "install", "frontend-design@claude-plugins-official"]
+installed = ["frontend-design"]
+keywords = ["ui", "landing page", "design", "component", "restyle", "css", "frontend"]
+files = ["tailwind.config.js", "tailwind.config.ts"]
+exts = [".tsx", ".jsx", ".vue", ".svelte", ".css"]
+
+[skills.figma]
+why = "Figma's own skills for implementing designs and keeping design-system rules."
+install = ["claude", "plugin", "install", "figma@claude-plugins-official"]
+installed = ["figma"]
+keywords = ["figma", "design to code", "design system", "mockup"]
+files = []
+exts = []
+
+[skills.example-skills]
+why = "webapp-testing (Playwright scripts), mcp-builder and skill-creator from Anthropic."
+marketplace = "anthropics/skills"
+install = ["claude", "plugin", "install", "example-skills@anthropic-agent-skills"]
+installed = ["example-skills"]
+keywords = ["webapp", "mcp server", "new skill"]
+files = []
+exts = []
+
+[skills.document-skills]
+why = "Reads and writes .docx, .pdf, .xlsx and .pptx files."
+marketplace = "anthropics/skills"
+install = ["claude", "plugin", "install", "document-skills@anthropic-agent-skills"]
+installed = ["document-skills"]
+keywords = ["docx", "pdf", "xlsx", "pptx", "spreadsheet", "word document", "slides"]
+files = []
+exts = [".docx", ".pdf", ".xlsx", ".pptx"]
+
+[skills.code-review]
+why = "Multi-agent PR review with confidence-scored findings."
+install = ["claude", "plugin", "install", "code-review@claude-plugins-official"]
+installed = ["code-review"]
+keywords = ["review", "pull request"]
+files = []
+exts = []
+
+[skills.security-guidance]
+why = "Warns about risky patterns (injection, unsafe eval, secrets) as files are edited."
+install = ["claude", "plugin", "install", "security-guidance@claude-plugins-official"]
+installed = ["security-guidance"]
+keywords = ["auth", "login", "password", "token", "secret", "payment", "security"]
+files = []
+exts = []
+
+[skills.commit-commands]
+why = "Commit, push and PR commands that follow the repo's conventions."
+install = ["claude", "plugin", "install", "commit-commands@claude-plugins-official"]
+installed = ["commit-commands"]
+keywords = ["commit", "changelog", "release"]
+files = []
+exts = []
+
+[skills.pr-review-toolkit]
+why = "Focused reviewers for tests, comments, error handling and types."
+install = ["claude", "plugin", "install", "pr-review-toolkit@claude-plugins-official"]
+installed = ["pr-review-toolkit"]
+keywords = ["error handling", "silent failure", "test coverage", "type design"]
+files = []
+exts = [".ts", ".tsx"]
+
+[skills.feature-dev]
+why = "Explore, design and build a feature with code-explorer and code-architect agents."
+install = ["claude", "plugin", "install", "feature-dev@claude-plugins-official"]
+installed = ["feature-dev"]
+keywords = ["new feature", "architecture"]
+files = []
+exts = []
+
+[skills.playwright]
+why = "Browser testing and UI verification skills built on Playwright."
+install = ["claude", "plugin", "install", "playwright@claude-plugins-official"]
+installed = ["playwright"]
+keywords = ["e2e", "end-to-end", "browser test", "ui test"]
+files = ["playwright.config.ts", "playwright.config.js"]
+exts = [".spec.ts"]
