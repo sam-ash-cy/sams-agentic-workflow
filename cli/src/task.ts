@@ -9,6 +9,7 @@ import type { Table } from "./defaults";
 import { reviewBudget, type ReviewSettings } from "./review-session";
 
 export const TIERS = ["trivial", "standard", "complex", "critical"] as const;
+export const PHASES = ["plan", "implement", "review"] as const;
 export const PLAYBOOKS = ["foundation", "design", "feature", "integration", "debug", "spike", "hardening", "audit"] as const;
 
 export interface Task {
@@ -21,6 +22,8 @@ export interface Task {
   transcript?: string;
   // Per-task style override ("this task: tone=verbose"), set by saw task start.
   style?: { tone?: string; max_words?: number };
+  // Where the task is (saw task phase): implement makes the implementer edit guard deny.
+  phase?: (typeof PHASES)[number];
 }
 
 export interface CheckResult {
@@ -66,6 +69,15 @@ export function markUntaskedEdit(cwd: string, filePath?: string): void {
 export function currentTask(cwd: string): Task | undefined {
   const path = join(dir(cwd), "task.json");
   return existsSync(path) ? (JSON.parse(readFileSync(path, "utf8")) as Task) : undefined;
+}
+
+export function setPhase(cwd: string, phase: string): Task {
+  if (!(PHASES as readonly string[]).includes(phase)) throw new Error(`phase must be one of ${PHASES.join(" | ")}`);
+  const task = currentTask(cwd);
+  if (!task) throw new Error("no open task; start one with saw task start --tier <t> --playbook <p>");
+  task.phase = phase as Task["phase"];
+  writeFileSync(join(dir(cwd), "task.json"), JSON.stringify(task, null, 2) + "\n");
+  return task;
 }
 
 export function endTask(cwd: string): void {
@@ -140,7 +152,7 @@ export function taskSteps(config: Table, tier: string, playbook = "feature"): st
   const big = tier === "complex" || tier === "critical";
   if (features.worktrees && big) steps.push("one worktree per task");
   if (features.parallel_sessions && big) steps.push("split independent steps into sessions (autonomy.actions.spawn_sessions)");
-  if (features.implementer && tier !== "trivial") steps.push("after the plan: hand each unit to the implementer agent (models.roles.implement), then review its diff here");
+  if (features.implementer && tier !== "trivial") steps.push("after the plan: run `saw task phase implement` and hand each unit to the implementer agent (models.roles.implement), then `saw task phase review` and review its diff here");
   if (features.unslop && playbook === "design") steps.push("unslop polish pass before screenshots");
   const delivers = DELIVERS.includes(playbook);
   if (features.docs_step && delivers) steps.push("docs step: engineering:documentation in the Diataxis split (tutorial, how-to, reference, explanation); mattpocock-skills:writing-for-agents for AGENTS.md, CLAUDE.md and skill files" +
