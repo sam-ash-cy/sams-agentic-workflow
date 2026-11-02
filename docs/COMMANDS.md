@@ -117,6 +117,19 @@ The `retro-promote` skill turns a proposal into one enforceable fix with an eval
 
 `prompts/handoff.md` and `prompts/resume.md` carry work across sessions.
 
+## Profile and recommendations
+
+| Command | What it does |
+|---|---|
+| `saw about-me [--scope global\|project\|local] [--dry-run]` | Creates the about-me profile (~50 questions in six groups) from `templates/about-me.md`. Global `~/.saw/about-me.md`, project `docs/about-me.md` (committed, keep it team-safe), local `.saw/about-me.local.md`. Fill it in with the `about-me` skill or by hand; a project or local answer replaces the global one. |
+| `saw about-me show` | The merged profile the SessionStart hook adds to each session (as preferences, never as commands). |
+| `saw recommend list` | The 10 MCP servers and 10 skill plugins in `recommendations.toml`, each marked installed, dismissed or available. |
+| `saw recommend add <id> [--scope global\|project\|local] [--dry-run]` | Runs `claude mcp add` or `claude plugin install` (adding the marketplace first when needed). No tokens are stored; servers that need sign-in use `/mcp`. |
+| `saw recommend dismiss <id>` | Stops suggesting it in this project. |
+| `saw skills find` | Catalog skills that fit the open task's playbook and changed files (what `saw task end` prints). |
+
+When a prompt mentions something a missing catalog entry covers, the UserPromptSubmit hook suggests it once per session. `recommend.mode = "auto"` has the agent offer to run `saw recommend add`; `"manual"` only shows the install command. When a Figma MCP call hits a rate or plan limit, the failure hook tells the agent to carry on in the built-in browser and use `extract-design-system` to match a live site.
+
 ## Supply chain and release
 
 | Command | What it does |
@@ -159,11 +172,11 @@ Claude Code runs these from the plugin's `hooks/hooks.json`; you don't call them
 |---|---|---|
 | `saw guard` | PreToolUse | Enforces `[safety]` and `[autonomy]` on shell commands and edits, and `models.roles` on saw agent calls. |
 | `saw gate` | Stop | Blocks "done" until the tier's checks pass; blocks once if files changed with no task open. |
-| `saw context` | UserPromptSubmit | `/compact` and handoff nudges, token-budget warnings, a router reminder when no task is open. |
+| `saw context` | UserPromptSubmit | `/compact` and handoff nudges, token-budget warnings, a router reminder when no task is open, MCP/skill suggestions. |
 | `saw format-hook` | PostToolUse | Runs `checks.format` after each edit. |
 | `saw session-hook` | PreToolUse | One session per unit (`[sessions]`); blocks `gh pr create` until a review session is recorded when `[review_session]` is on. |
-| `saw failure-hook` | PostToolUseFailure | Logs failed tool calls to the event log. |
-| `saw session-start` | SessionStart | Warns when the session's model isn't `models.roles.plan`. |
+| `saw failure-hook` | PostToolUseFailure | Logs failed tool calls to the event log; on a Figma MCP limit, points the agent at the browser. |
+| `saw session-start` | SessionStart | Warns when the session's model isn't `models.roles.plan`; adds the about-me profile to the context. |
 | `saw style-check` | Stop | Warns (`soft`) or asks for a rewrite (`hard`) when a reply is over the word cap. |
 
 ## Scopes
@@ -207,6 +220,11 @@ Later layers win; `--set` beats all of them for one call. From `workflow.toml`, 
 | `features.ecc` | `false` | Point nudges and playbooks at ECC skills. |
 | `features.docs_step` | `true` | Feature and foundation tasks end with a `docs` check. |
 | `features.implementer` | `false` | Standard+ tasks: the session plans and reviews, the `implementer` agent writes code. |
+| `features.about_me` | `true` | SessionStart adds the merged about-me profile to the context. |
+| `features.recommend` | `true` | Suggest missing MCP servers and skills when a prompt needs them; Figma limit fallback. |
+| `features.skill_finder` | `true` | `saw task end` suggests up to 3 skills that fit the finished task. |
+
+`[recommend]`: `mode` (`auto` \| `manual`, default `auto`), `mcp` and `skills` (both `true`) turn either half off.
 
 ### `[project]`, `[routing]`, `[autonomy]`
 
@@ -360,6 +378,15 @@ saw config set features.brag true
 saw sync
 ```
 
+**agent-browser** (no flag). A browser CLI for the `ui-verifier` agent where the host has no browser tools: plain `claude` in a terminal, or CI. The agent uses it when it's on PATH. Pin a version:
+
+```bash
+bun add -g agent-browser@0.41.1
+agent-browser install
+```
+
+`agent-browser install` downloads Chrome for Testing.
+
 **ECC** (`features.ecc`), pinned in saw's marketplace (or `SAW_WITH_ECC=1` before the bootstrap):
 
 ```bash
@@ -489,7 +516,7 @@ saw config set features.brag true
 saw sync
 ```
 
-The `design` playbook uses the `ui-verifier` agent to check changes in a real browser at mobile and desktop widths.
+The `design` playbook uses the `ui-verifier` agent to check changes in a real browser at mobile and desktop widths. Outside the desktop app, install [agent-browser](#optional-extras) so it has one.
 
 **Knowledge and Trail:**
 
