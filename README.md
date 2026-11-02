@@ -17,15 +17,15 @@ Every task goes through the `router` skill. It picks a **tier** (trivial, standa
 
 ```mermaid
 flowchart LR
-    P[Prompt] --> R[router skill<br/>tier + playbook]
-    R --> S[saw task start<br/>steps + required checks]
-    S --> W[plan, implement<br/>guard hook on every tool call]
-    W --> C[saw run / saw task record]
-    C --> G{gate<br/>Stop hook}
-    G -- checks missing or failing --> W
-    G -- all pass --> D[report: Verified]
-    D --> M[saw task end<br/>metrics]
-    M --> T[saw retro<br/>proposals]
+    P["Prompt"] --> R["router skill<br/>tier + playbook"]
+    R --> S["saw task start<br/>steps + required checks"]
+    S --> W["plan, implement<br/>guard hook on every tool call"]
+    W --> C["saw run / saw task record"]
+    C --> G{"gate<br/>Stop hook"}
+    G -->|"checks missing or failing"| W
+    G -->|"all pass"| D["report: Verified"]
+    D --> M["saw task end<br/>metrics"]
+    M --> T["saw retro<br/>proposals"]
 ```
 
 ## Two parts
