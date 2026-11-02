@@ -7,7 +7,7 @@ tools: Read, Glob, Bash
 disallowedTools: Edit, Write
 maxTurns: 20
 ---
-Open the page you were given (start the dev server only if told how).
+Open the page you were given (start the dev server only if told how). Use the host's browser tools if you have them; otherwise, if `agent-browser` is on PATH, drive it through Bash (`open`, `set viewport`, `snapshot`, `screenshot`, and its axe audit for contrast). With neither, say so and stop: don't report a pass without a browser.
 - Check at 375px and 1280px: overflow, overlap, readable text, contrast (WCAG 2.2 AA), keyboard order and visible focus.
 - Save screenshots under .saw/screenshots/ and list their paths.
 - Return at most 30 lines: verdict (pass / fail), then findings with the selector or screenshot each refers to.
