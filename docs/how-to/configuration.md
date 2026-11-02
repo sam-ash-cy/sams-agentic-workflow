@@ -59,7 +59,14 @@ If a tier needs a check you don't have (no e2e suite yet), take it out for this 
 saw config set verify.critical.run '["dep_audit","threat_model","rollback_plan"]'
 ```
 
-Checks without a command (`code_review`, `security_review`, `threat_model`, `rollback_plan`) are recorded by the agent with `saw task record`.
+Checks without a command (`code_review`, `security_review`, `threat_model`, `rollback_plan`) are recorded by the agent with `saw task record`. To make the two reviews prove they happened, require a review report:
+
+```bash
+saw config set verify.require_review_evidence agent            # a reviewer agent's report or a review session
+saw config set verify.require_review_evidence review_session   # only a saw review-session run (needs [review_session] enabled)
+```
+
+Set in `workflow.toml`, it applies to everyone working in the repo, and nobody can lower it from there ([reference](../reference/features.md)).
 
 ## Step 2: choose how much the agent may do on its own
 
