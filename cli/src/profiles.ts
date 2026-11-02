@@ -7,6 +7,7 @@ import { dirname } from "node:path";
 import { flatten, layerPaths, loosens, setPath, validate, type Layer } from "./config";
 import type { Table, Value } from "./defaults";
 import { parseToml, patchToml, readToml, stringifyToml } from "./toml";
+import { readIfExists } from "./fs";
 
 export type ProfileLayer = Exclude<Layer, "default" | "override">;
 
@@ -64,7 +65,7 @@ export interface ApplyResult {
 export function applyProfile(cwd: string, profile: Profile, dryRun = false, paths = layerPaths(cwd)): ApplyResult[] {
   return profile.blocks.map(({ layer, values }) => {
     const path = paths[layer];
-    let text = existsSync(path) ? readFileSync(path, "utf8") : "";
+    let text = readIfExists(path) ?? "";
     const table: Table = readToml(path) ?? {};
     const result: ApplyResult = { layer, path, set: [], problems: [] };
     for (const [key, value] of Object.entries(values)) {

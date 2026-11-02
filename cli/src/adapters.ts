@@ -29,14 +29,20 @@ export function installAdapters(cwd: string, agents: string[], dryRun = false): 
   for (const agent of agents) {
     for (const [rel, text] of Object.entries(FILES[agent] ?? {})) {
       const path = join(cwd, rel);
-      if (existsSync(path)) {
-        out.skipped.push(`${rel} (exists; check it lists AGENTS.md)`);
+      const skip = `${rel} (exists; check it lists AGENTS.md)`;
+      if (dryRun) {
+        if (existsSync(path)) out.skipped.push(skip);
+        else out.installed.push(rel);
         continue;
       }
-      out.installed.push(rel);
-      if (!dryRun) {
-        mkdirSync(dirname(path), { recursive: true });
-        writeFileSync(path, text);
+      mkdirSync(dirname(path), { recursive: true });
+      try {
+        // wx: create only, so an existing file is never overwritten.
+        writeFileSync(path, text, { flag: "wx" });
+        out.installed.push(rel);
+      } catch (e) {
+        if ((e as NodeJS.ErrnoException).code !== "EEXIST") throw e;
+        out.skipped.push(skip);
       }
     }
   }

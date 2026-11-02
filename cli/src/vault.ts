@@ -8,6 +8,7 @@
 import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { basename, isAbsolute, join } from "node:path";
 import type { Layer } from "./config";
+import { readIfExists } from "./fs";
 import type { TaskMetric } from "./metrics";
 
 export interface VaultResult {
@@ -52,7 +53,8 @@ export function syncVault(vault: string, cwd: string, store: string, metrics: Ta
   const name = basename(cwd);
   const result: VaultResult = { note: join(vault, "projects", `${slug(name)}.md`), copied: [], warnings: [] };
   // Two projects with the same folder name share a slug: don't let one silently replace the other.
-  const prior = existsSync(result.note) ? /^path: "(.*)"$/m.exec(readFileSync(result.note, "utf8"))?.[1] : undefined;
+  const noteText = readIfExists(result.note);
+  const prior = noteText !== undefined ? /^path: "(.*)"$/m.exec(noteText)?.[1] : undefined;
   if (prior !== undefined && prior !== cwd.replaceAll("\\", "/")) {
     result.warnings.push(`${result.note} belongs to ${prior}; rename this folder or remove that note`);
     return result;
@@ -62,7 +64,8 @@ export function syncVault(vault: string, cwd: string, store: string, metrics: Ta
   if (store === "vault" || store === "both") {
     for (const f of mdFiles(learnings)) {
       const target = join(dest, f);
-      if (existsSync(target) && readFileSync(target, "utf8") !== readFileSync(join(learnings, f), "utf8")) {
+      const existing = readIfExists(target);
+      if (existing !== undefined && existing !== readFileSync(join(learnings, f), "utf8")) {
         // Edited in the vault since the last sync: the repo copy wins, but say so.
         result.warnings.push(`learnings/${slug(name)}/${f} was changed in the vault; overwritten by the repo copy`);
       }
