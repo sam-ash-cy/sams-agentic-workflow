@@ -95,6 +95,12 @@ export const DEFAULTS: Table = {
   // command (reviews, threat models) are recorded with `saw task record`.
   checks: {},
   verify: {
+    // What `saw task record code_review|security_review pass` needs besides the
+    // agent's word: "off" nothing; "agent" a review report from this task (a saw
+    // review-session, or a reviewer subagent's report saved under .saw/reviews/
+    // and passed with --report); "review_session" a saw review-session only.
+    // A guardrail: workflow.toml can raise it, only your own layers can lower it.
+    require_review_evidence: "off",
     trivial: { run: ["test"] },
     standard: { run: ["format", "lint", "typecheck", "test", "code_review", "security_review", "docs"] },
     complex: { extends: "standard", run: [] },
@@ -200,6 +206,7 @@ export const ENUMS: Record<string, string[]> = {
   "autonomy.level": ["suggest", "propose", "act"],
   "routing.default_tier": ["auto", "trivial", "standard", "complex", "critical"],
   "tokens.mode": ["soft", "hard"],
+  "verify.require_review_evidence": ["off", "agent", "review_session"],
   "style.tone": ["normal", "structured", "detailed", "verbose"],
   "style.mode": ["soft", "hard"],
   "sessions.mode": ["soft", "hard"],

@@ -20,7 +20,7 @@
     {
       "name": "ecc",
       "source": { "source": "url", "url": "https://github.com/affaan-m/ECC.git", "sha": "b38be6a7f6350964d59328b52f0624e1d1d552d1" },
-      "description": "ECC by Affaan Mustafa (MIT), optional (features.ecc), pinned at the commit in deps.lock.toml: strategic-compact, context-budget, verification-loop and more. See docs/how-to/install.md for the hooks saw recommends turning off."
+      "description": "ECC by Affaan Mustafa (MIT), optional (features.ecc), pinned at the commit in deps.lock.toml: strategic-compact, context-budget, verification-loop and more. See docs/COMMANDS.md (Optional extras) for the hooks saw recommends turning off."
     }
   ]
 }

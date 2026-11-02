@@ -79,7 +79,7 @@ export function validate(key: string, value: Value): string | undefined {
   if (allowed && !allowed.includes(String(value))) return `"${key}" must be one of ${allowed.join(" | ")}`;
   if (key.startsWith("checks.") && typeof value !== "string") return `"${key}" must be a command string`;
   // An unknown parent would silently drop every inherited check.
-  const tiers = Object.keys((DEFAULTS.verify ?? {}) as Table);
+  const tiers = Object.entries((DEFAULTS.verify ?? {}) as Table).filter(([, v]) => isTable(v)).map(([k]) => k);
   if (/^verify\.[a-z_]+\.extends$/.test(key) && !tiers.includes(String(value))) return `"${key}" must be one of ${tiers.join(" | ")}`;
   const def = DEFAULT_KEYS[key];
   if (def !== undefined && typeof def !== typeof value) return `"${key}" must be a ${Array.isArray(def) ? "list" : typeof def}`;
@@ -93,7 +93,7 @@ const PUSH_RANK = ["never", "ask", "allow"];
 
 function tightens(key: string, current: Value, next: Value): boolean {
   if (key === "safety.push") return PUSH_RANK.indexOf(String(next)) <= PUSH_RANK.indexOf(String(current));
-  const rank = key === "autonomy.level" ? LEVEL_RANK : key.startsWith("autonomy.actions.") ? ACTION_RANK : undefined;
+  const rank = key === "autonomy.level" ? LEVEL_RANK : key.startsWith("autonomy.actions.") ? ACTION_RANK : key === EVIDENCE_KEY ? EVIDENCE_RANK : undefined;
   // An unknown value (indexOf -1) never counts as tightening.
   if (rank) return rank.includes(String(next)) && rank.indexOf(String(next)) <= rank.indexOf(String(current));
   if (LOOSER_WHEN_ON.includes(key)) return next === false || current === true;
@@ -106,7 +106,10 @@ function tightens(key: string, current: Value, next: Value): boolean {
 const LEVEL_RANK = ["suggest", "propose", "act"];
 const ACTION_RANK = ["never", "ask", "propose", "allow"];
 const LOOSER_WHEN_ON = ["features.parallel_sessions", "features.worktrees"];
-const guarded = (key: string): boolean => key.startsWith("safety.") || key.startsWith("autonomy.") || LOOSER_WHEN_ON.includes(key);
+// A cloned repo may demand review evidence, never waive it.
+const EVIDENCE_KEY = "verify.require_review_evidence";
+const EVIDENCE_RANK = ["review_session", "agent", "off"];
+const guarded = (key: string): boolean => key.startsWith("safety.") || key.startsWith("autonomy.") || LOOSER_WHEN_ON.includes(key) || key === EVIDENCE_KEY;
 // Whether the project layer would ignore this value as looser than the default.
 export const loosens = (key: string, value: Value): boolean => guarded(key) && key in DEFAULT_KEYS && !tightens(key, DEFAULT_KEYS[key]!, value);
 

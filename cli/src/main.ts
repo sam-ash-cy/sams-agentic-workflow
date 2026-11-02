@@ -28,11 +28,11 @@ import { sanitize, sanitizeHistory } from "./sanitize";
 import { syncSkillDenies } from "./skills";
 import { applyPlan, gh, readState, repoName, repoPlan, type Gh } from "./repo";
 import { formatHook, runCheck, TRUSTED_LAYERS } from "./run";
-import { currentTask, endTask, gate, markUntaskedEdit, pickTier, recordCheck, setPhase, startTask, taskReport, taskStatus, taskSteps } from "./task";
+import { currentTask, endTask, gate, markUntaskedEdit, pickTier, recordCheck, reviewEvidence, setPhase, startTask, taskReport, taskStatus, taskSteps } from "./task";
 import { patchToml, readToml, stringifyToml } from "./toml";
 import { applyProfile, parseProfiles } from "./profiles";
 import { aboutHook, aboutPaths, createAbout, type AboutScope } from "./about-me";
-import { catalog, changedFiles, figmaFallback, findSkills, installedNames, installSteps, isInstalled, offer, readState, recommendHook, writeState } from "./recommend";
+import { catalog, changedFiles, figmaFallback, findSkills, installedNames, installSteps, isInstalled, offer, readState as readRecommendState, recommendHook, writeState } from "./recommend";
 
 const USAGE = `usage: saw <command>
   config show [--resolved]           resolved settings (with the layer each came from)
@@ -40,7 +40,7 @@ const USAGE = `usage: saw <command>
   config set <key> <value> [--scope global|project|local]   (default: project)
   config unset <key> [--scope ...]
   explain <key>                      the value in every layer, which one won, and why one was ignored
-  profile list | show <name> | apply <name> [--dry-run]   merge a recommended profile (docs/reference/profiles.md) into the layers it names
+  profile list | show <name> | apply <name> [--dry-run]   merge a recommended profile (docs/COMMANDS.md) into the layers it names
   doctor [--hooks] [--no-plugin]     check settings, environment and the Claude Code plugin install (--hooks: run each plugin hook once)
   init [--dry-run] [--force] [--type <t>] [--hooks] [--agents a,b] [--repo [o/n]]   add workflow.toml, AGENTS.md, CI and the docs/ vault (+ agent adapters; --repo: show the repo plan)
   init --upgrade [--dry-run]         update unedited template files to the current template; edited ones are kept
@@ -55,7 +55,7 @@ const USAGE = `usage: saw <command>
   task adhoc [--playbook <p>]        open a trivial task for a one-off edit (same as task start --tier trivial)
   task phase plan|implement|review  mark where the open task is (implement: the main session can't edit source when features.implementer is on)
   task status                        report label + which required checks passed, failed or are missing
-  task record <check> pass|fail [--note "..."]   record a judgement check (code_review, ...)
+  task record <check> pass|fail [--note "..."] [--report <file>]   record a judgement check (code_review, ...); --report: a reviewer's report under .saw/reviews/ (verify.require_review_evidence)
   task report [--post [--pr <n>] [--yes]]   Markdown verification section for a PR (--post: gh pr comment, per autonomy.actions.open_pr)
   repo plan|apply [--repo o/n] [--yes]   GitHub settings from [repo]: diff, then apply only with --yes and re-verify
   outline <file>                     signatures with line numbers (when Trail is off)
@@ -92,7 +92,7 @@ interface Args {
   values: Record<string, string>;
 }
 
-const VALUE_FLAGS = ["--runs", "--repo", "--pr", "--tier", "--playbook", "--note", "--plugin-dir", "--reviewed-by", "--type", "--tokens", "--case", "--agents", "--tone", "--max-words", "--unit", "--unit-id", "--port"];
+const VALUE_FLAGS = ["--runs", "--repo", "--pr", "--tier", "--playbook", "--note", "--plugin-dir", "--reviewed-by", "--type", "--tokens", "--case", "--agents", "--tone", "--max-words", "--unit", "--unit-id", "--port", "--report"];
 const PLUGIN_ROOT = join(import.meta.dir, "..", "..");
 
 function parseArgs(argv: string[]): Args {
@@ -275,7 +275,7 @@ export function run(argv: string[], cwd = process.cwd()): number {
     return 0;
   }
   if (command === "profile") {
-    const profiles = parseProfiles(readFileSync(join(PLUGIN_ROOT, "docs", "reference", "profiles.md"), "utf8"));
+    const profiles = parseProfiles(readFileSync(join(PLUGIN_ROOT, "docs", "COMMANDS.md"), "utf8"));
     if (!sub || sub === "list") {
       for (const p of profiles) console.log(`  ${p.name.padEnd(10)} ${p.title}  (${p.blocks.map((b) => b.layer).join(" + ")})`);
       return 0;
@@ -672,8 +672,8 @@ function reviewSessionCommand(cwd: string, config: Table, args: Args): number {
     return 0;
   }
   const brief = reviewBrief(cwd, config, kind, id, tier);
-  const done = (report: string): number => {
-    const rec = recordReview(cwd, kind, id, review.mode ?? "both", report);
+  const done = (report: string, how: "ran" | "recorded"): number => {
+    const rec = recordReview(cwd, kind, id, review.mode ?? "both", report, new Date(), how);
     logEvent(cwd, config, rec.findings ? "warn" : "info", "review.result", `${rec.findings} finding(s) for ${kind} ${id}`, { unit: kind, id, findings: rec.findings });
     console.log(report.trim());
     if (!rec.verdict) {
@@ -690,7 +690,7 @@ function reviewSessionCommand(cwd: string, config: Table, args: Args): number {
   if (sub === "record") {
     const file = args.positional[2];
     if (!file || !existsSync(file)) return fail("usage: saw review-session record <report file> --unit <kind> --unit-id <name>");
-    return done(readFileSync(file, "utf8"));
+    return done(readFileSync(file, "utf8"), "recorded");
   }
   if (sub === "run") {
     const argv = reviewArgv();
@@ -706,7 +706,7 @@ function reviewSessionCommand(cwd: string, config: Table, args: Args): number {
       return fail(`could not start claude (${(e as Error).message}); open the review yourself with saw review-session brief`);
     }
     if (p.exitCode !== 0) return fail(`the review session failed (claude exit ${p.exitCode}); nothing recorded`);
-    return done(p.stdout.toString());
+    return done(p.stdout.toString(), "ran");
   }
   return fail("usage: saw review-session brief|run [--dry-run]|record <file> --unit <kind> --unit-id <name>");
 }
@@ -822,8 +822,13 @@ function taskCommand(cwd: string, config: Table, args: Args): number {
       return 0;
     }
     if (sub === "record" && name && (status === "pass" || status === "fail")) {
-      recordCheck(cwd, { name, status, how: "recorded", note: args.values.note });
-      console.log(`recorded ${name}: ${status}`);
+      const evidence = reviewEvidence(cwd, config, task, name, status, args.values.report);
+      if (evidence.problem) {
+        logEvent(cwd, config, "warn", "review.refused", `${name} pass not recorded: ${evidence.problem}`, { check: name });
+        return fail(evidence.problem);
+      }
+      recordCheck(cwd, { name, status, how: "recorded", note: args.values.note, report: evidence.report });
+      console.log(`recorded ${name}: ${status}${evidence.report ? ` (report: ${evidence.report})` : ""}`);
       return 0;
     }
     if (sub === "report") {
@@ -913,7 +918,7 @@ function aboutCommand(cwd: string, args: Args): number {
 function recommendCommand(cwd: string, config: Table, args: Args): number {
   const [, sub, id] = args.positional;
   const inst = installedNames(cwd);
-  const state = readState(cwd);
+  const state = readRecommendState(cwd);
   if (sub === "list" || sub === undefined) {
     for (const r of catalog()) {
       const status = isInstalled(r, inst) ? "installed" : state.dismissed.includes(r.id) ? "dismissed" : "available";

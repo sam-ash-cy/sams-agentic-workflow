@@ -1,4 +1,4 @@
-// `saw profile`: the recommended settings in docs/reference/profiles.md,
+// `saw profile`: the recommended settings in the Profiles section of docs/COMMANDS.md,
 // merged key by key into the layer each block names. The doc's TOML blocks are
 // the only copy, so the docs and the command can't drift apart.
 

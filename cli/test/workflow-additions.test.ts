@@ -12,7 +12,7 @@ import { currentTask, gate, recordCheck, startTask, taskChecks, taskSteps } from
 import type { TaskMetric } from "../src/metrics";
 
 const ROOT = join(import.meta.dir, "..", "..");
-const PROFILES = parseProfiles(readFileSync(join(ROOT, "docs", "reference", "profiles.md"), "utf8"));
+const PROFILES = parseProfiles(readFileSync(join(ROOT, "docs", "COMMANDS.md"), "utf8"));
 const MECHANICAL = ["format", "lint", "typecheck", "test"];
 
 function project(toml = ""): string {

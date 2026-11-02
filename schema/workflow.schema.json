@@ -346,6 +346,15 @@
             "type": "string"
           }
         }
+      },
+      "properties": {
+        "require_review_evidence": {
+          "enum": [
+            "off",
+            "agent",
+            "review_session"
+          ]
+        }
       }
     },
     "context": {

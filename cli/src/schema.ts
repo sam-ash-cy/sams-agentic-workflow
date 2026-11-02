@@ -29,6 +29,7 @@ export function workflowSchema(): Schema {
       additionalProperties: false,
       properties: { run: { type: "array", items: { type: "string" } }, extends: { type: "string" } },
     },
+    properties: { require_review_evidence: { enum: ENUMS["verify.require_review_evidence"] } },
   };
   (root.properties as Schema).checks = { type: "object", additionalProperties: { type: "string" } };
   ((root.properties as Record<string, Schema>).models!.properties as Record<string, Schema>).roles!.additionalProperties = { type: "string" };
