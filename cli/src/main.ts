@@ -40,7 +40,7 @@ const USAGE = `usage: saw <command>
   config show [--resolved] [--layers [--json]]   resolved settings (with the layer each came from); --layers: every key in every layer
   docs status [--json] | refresh     which project docs are still the blank template; refresh prints the fill-from-code brief
   config get <key>
-  config set <key> <value> [--scope global|project|local]   (default: project)
+  config set <key> <value> [--scope global|project|local] [--dry-run]   (default: project)
   config unset <key> [--scope ...]
   explain <key>                      the value in every layer, which one won, and why one was ignored
   profile list | show <name> | apply <name> [--dry-run]   merge a recommended profile (docs/COMMANDS.md) into the layers it names
@@ -123,9 +123,12 @@ function parseArgs(argv: string[]): Args {
 function printReport(report: InitReport, dryRun: boolean): void {
   const head = dryRun ? "dry run, nothing written" : "done";
   console.log(`saw init: ${head}`);
-  for (const [label, items] of [["installed", report.installed], ["changed", report.changed], ["backed up", report.backedUp], ["skipped", report.skipped]] as const) {
-    for (const item of items) console.log(`  ${label.padEnd(9)} ${item}`);
-  }
+  const labels = dryRun ? ["would install", "would change", "would back up", "would skip"] : ["installed", "changed", "backed up", "skipped"];
+  const groups = [report.installed, report.changed, report.backedUp, report.skipped];
+  const width = dryRun ? 13 : 9;
+  groups.forEach((items, i) => {
+    for (const item of items) console.log(`  ${labels[i]!.padEnd(width)} ${item}`);
+  });
 }
 
 export function repoCommand(config: Table, sub: "plan" | "apply", args: Args, run: Gh = gh): number {
@@ -275,6 +278,10 @@ export function run(argv: string[], cwd = process.cwd()): number {
       setPath(table, key, value);
     } else if (!unsetPath(table, key)) {
       return fail(`${key} is not set in ${path}`);
+    }
+    if (args.flags.has("--dry-run")) {
+      console.log(`would ${sub} ${key}${value === undefined ? "" : ` = ${JSON.stringify(value)}`} in ${path} (dry run, nothing written)`);
+      return 0;
     }
     mkdirSync(join(path, ".."), { recursive: true });
     // In place where possible, so the file's comments survive.

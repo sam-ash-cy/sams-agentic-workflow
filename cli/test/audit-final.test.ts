@@ -126,6 +126,24 @@ test("saw config set keeps the file's comments and layout", async () => {
   expect(Bun.TOML.parse(out)).toEqual({ project: { type: "cli" }, autonomy: { actions: { commit: "never" } }, checks: { test: "bun test" } });
 });
 
+test("saw config set --dry-run writes nothing", async () => {
+  const { run } = await import("../src/main");
+  const dir = mkdtempSync(join(tmpdir(), "saw-af-"));
+  const toml = '[style]\nmax_words = 200\n';
+  writeFileSync(join(dir, "workflow.toml"), toml);
+  expect(run(["config", "set", "style.max_words", "150", "--dry-run"], dir)).toBe(0);
+  expect(run(["config", "unset", "style.max_words", "--dry-run"], dir)).toBe(0);
+  expect(readFileSync(join(dir, "workflow.toml"), "utf8")).toBe(toml);
+});
+
+test("saw config set keeps CRLF line endings", async () => {
+  const { run } = await import("../src/main");
+  const dir = mkdtempSync(join(tmpdir(), "saw-af-"));
+  writeFileSync(join(dir, "workflow.toml"), '# team\r\n\r\n[project]\r\ntype = "web"\r\n');
+  expect(run(["config", "set", "project.type", "lib"], dir)).toBe(0);
+  expect(readFileSync(join(dir, "workflow.toml"), "utf8")).toBe('# team\r\n\r\n[project]\r\ntype = "lib"\r\n');
+});
+
 test("an unknown autonomy value from the project layer is ignored, not treated as tightening", () => {
   const r = layers('[autonomy.actions]\ncommit = "yes"\n');
   expect((r.config.autonomy as Table).actions).toMatchObject({ commit: "ask" });
