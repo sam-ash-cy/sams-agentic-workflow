@@ -4,7 +4,8 @@
 
 A Claude Code plugin and a small CLI (`saw`) that make a coding agent route each task by risk, prove its work with real checks, and stay inside guardrails enforced by hooks rather than by instructions.
 
-- **Set it up with an agent:** [docs/STARTUP.md](docs/STARTUP.md) (one prompt, plus a manual path)
+- **Set it up with an agent:** [docs/STARTUP.md](docs/STARTUP.md) (one prompt, plus a manual path) 
+- Set up wizard command and quick start can specify globally, project based, and list out full command set up via /workflow-setup 
 - **Every command, setting and recipe:** [docs/COMMANDS.md](docs/COMMANDS.md)
 
 ## The problem
