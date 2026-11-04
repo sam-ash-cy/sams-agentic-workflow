@@ -2,7 +2,7 @@
 
 <!-- Fill in by hand during the foundation playbook. Keep it under 100 lines:
      commands and rules an agent can't infer from the code. Everything else
-     belongs in docs/ (start at docs/index.md). Don't generate this file. -->
+     belongs in docs/ (start at docs/index.md). Write it from the real commands, not boilerplate. -->
 
 ## Commands
 - Install:

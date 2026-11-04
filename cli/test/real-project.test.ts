@@ -84,4 +84,8 @@ test("B13: init guesses project.type from the repo's manifests", () => {
   writeFileSync(join(infra, "main.tf"), "");
   expect(guessType(infra)?.type).toBe("infra");
   expect(guessType(tmp("saw-rp-"))).toBeUndefined();
+
+  const lib = tmp("saw-rp-");
+  writeFileSync(join(lib, "package.json"), '{"name":"demo","scripts":{"test":"bun test"}}');
+  expect(guessType(lib)).toEqual({ type: "lib", from: "package.json" });
 });

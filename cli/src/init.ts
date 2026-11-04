@@ -195,6 +195,8 @@ export function guessType(target: string): { type: string; from: string } | unde
   }
   const root = manifests.find((m) => m === "package.json");
   if (root && /"bin"\s*:/.test(readFileSync(join(target, root), "utf8"))) return { type: "cli", from: root };
+  // A package.json with no framework and no bin is a library.
+  if (root) return { type: "lib", from: root };
   if (tf && manifests.length === 0) return { type: "infra", from: tf };
   return undefined;
 }

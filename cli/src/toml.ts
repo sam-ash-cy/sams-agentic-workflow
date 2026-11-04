@@ -88,8 +88,10 @@ export function patchToml(text: string, key: string, value: Value | undefined, e
     else if (section === "") lines.splice(Math.min(firstHeader, lines.length), 0, entry);
     else lines.push(...(lines.at(-1)?.trim() ? [""] : []), `[${section}]`, entry);
   } else return undefined;
-  let out = lines.join("\n");
-  if (!out.endsWith("\n")) out += "\n";
+  // Keep the file's line endings, so a one-key change is a one-line diff.
+  const eol = text.includes("\r\n") ? "\r\n" : "\n";
+  let out = lines.join(eol);
+  if (!out.endsWith(eol)) out += eol;
   try {
     return Bun.deepEquals(parseToml(out), expected) ? out : undefined;
   } catch {
