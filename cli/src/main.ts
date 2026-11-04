@@ -3,7 +3,7 @@
 import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { isAbsolute, join, relative, resolve as resolvePath } from "node:path";
-import { baseBranch, flatten, inside, layerPaths, loosens, parseValue, resolve, setPath, unsetPath, validate, weakenedSafety, type Layer } from "./config";
+import { baseBranch, flatten, inside, layerPaths, layerValues, loosens, parseValue, resolve, setPath, unsetPath, validate, weakenedSafety, type Layer } from "./config";
 import { DEFAULTS, type Table, type Value } from "./defaults";
 import { readIfExists } from "./fs";
 import { syncAgents } from "./agents";
@@ -24,6 +24,7 @@ import { configSuggestions, readProposals, retro } from "./retro";
 import { compareUrl, eccProblem, gateguardWarning, pin, readLock, verifyLock } from "./deps";
 import { depAuditFor, guessType, init, recordInstalled, uninstall, upgrade, type ChangeReport, type InitReport } from "./init";
 import { lintContext, lintMemory } from "./lint";
+import { docsNudge, docsStatus, REFRESH_BRIEF } from "./docs";
 import { outline } from "./outline";
 import { sanitize, sanitizeHistory } from "./sanitize";
 import { syncSkillDenies } from "./skills";
@@ -36,7 +37,8 @@ import { aboutHook, aboutPaths, createAbout, type AboutScope } from "./about-me"
 import { catalog, changedFiles, figmaFallback, findSkills, installedNames, installSteps, isInstalled, offer, readState as readRecommendState, recommendHook, writeState } from "./recommend";
 
 const USAGE = `usage: saw <command>
-  config show [--resolved]           resolved settings (with the layer each came from)
+  config show [--resolved] [--layers [--json]]   resolved settings (with the layer each came from); --layers: every key in every layer
+  docs status [--json] | refresh     which project docs are still the blank template; refresh prints the fill-from-code brief
   config get <key>
   config set <key> <value> [--scope global|project|local]   (default: project)
   config unset <key> [--scope ...]
@@ -211,6 +213,26 @@ export function run(argv: string[], cwd = process.cwd()): number {
   }
   for (const w of resolved.warnings) console.error(`warning: ${w}`);
 
+  if (command === "config" && sub === "show" && args.flags.has("--layers")) {
+    const rows = layerValues(cwd, resolved);
+    if (args.flags.has("--json")) console.log(JSON.stringify(rows, null, 2));
+    else for (const r of rows) console.log(`${r.key} = ${JSON.stringify(r.value)}  # ${r.source}  (global ${JSON.stringify(r.global ?? null)}, project ${JSON.stringify(r.project ?? null)}, local ${JSON.stringify(r.local ?? null)})`);
+    return 0;
+  }
+  if (command === "docs" && (sub === "status" || sub === "refresh")) {
+    if (sub === "refresh") {
+      console.log(REFRESH_BRIEF);
+      return 0;
+    }
+    const status = docsStatus(cwd);
+    if (args.flags.has("--json")) console.log(JSON.stringify(status, null, 2));
+    else {
+      for (const d of status.docs) console.log(`${d.state.padEnd(7)} ${d.path}`);
+      const blank = status.docs.filter((d) => d.state === "blank").length;
+      console.log(blank && status.hasCode ? `${blank} blank doc(s) in a project with code: run saw docs refresh` : "docs: ok");
+    }
+    return 0;
+  }
   if (command === "config" && sub === "show") {
     const flat = flatten(resolved.config);
     for (const [k, v] of Object.entries(flat)) {
@@ -812,6 +834,7 @@ function taskCommand(cwd: string, config: Table, args: Args): number {
         console.log("task closed");
       }
       if (open && features.skill_finder) printSkillSuggestions(cwd, config, open.playbook);
+      if (open && features.living_docs) for (const line of docsNudge(cwd, baseBranch(config))) console.log(line);
       endTask(cwd);
       return 0;
     }

@@ -92,6 +92,10 @@
           "type": "boolean",
           "default": true
         },
+        "living_docs": {
+          "type": "boolean",
+          "default": true
+        },
         "implementer": {
           "type": "boolean",
           "default": false
@@ -129,6 +133,24 @@
         "skills": {
           "type": "boolean",
           "default": true
+        }
+      }
+    },
+    "pre_pr": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "skills": {
+          "type": "array",
+          "default": []
+        },
+        "tiers": {
+          "type": "array",
+          "default": [
+            "standard",
+            "complex",
+            "critical"
+          ]
         }
       }
     },

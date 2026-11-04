@@ -1,6 +1,6 @@
 # Startup
 
-Set up sams-agentic-workflow with one prompt to your coding agent, or by hand. The prompt checks what is already installed, asks a few questions, shows every change as a dry run, and only writes after you approve.
+Set up sams-agentic-workflow with `/workflow-setup` (guided) or `/workflow-setup full` (every setting, global and project side by side) once the plugin is installed, with one prompt to your coding agent, or by hand. Both fill blank project docs from the code when the project already has some. The prompt checks what is already installed, asks a few questions, shows every change as a dry run, and only writes after you approve.
 
 Two setups are supported:
 - **Global + project** (recommended): the plugin and workflow rules for every session on this machine, plus `workflow.toml` in this repo. Hooks run, so guardrails and the gate are enforced.

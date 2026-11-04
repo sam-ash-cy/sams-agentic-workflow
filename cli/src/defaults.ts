@@ -42,6 +42,10 @@ export const DEFAULTS: Table = {
     ecc: false,
     // feature and foundation tasks end with a docs step (Diataxis split).
     docs_step: true,
+    // saw task end flags docs still blank in a project with code, and command,
+    // config or API changes without a docs/reference change; the docs step also
+    // covers debug, integration and hardening tasks.
+    living_docs: true,
     // Standard-or-higher tasks: the session plans and reviews; the implementer
     // agent (models.roles.implement) writes each planned unit.
     implementer: false,
@@ -57,6 +61,9 @@ export const DEFAULTS: Table = {
   // auto: the agent offers to run `saw recommend add <id>` once the user agrees;
   // manual: it only shows the install command.
   recommend: { mode: "auto", mcp: true, skills: true },
+  // Skills that must run before a PR, e.g. ["security-review", "simplify"]. Each
+  // becomes a required check (skill:<name>) recorded with saw task record.
+  pre_pr: { skills: [], tiers: ["standard", "complex", "critical"] },
   project: { type: "web" },
   autonomy: {
     level: "propose",
