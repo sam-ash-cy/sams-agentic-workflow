@@ -114,14 +114,6 @@
         }
       }
     },
-    "pre_pr": {
-      "type": "object",
-      "additionalProperties": false,
-      "properties": {
-        "skills": { "type": "array", "items": { "type": "string", "pattern": "^[\w:./-]+$" }, "default": [] },
-        "tiers": { "type": "array", "items": { "enum": ["trivial", "standard", "complex", "critical"] }, "default": ["standard", "complex", "critical"] }
-      }
-    },
     "recommend": {
       "type": "object",
       "additionalProperties": false,
@@ -141,6 +133,24 @@
         "skills": {
           "type": "boolean",
           "default": true
+        }
+      }
+    },
+    "pre_pr": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "skills": {
+          "type": "array",
+          "default": []
+        },
+        "tiers": {
+          "type": "array",
+          "default": [
+            "standard",
+            "complex",
+            "critical"
+          ]
         }
       }
     },
