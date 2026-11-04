@@ -179,3 +179,22 @@ export function inside(cwd: string, path: string): string | undefined {
   const rel = relative(resolvePath(cwd), full);
   return rel && !rel.startsWith("..") && !isAbsolute(rel) ? full : undefined;
 }
+
+export interface LayerRow {
+  key: string;
+  value: Value;
+  source: Layer;
+  global?: Value;
+  project?: Value;
+  local?: Value;
+}
+
+// Every key with its value in each settings layer, for saw config show --layers.
+export function layerValues(cwd: string, resolved: Resolved, paths = layerPaths(cwd)): LayerRow[] {
+  const g = flatten(readToml(paths.global) ?? {});
+  const p = flatten(readToml(paths.project) ?? {});
+  const l = flatten(readToml(paths.local) ?? {});
+  return Object.entries(flatten(resolved.config)).map(([key, value]) => ({
+    key, value, source: resolved.sources[key]!, global: g[key], project: p[key], local: l[key],
+  }));
+}

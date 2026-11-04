@@ -42,6 +42,10 @@ export const DEFAULTS: Table = {
     ecc: false,
     // feature and foundation tasks end with a docs step (Diataxis split).
     docs_step: true,
+    // saw task end flags docs still blank in a project with code, and command,
+    // config or API changes without a docs/reference change; the docs step also
+    // covers debug, integration and hardening tasks.
+    living_docs: true,
     // Standard-or-higher tasks: the session plans and reviews; the implementer
     // agent (models.roles.implement) writes each planned unit.
     implementer: false,

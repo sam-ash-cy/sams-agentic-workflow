@@ -130,6 +130,8 @@ const REVIEW_FEATURES: Record<string, string> = { code_review: "code_review", se
 
 // Playbooks that ship something users read about; only these owe the docs check.
 const DELIVERS = ["feature", "foundation"];
+// Playbooks that may change the public surface without shipping a feature.
+const SURFACE_PLAYBOOKS = ["debug", "integration", "hardening"];
 
 // The checks a task owes: its tier's, minus docs for playbooks that deliver nothing.
 export const taskChecks = (config: Table, tier: string, playbook: string): string[] =>
@@ -157,6 +159,7 @@ export function taskSteps(config: Table, tier: string, playbook = "feature"): st
   if (features.implementer && tier !== "trivial") steps.push("after the plan: run `saw task phase implement` and hand each unit to the implementer agent (models.roles.implement), then `saw task phase review` and review its diff here");
   if (features.unslop && playbook === "design") steps.push("unslop polish pass before screenshots");
   const delivers = DELIVERS.includes(playbook);
+  if (features.living_docs && !delivers && SURFACE_PLAYBOOKS.includes(playbook)) steps.push("living docs: if this changes commands, settings or APIs: update docs/reference/ (and glossary.md / conventions.md / learnings/ where they're affected)");
   if (features.docs_step && delivers) steps.push("docs step: engineering:documentation in the Diataxis split (tutorial, how-to, reference, explanation); mattpocock-skills:writing-for-agents for AGENTS.md, CLAUDE.md and skill files" +
     (taskChecks(config, tier, playbook).includes("docs") ? "; then saw task record docs pass --note \"<files>\" (or --note \"none needed: <why>\")" : ""));
   if (features.ecc && delivers) steps.push("before the PR: ecc:verification-loop (build, types, lint, tests, diff review)");

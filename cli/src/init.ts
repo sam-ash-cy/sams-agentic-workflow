@@ -82,7 +82,7 @@ export function recordInstalled(target: string, rel: string, text: string): void
 }
 
 // Unedited: matches what init installed, or the current template.
-function unedited(target: string, rel: string, templates: string): boolean {
+export function unedited(target: string, rel: string, templates: string): boolean {
   const dest = join(target, rel);
   if (!existsSync(dest)) return false;
   const h = hash(readFileSync(dest, "utf8"));

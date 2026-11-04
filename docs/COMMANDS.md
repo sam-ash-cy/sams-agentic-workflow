@@ -29,7 +29,9 @@ saw doctor --hooks
 
 | Command | What it does |
 |---|---|
-| `saw config show [--resolved]` | Keys that are set and the layer each came from; `--resolved` lists every key with its value. |
+| `saw config show [--resolved] [--layers [--json]]` | Keys that are set and the layer each came from; `--resolved` lists every key with its value; `--layers` lists every key with its value in the global, project and local layers. |
+| `saw docs status [--json]` | Each project doc: `blank` (still the template), `filled` or `missing`, and whether the repo has code. |
+| `saw docs refresh` | Prints the brief for filling or updating the docs from the code (used by `/workflow-setup`). |
 | `saw config get <key>` | One key, or a table (`saw config get verify.standard`). |
 | `saw config set <key> <value> [--scope global\|project\|local]` | Validates and writes one key, keeping the file's comments. Default scope: project. Lists are JSON. There is no dry run: it writes. |
 | `saw config unset <key> [--scope ...]` | Removes a key from that layer. |
@@ -219,6 +221,7 @@ Later layers win; `--set` beats all of them for one call. From `workflow.toml`, 
 | `features.brag` | `false` | Offer a launch video after feature/foundation PRs merge. |
 | `features.ecc` | `false` | Point nudges and playbooks at ECC skills. |
 | `features.docs_step` | `true` | Feature and foundation tasks end with a `docs` check. |
+| `features.living_docs` | `true` | `saw task end` flags docs still blank in a project with code, and command/config/API changes without a `docs/reference/` change; debug, integration and hardening tasks get a reference-docs step. |
 | `features.implementer` | `false` | Standard+ tasks: the session plans and reviews, the `implementer` agent writes code. |
 | `features.about_me` | `true` | SessionStart adds the merged about-me profile to the context. |
 | `features.recommend` | `true` | Suggest missing MCP servers and skills when a prompt needs them; Figma limit fallback. |

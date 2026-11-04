@@ -61,6 +61,7 @@ Defaults are what a fresh `saw init` gives you. "Key" is the setting that contro
 | | Gate: block "done" until checks pass | on | `features.verify_hook` | plugin |
 | | Format after each edit | on (needs `checks.format`) | `features.format_hook` | |
 | | Docs step on feature and foundation tasks | on | `features.docs_step` | `engineering` plugin (installed by bootstrap) |
+| | Living docs: flag blank docs and reference drift at task end; docs step on debug/integration/hardening | on | `features.living_docs` | |
 | | Review reports required for a review pass | off | `verify.require_review_evidence` | |
 | Reviews | Code and security review on standard+ | on | `features.code_review`, `features.security_review` | |
 | | Review agents (code, security, architecture, UI, research) | on | `[models.roles]` | plugin |

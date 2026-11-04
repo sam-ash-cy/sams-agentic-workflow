@@ -92,6 +92,10 @@
           "type": "boolean",
           "default": true
         },
+        "living_docs": {
+          "type": "boolean",
+          "default": true
+        },
         "implementer": {
           "type": "boolean",
           "default": false
