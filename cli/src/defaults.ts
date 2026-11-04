@@ -61,6 +61,9 @@ export const DEFAULTS: Table = {
   // auto: the agent offers to run `saw recommend add <id>` once the user agrees;
   // manual: it only shows the install command.
   recommend: { mode: "auto", mcp: true, skills: true },
+  // Skills that must run before a PR, e.g. ["security-review", "simplify"]. Each
+  // becomes a required check (skill:<name>) recorded with saw task record.
+  pre_pr: { skills: [], tiers: ["standard", "complex", "critical"] },
   project: { type: "web" },
   autonomy: {
     level: "propose",

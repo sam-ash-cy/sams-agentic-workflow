@@ -220,11 +220,11 @@ export function run(argv: string[], cwd = process.cwd()): number {
     return 0;
   }
   if (command === "docs" && (sub === "status" || sub === "refresh")) {
-    const status = docsStatus(cwd);
     if (sub === "refresh") {
       console.log(REFRESH_BRIEF);
       return 0;
     }
+    const status = docsStatus(cwd);
     if (args.flags.has("--json")) console.log(JSON.stringify(status, null, 2));
     else {
       for (const d of status.docs) console.log(`${d.state.padEnd(7)} ${d.path}`);

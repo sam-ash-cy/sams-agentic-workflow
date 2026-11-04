@@ -222,6 +222,7 @@ Later layers win; `--set` beats all of them for one call. From `workflow.toml`, 
 | `features.ecc` | `false` | Point nudges and playbooks at ECC skills. |
 | `features.docs_step` | `true` | Feature and foundation tasks end with a `docs` check. |
 | `features.living_docs` | `true` | `saw task end` flags docs still blank in a project with code, and command/config/API changes without a `docs/reference/` change; debug, integration and hardening tasks get a reference-docs step. |
+| `pre_pr.skills` | `[]` | Skills that must run before a PR, e.g. `["security-review", "simplify"]`. Each becomes a required check `skill:<name>` on `pre_pr.tiers` (default standard, complex, critical): record it with `saw task record skill:<name> pass`, or the task stays unverified. |
 | `features.implementer` | `false` | Standard+ tasks: the session plans and reviews, the `implementer` agent writes code. |
 | `features.about_me` | `true` | SessionStart adds the merged about-me profile to the context. |
 | `features.recommend` | `true` | Suggest missing MCP servers and skills when a prompt needs them; Figma limit fallback. |

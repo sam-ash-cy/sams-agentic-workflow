@@ -4,6 +4,7 @@
 import { existsSync, readdirSync } from "node:fs";
 import { join, relative } from "node:path";
 import { TEMPLATE_DIR, unedited } from "./init";
+import { changedFiles } from "./recommend";
 
 export interface DocState {
   path: string;
@@ -53,14 +54,12 @@ export function staleReference(changed: string[]): string[] {
   return changed.filter((f) => !f.startsWith("docs/") && SURFACE.test(f));
 }
 
-export function changedFiles(target: string, base: string): string[] {
-  const lines = (argv: string[]): string[] => {
-    const out = Bun.spawnSync(["git", ...argv], { cwd: target, stderr: "pipe" });
-    return out.success ? out.stdout.toString().split("\n").filter(Boolean) : [];
-  };
+// Branch changes since base, plus the working tree (recommend's changedFiles).
+export function changedSince(target: string, base: string): string[] {
   // base comes from committed settings: a value like --output=x must not reach git as an option.
-  const ranged = /^[\w][\w./-]*$/.test(base) ? lines(["diff", "--name-only", `${base}...HEAD`]) : [];
-  return [...new Set([...ranged, ...lines(["diff", "--name-only", "HEAD"])])];
+  const out = /^[\w][\w./-]*$/.test(base) ? Bun.spawnSync(["git", "diff", "--name-only", `${base}...HEAD`], { cwd: target, stderr: "pipe" }) : undefined;
+  const ranged = out?.success ? out.stdout.toString().split("\n").filter(Boolean) : [];
+  return [...new Set([...ranged, ...changedFiles(target)])];
 }
 
 // What `saw task end` prints when features.living_docs is on.
@@ -69,7 +68,7 @@ export function docsNudge(target: string, base: string): string[] {
   const out: string[] = [];
   const blank = status.docs.filter((d) => d.state === "blank").map((d) => d.path);
   if (blank.length && status.hasCode) out.push(`docs: still blank: ${blank.join(", ")} (fill from the code: saw docs refresh)`);
-  const stale = staleReference(changedFiles(target, base));
+  const stale = staleReference(changedSince(target, base));
   if (stale.length) out.push(`docs: ${stale.slice(0, 3).join(", ")}${stale.length > 3 ? " …" : ""} changed but docs/reference/ didn't`);
   return out;
 }

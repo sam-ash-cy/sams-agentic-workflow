@@ -38,9 +38,20 @@ test("living_docs adds a docs step to debug tasks only when on", () => {
 });
 
 test("changed files: an option-looking base branch never reaches git", () => {
-  const { changedFiles } = require("../src/docs");
+  const { changedSince } = require("../src/docs");
   const dir = mkdtempSync(join(tmpdir(), "saw-docs-"));
   Bun.spawnSync(["git", "init", "-q"], { cwd: dir });
-  expect(changedFiles(dir, "--output=pwned")).toEqual([]);
+  expect(changedSince(dir, "--output=pwned")).toEqual([]);
   expect(require("node:fs").existsSync(join(dir, "pwned"))).toBe(false);
+});
+
+test("pre_pr.skills: required skill checks on listed tiers only", () => {
+  const { taskChecks } = require("../src/task");
+  const dir = mkdtempSync(join(tmpdir(), "saw-prepr-"));
+  writeFileSync(join(dir, "workflow.toml"), '[pre_pr]\nskills = ["security-review", "bad skill"]\n');
+  const config = resolve(dir, {}, { global: join(dir, "none.toml"), project: join(dir, "workflow.toml"), local: join(dir, "none.toml") }).config;
+  expect(taskChecks(config, "standard", "feature")).toContain("skill:security-review");
+  expect(taskChecks(config, "standard", "feature")).not.toContain("skill:bad skill");
+  expect(taskChecks(config, "trivial", "feature")).not.toContain("skill:security-review");
+  expect(taskSteps(config, "standard", "feature").some((s) => s.includes("run the security-review skill"))).toBe(true);
 });

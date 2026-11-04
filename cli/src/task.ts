@@ -134,8 +134,16 @@ const DELIVERS = ["feature", "foundation"];
 const SURFACE_PLAYBOOKS = ["debug", "integration", "hardening"];
 
 // The checks a task owes: its tier's, minus docs for playbooks that deliver nothing.
-export const taskChecks = (config: Table, tier: string, playbook: string): string[] =>
-  requiredChecks(config, tier).filter((c) => c !== "docs" || DELIVERS.includes(playbook));
+export const taskChecks = (config: Table, tier: string, playbook: string): string[] => [
+  ...requiredChecks(config, tier).filter((c) => c !== "docs" || DELIVERS.includes(playbook)),
+  ...prePrSkills(config, tier).map((s) => `skill:${s}`),
+];
+
+// [pre_pr] skills: skills that must run (and be recorded) before the PR on these tiers.
+export function prePrSkills(config: Table, tier: string): string[] {
+  const pre = (config.pre_pr ?? {}) as { skills?: string[]; tiers?: string[] };
+  return (pre.tiers ?? []).includes(tier) ? (pre.skills ?? []).filter((s) => /^[\w:./-]+$/.test(s)) : [];
+}
 
 // The tier for `saw task start`: --tier, else routing.default_tier unless it's "auto".
 export function pickTier(config: Table, flag: string | undefined): string {
@@ -164,6 +172,7 @@ export function taskSteps(config: Table, tier: string, playbook = "feature"): st
     (taskChecks(config, tier, playbook).includes("docs") ? "; then saw task record docs pass --note \"<files>\" (or --note \"none needed: <why>\")" : ""));
   if (features.ecc && delivers) steps.push("before the PR: ecc:verification-loop (build, types, lint, tests, diff review)");
   if (features.brag && delivers) steps.push("optional after the PR merges: a launch video with the brag skill");
+  for (const skill of prePrSkills(config, tier)) steps.push(`before the PR, required: run the ${skill} skill, then saw task record skill:${skill} pass --note "<result>"`);
   const checks = taskChecks(config, tier, playbook);
   steps.push(checks.length ? `checks: ${checks.join(", ")}` : "checks: none");
   const audit = (config.audit ?? {}) as { auditors?: string[]; triggers?: string[]; token_budget?: number };
@@ -196,7 +205,7 @@ export function taskStatus(cwd: string, config: Table, task: Task): Status {
   const commands = (config.checks ?? {}) as Record<string, string>;
   const status: Status = { label: "Verified", passed: [], failed: [], missing: [], unconfigured: [] };
   for (const name of taskChecks(config, task.tier, task.playbook)) {
-    const mechanical = !JUDGEMENT_CHECKS.includes(name);
+    const mechanical = !JUDGEMENT_CHECKS.includes(name) && !name.startsWith("skill:");
     if (mechanical && !commands[name]) {
       status.unconfigured.push(name);
       continue;
