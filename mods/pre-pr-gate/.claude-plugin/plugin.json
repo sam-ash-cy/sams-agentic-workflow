@@ -1,0 +1,8 @@
+{
+  "name": "pre-pr-gate",
+  "version": "0.1.0",
+  "description": "Blocks gh pr create until the pre_pr skills from workflow.toml are recorded for the current task",
+  "userConfig": {
+    "sawCommand": { "type": "string", "title": "saw command", "description": "How to run the saw CLI (space-separated argv)", "default": "saw" }
+  }
+}

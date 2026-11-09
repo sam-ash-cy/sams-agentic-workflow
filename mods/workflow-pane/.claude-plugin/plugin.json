@@ -1,0 +1,9 @@
+{
+  "name": "workflow-pane",
+  "version": "0.1.0",
+  "description": "A Workflow pane beside the chat: current task tier, playbook and which checks and pre-PR skills passed or are still missing",
+  "types": "./types/index.d.ts",
+  "userConfig": {
+    "sawCommand": { "type": "string", "title": "saw command", "description": "How to run the saw CLI (space-separated argv)", "default": "saw" }
+  }
+}

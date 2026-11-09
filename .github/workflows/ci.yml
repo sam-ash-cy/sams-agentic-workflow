@@ -34,6 +34,7 @@ jobs:
       - run: bun test
       - run: bun cli/src/main.ts doctor
       - run: bun cli/src/main.ts deps verify
+      - run: bun cli/src/main.ts mods check
       # Release sanitisation: no secrets, home paths or emails in published files.
       - run: bun cli/src/main.ts sanitize
       # Agent adapters smoke test: a fresh project set up for every agent reads AGENTS.md.
