@@ -1,6 +1,7 @@
 // Generates schema/workflow.schema.json from DEFAULTS and ENUMS, so the schema
 // can never drift from what the resolver accepts.
 
+import { EFFORTS } from "./agents";
 import { DEFAULTS, ENUMS, type Table, type Value } from "./defaults";
 
 type Schema = Record<string, unknown>;
@@ -32,6 +33,18 @@ export function workflowSchema(): Schema {
     properties: { require_review_evidence: { enum: ENUMS["verify.require_review_evidence"] } },
   };
   (root.properties as Schema).checks = { type: "object", additionalProperties: { type: "string" } };
-  ((root.properties as Record<string, Schema>).models!.properties as Record<string, Schema>).roles!.additionalProperties = { type: "string" };
+  const modelProps = (root.properties as Record<string, Schema>).models!.properties as Record<string, Schema>;
+  modelProps.roles!.additionalProperties = { type: "string" };
+  // [models.phases.<phase>] with model/effort, optionally per tier.
+  const entry = { model: { type: "string" }, effort: { enum: EFFORTS } };
+  const tierEntry: Schema = { type: "object", additionalProperties: false, properties: entry };
+  modelProps.phases = {
+    type: "object",
+    additionalProperties: {
+      type: "object",
+      additionalProperties: false,
+      properties: { ...entry, trivial: tierEntry, standard: tierEntry, complex: tierEntry, critical: tierEntry },
+    },
+  };
   return { $schema: "https://json-schema.org/draft/2020-12/schema", title: "sams-agentic-workflow settings", ...root };
 }

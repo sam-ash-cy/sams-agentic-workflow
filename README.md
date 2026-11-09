@@ -65,7 +65,7 @@ Defaults are what a fresh `saw init` gives you. "Key" is the setting that contro
 | | Living docs: flag blank docs and reference drift at task end; docs step on debug/integration/hardening | on | `features.living_docs` | |
 | | Review reports required for a review pass | off | `verify.require_review_evidence` | |
 | Reviews | Code and security review on standard+ | on | `features.code_review`, `features.security_review` | |
-| | Review agents (code, security, architecture, UI, research) | on | `[models.roles]` | plugin |
+| | Review agents (code, security, architecture, UI, research) | on | `[models.roles]`, `[models.phases]` (model + effort per phase and tier) | plugin |
 | | Independent read-only review session per unit | off | `[review_session]` | `claude` CLI |
 | | Whole-project auditors on chosen triggers | on | `features.audit`, `[audit]` | auditor skills |
 | Safety | Guard hook: deny-list, push, destructive and deploy approval, no secrets | on | `[safety]` | plugin |

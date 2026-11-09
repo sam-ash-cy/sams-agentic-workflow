@@ -9,7 +9,7 @@
 
 import { existsSync, readFileSync } from "node:fs";
 import { isAbsolute, join, relative, resolve } from "node:path";
-import { modelFor } from "./agents";
+import { modelFor, sessionSettings } from "./agents";
 import type { Table } from "./defaults";
 import { currentTask, isSawProject } from "./task";
 
@@ -35,17 +35,35 @@ export const sameModel = (want: string, got: string): boolean => {
   return w === g || g.includes(w) || w.includes(g);
 };
 
-export function guardAgent(config: Table, toolInput: { subagent_type?: unknown; model?: unknown }, pluginDir = PLUGIN_ROOT): string | undefined {
+// The open task's tier, so [models.phases.<phase>.<tier>] applies.
+function openTier(cwd: string): string | undefined {
+  try {
+    return isSawProject(cwd) ? currentTask(cwd)?.tier : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+// Which setting a phase's model came from, for messages.
+function source(config: Table, role: string, tier?: string): string {
+  const phase = ((config.models ?? {}) as { phases?: Record<string, Record<string, unknown>> }).phases?.[role];
+  if (!phase) return `models.roles.${role}`;
+  return tier && typeof phase[tier] === "object" && (phase[tier] as { model?: unknown }).model ? `models.phases.${role}.${tier}` : `models.phases.${role}`;
+}
+
+export function guardAgent(config: Table, toolInput: { subagent_type?: unknown; model?: unknown }, pluginDir = PLUGIN_ROOT, cwd = process.cwd()): string | undefined {
   if (typeof toolInput.subagent_type !== "string") return undefined;
   const agent = agentRole(toolInput.subagent_type, pluginDir);
   if (!agent) return undefined;
-  const want = modelFor(config, agent.role);
+  const tier = openTier(cwd);
+  const want = modelFor(config, agent.role, tier);
   if (want === "inherit") return undefined;
+  const from = source(config, agent.role, tier);
   // An explicit model wins; otherwise the agent file's frontmatter applies.
   const got = typeof toolInput.model === "string" && toolInput.model ? toolInput.model : agent.model;
-  if (!got || got === "inherit") return `${toolInput.subagent_type} would inherit the session's model, but models.roles.${agent.role} is ${want}: pass model: "${want}"`;
+  if (!got || got === "inherit") return `${toolInput.subagent_type} would inherit the session's model, but ${from} is ${want}: pass model: "${want}"`;
   if (sameModel(want, got)) return undefined;
-  return `${toolInput.subagent_type} would run on ${got}, but models.roles.${agent.role} is ${want}: pass model: "${want}" (or run saw sync to fix the agent file)`;
+  return `${toolInput.subagent_type} would run on ${got}, but ${from} is ${want}: pass model: "${want}" (or run saw sync to fix the agent file)`;
 }
 
 // Files the main session may still write while the implementer owns source:
@@ -63,7 +81,7 @@ export function implementerEdit(config: Table, input: { agent_id?: unknown; tool
   if (typeof file !== "string") return undefined;
   const rel = relative(cwd, resolve(cwd, file));
   if (rel.startsWith("..") || isAbsolute(rel) || NOT_SOURCE.test(rel)) return undefined;
-  const model = modelFor(config, "implement");
+  const model = modelFor(config, "implement", task.tier);
   const how = `hand this unit to the implementer agent${model === "inherit" ? "" : ` with model: "${model}"`}`;
   if (task.phase === "implement") return { decision: "deny", reason: `features.implementer is on and the task is in its implement phase: ${how} (${rel})` };
   return { decision: "ask", reason: `features.implementer is on: the main session plans and reviews; ${how}, or approve this edit (${rel})` };
@@ -71,11 +89,17 @@ export function implementerEdit(config: Table, input: { agent_id?: unknown; tool
 
 // SessionStart: the plan step runs in the main session, on whatever model it
 // started with. Only an explicit models.roles.plan is checked.
-export function planModelWarning(config: Table, input: { model?: unknown }): Record<string, unknown> | undefined {
-  const roles = ((config.models ?? {}) as { roles?: Record<string, string> }).roles ?? {};
-  if (!roles.plan || typeof input.model !== "string" || !input.model) return undefined;
-  const want = modelFor(config, "plan");
+export function planModelWarning(config: Table, input: { model?: unknown }, cwd = process.cwd()): Record<string, unknown> | undefined {
+  const models = (config.models ?? {}) as { roles?: Record<string, string>; phases?: Record<string, Record<string, unknown>> };
+  const tier = openTier(cwd);
+  // Only a configured plan model is checked; an effort-only plan phase isn't.
+  const plan = models.phases?.plan;
+  const tierPlan = tier && plan && typeof plan[tier] === "object" ? (plan[tier] as { model?: unknown }) : undefined;
+  if ((!models.roles?.plan && !plan?.model && !tierPlan?.model) || typeof input.model !== "string" || !input.model) return undefined;
+  const want = modelFor(config, "plan", tier);
+  // "opusplan" runs plan mode on Opus: it satisfies an opus plan phase.
   if (want === "inherit" || sameModel(want, input.model)) return undefined;
-  const message = `[saw] this session runs on ${input.model}, but models.roles.plan is ${want}. A hook can't switch the main session's model: restart with \`claude --model ${want}\` or /model ${want} before planning.`;
+  const fix = sessionSettings(config, tier).model === "opusplan" ? "run `saw sync --session` (sets model opusplan) and restart, or /model opusplan" : `restart with \`claude --model ${want}\` or /model ${want} before planning`;
+  const message = `[saw] this session runs on ${input.model}, but ${source(config, "plan", tier)} is ${want}. A hook can't switch the main session's model: ${fix}.`;
   return { systemMessage: message, hookSpecificOutput: { hookEventName: "SessionStart", additionalContext: message } };
 }

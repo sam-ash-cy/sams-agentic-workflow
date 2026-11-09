@@ -70,7 +70,7 @@ const DEFAULT_KEYS = flatten(DEFAULTS);
 export function isKnownKey(key: string): boolean {
   if (key in DEFAULT_KEYS) return true;
   // Tables whose children are open-ended (per-tier check sets, per-role models).
-  return /^verify\.[a-z_]+\.(run|extends)$/.test(key) || /^models\.roles\.[a-z_]+$/.test(key) || /^checks\.[a-z_]+$/.test(key);
+  return /^verify\.[a-z_]+\.(run|extends)$/.test(key) || /^models\.roles\.[a-z_]+$/.test(key) || /^models\.phases\.[a-z_]+\.((trivial|standard|complex|critical)\.)?(model|effort)$/.test(key) || /^checks\.[a-z_]+$/.test(key);
 }
 
 export function validate(key: string, value: Value): string | undefined {
