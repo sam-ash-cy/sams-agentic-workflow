@@ -139,4 +139,4 @@ test("release: dry run writes nothing; a real run commits and tags, and never pu
   } finally {
     for (const k of Object.keys(gitEnv)) if (!(k in saved)) delete process.env[k];
   }
-});
+}, 30_000); // many git spawns: slow on Windows runners
