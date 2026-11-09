@@ -199,6 +199,19 @@ saw init --upgrade
 
 Template files you haven't edited are updated; edited ones are listed as `kept (edited)` for you to merge.
 
+### Release channels and pinning
+
+Releases are tagged `vX.Y.Z` (pre-releases `vX.Y.Z-beta.N`) and listed on the GitHub Releases page with notes from [CHANGELOG.md](CHANGELOG.md). Pick what you track with the ref after `#` when you add the marketplace:
+
+| Channel | Add the marketplace with | `marketplace update` moves to |
+|---|---|---|
+| Stable (recommended) | `https://github.com/sam-ash-cy/sams-agentic-workflow.git#stable` | each final release |
+| Beta | `...sams-agentic-workflow.git#beta` | every release, betas included |
+| Pinned | `...sams-agentic-workflow.git#v0.1.0` | nothing; re-add at a new tag to upgrade |
+| Edge | `...sams-agentic-workflow.git` | every commit on `main` |
+
+To switch, `claude plugin marketplace remove sams-agentic-workflow`, add it again with the new ref, then `claude plugin marketplace update sams-agentic-workflow`. With a local clone, `git checkout stable` (or a tag) instead of `git pull` on `main`. Run `saw doctor` afterwards; it flags manifests whose versions disagree.
+
 ## Uninstalling
 
 **Project.** Removes only template files you haven't edited:
