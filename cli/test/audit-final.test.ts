@@ -68,7 +68,7 @@ test("the agent can't quietly loosen its own guardrails", () => {
   expect(guardEdit(defaults(), join(homedir(), ".claudex", "x.md"))).toBeUndefined();
 });
 
-test("hooks fail closed on unreadable settings; a bad --set is a clean error", async () => {
+test("hooks fail safe on unreadable settings; a bad --set is a clean error", async () => {
   const { run } = await import("../src/main");
   const dir = mkdtempSync(join(tmpdir(), "saw-af-"));
   writeFileSync(join(dir, "workflow.toml"), "this is = = not toml\n");
@@ -80,7 +80,7 @@ test("hooks fail closed on unreadable settings; a bad --set is a clean error", a
   } finally {
     console.log = log;
   }
-  expect(logs.join("\n")).toContain('"permissionDecision":"deny"');
+  expect(logs.join("\n")).toContain('"permissionDecision":"ask"');
   expect(run(["gate"], dir)).toBe(0);
   expect(run(["config", "show"], dir)).toBe(1);
   expect(run(["config", "show", "--set", "x=[oops"], mkdtempSync(join(tmpdir(), "saw-af-")))).toBe(1);

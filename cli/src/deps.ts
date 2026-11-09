@@ -83,3 +83,28 @@ export function eccProblem(installedJson: string | undefined, pinnedSha: string 
   if (pinnedSha && sha && sha !== pinnedSha) return `ecc plugin (${key}) is at ${sha.slice(0, 12)}, not the pinned ${pinnedSha.slice(0, 12)}: review with saw deps diff ecc ${sha}, or reinstall from the pin`;
   return undefined;
 }
+
+// Companion plugins are soft dependencies on purpose. An unsatisfied plugin.json
+// "dependencies" entry makes Claude Code refuse to load saw at all (no hooks,
+// skills or agents), so a missing companion only costs the features that use
+// it, and session-start says which and how to fix it.
+export const COMPANIONS: Record<string, string[]> = {
+  "mattpocock-skills": ["grilling", "tdd"],
+  engineering: ["docs_step"],
+};
+
+export function companionWarnings(installedJson: string | undefined, features: Record<string, boolean>): string[] {
+  let plugins: string[];
+  try {
+    plugins = Object.keys((installedJson ? JSON.parse(installedJson).plugins : undefined) ?? {});
+  } catch {
+    return [];
+  }
+  const out: string[] = [];
+  for (const [name, uses] of Object.entries(COMPANIONS)) {
+    const on = uses.filter((f) => features[f]);
+    if (on.length === 0 || plugins.some((k) => k.startsWith(`${name}@`))) continue;
+    out.push(`the ${name} plugin isn't installed, so ${on.map((f) => `features.${f}`).join(" and ")} can't run: \`claude plugin install ${name}@sams-agentic-workflow\`, or turn ${on.length > 1 ? "them" : "it"} off`);
+  }
+  return out;
+}

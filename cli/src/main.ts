@@ -11,7 +11,7 @@ import { AGENTS, checkAdapters, installAdapters } from "./adapters";
 import { syncVault, vaultPath } from "./vault";
 import { budgetHook, contextHook, routerNudge } from "./context";
 import { planModelWarning } from "./model-guard";
-import { guardHook } from "./guard";
+import { guardHook, readOnlyGuard, unreadableSettingsGuard } from "./guard";
 import { sessionHook, UNITS } from "./sessions";
 import { recordReview, reviewApplies, reviewArgv, reviewBrief, writeChange, type ReviewSettings } from "./review-session";
 import { effectiveStyle, styleCheck, styleLine, TONES } from "./style";
@@ -21,7 +21,7 @@ import { logEvent, readEvents } from "./events";
 import { appendMetric, buildMetric, readMetrics } from "./metrics";
 import { compare, summarise, type Comparison, type Summary } from "./evals";
 import { configSuggestions, readProposals, retro } from "./retro";
-import { compareUrl, eccProblem, gateguardWarning, pin, readLock, verifyLock } from "./deps";
+import { companionWarnings, compareUrl, eccProblem, gateguardWarning, pin, readLock, verifyLock } from "./deps";
 import { depAuditFor, guessType, init, recordInstalled, uninstall, upgrade, type ChangeReport, type InitReport } from "./init";
 import { lintContext, lintMemory } from "./lint";
 import { docsNudge, docsStatus, REFRESH_BRIEF } from "./docs";
@@ -189,23 +189,31 @@ export function run(argv: string[], cwd = process.cwd()): number {
     console.log(USAGE);
     return 0;
   }
+  // The guard reads its payload once, here: read-only tools are answered
+  // before any settings file is read (see readOnlyGuard).
+  let guardInput: { tool_name?: string; tool_input?: unknown } = {};
+  if (command === "guard") {
+    try {
+      guardInput = JSON.parse(readFileSync(0, "utf8") || "{}");
+    } catch {
+      // No payload: nothing to check; unreadable settings still ask below.
+    }
+    const fast = readOnlyGuard(guardInput);
+    if (fast !== null) {
+      if (fast) console.log(JSON.stringify(fast));
+      return 0;
+    }
+  }
   let resolved: ReturnType<typeof resolve>;
   try {
     resolved = resolve(cwd, args.overrides);
   } catch (e) {
     const problem = `settings unreadable (${(e as Error).message}); fix the TOML file`;
     if (!HOOKS.includes(command ?? "")) return fail(problem);
-    // A hook that crashes lets the tool call through: fail closed instead.
+    // Fail safe, not shut: changes ask, everything else goes through (unreadableSettingsGuard).
     if (command === "guard") {
-      let tool = "";
-      try {
-        tool = (JSON.parse(readFileSync(0, "utf8") || "{}") as { tool_name?: string }).tool_name ?? "";
-      } catch {
-        // No payload: treat it as a shell call.
-      }
-      // Edits still go through (asking), so the broken file can be fixed.
-      const decision = tool === "Bash" || tool === "" ? "deny" : "ask";
-      console.log(JSON.stringify({ hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: decision, permissionDecisionReason: `saw guard: ${problem}` } }));
+      const out = unreadableSettingsGuard(guardInput, problem);
+      if (out) console.log(JSON.stringify(out));
     } else {
       // stderr from a hook that exits 0 reaches no one: tell the user, and the
       // agent where the event allows it, so a broken file isn't silently ignored.
@@ -597,8 +605,13 @@ export function run(argv: string[], cwd = process.cwd()): number {
     const warning = planModelWarning(resolved.config, input);
     if (warning) logEvent(cwd, resolved.config, "warn", "model.plan", String(warning.systemMessage));
     const about = aboutHook(cwd, resolved.config.features as Record<string, boolean>);
-    const context = [(warning?.hookSpecificOutput as { additionalContext?: string } | undefined)?.additionalContext, about].filter(Boolean).join("\n\n");
-    if (context || warning) console.log(JSON.stringify({ systemMessage: warning?.systemMessage, hookSpecificOutput: { hookEventName: "SessionStart", additionalContext: context } }));
+    // Companion plugins are soft dependencies (see COMPANIONS): say which features are off without them.
+    const installed = join(process.env.CLAUDE_CONFIG_DIR ?? join(homedir(), ".claude"), "plugins", "installed_plugins.json");
+    const missing = companionWarnings(existsSync(installed) ? readFileSync(installed, "utf8") : undefined, resolved.config.features as Record<string, boolean>).map((m) => `saw: ${m}`);
+    for (const m of missing) logEvent(cwd, resolved.config, "warn", "plugin.companion", m);
+    const context = [(warning?.hookSpecificOutput as { additionalContext?: string } | undefined)?.additionalContext, about, ...missing].filter(Boolean).join("\n\n");
+    const systemMessage = [warning?.systemMessage, ...missing].filter(Boolean).join("\n") || undefined;
+    if (context || systemMessage) console.log(JSON.stringify({ systemMessage, hookSpecificOutput: { hookEventName: "SessionStart", additionalContext: context } }));
     return 0;
   }
   // PostToolUseFailure: the agent sees the error, but nothing kept it. Log
@@ -618,11 +631,13 @@ export function run(argv: string[], cwd = process.cwd()): number {
     return 0;
   }
   if (command === "guard" || command === "format-hook" || command === "session-hook") {
-    let input = {};
-    try {
-      input = JSON.parse(readFileSync(0, "utf8") || "{}");
-    } catch {
-      // No hook payload: nothing to check.
+    let input: object = guardInput;
+    if (command !== "guard") {
+      try {
+        input = JSON.parse(readFileSync(0, "utf8") || "{}");
+      } catch {
+        // No hook payload: nothing to check.
+      }
     }
     const out = command === "guard" ? guardHook(resolved.config, input, cwd)
       : command === "session-hook" ? sessionHook(cwd, resolved.config, input)

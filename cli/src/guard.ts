@@ -204,6 +204,28 @@ export function reviewKeyAccess(toolInput: unknown): boolean {
   return REVIEW_KEY_ACCESS.some((re) => re.test(text));
 }
 
+const REVIEW_KEY_DENY = { hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: "saw guard: ~/.saw/review-key signs saw's review records; no tool may read, list or change it" } };
+
+// Read-only tools only need the review-key check, which needs no settings: the
+// guard answers them before reading any settings file, so a broken file can't
+// block reading and the check stays cheap on every Read, Grep and Glob.
+export const READ_ONLY_TOOLS = ["Read", "Grep", "Glob", "LS", "NotebookRead"];
+
+// null: not a read-only call, run the full guard.
+export function readOnlyGuard(input: { tool_name?: string; tool_input?: unknown }): Record<string, unknown> | undefined | null {
+  if (!READ_ONLY_TOOLS.includes(input.tool_name ?? "")) return null;
+  return reviewKeyAccess(input.tool_input) ? REVIEW_KEY_DENY : undefined;
+}
+
+// Settings that can't be parsed: one typo must not lock the session. Calls that
+// change something ask (so the file can still be fixed, and saw doctor run);
+// anything else, subagents included, goes through. The review key stays denied.
+export function unreadableSettingsGuard(input: { tool_name?: string; tool_input?: unknown }, problem: string): Record<string, unknown> | undefined {
+  if (reviewKeyAccess(input.tool_input)) return REVIEW_KEY_DENY;
+  if (!["", "Bash", "Edit", "Write", "MultiEdit", "NotebookEdit"].includes(input.tool_name ?? "")) return undefined;
+  return { systemMessage: `saw guard: ${problem}`, hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "ask", permissionDecisionReason: `saw guard: ${problem}; approve this call, or fix the file first` } };
+}
+
 export function guardHook(config: Table, input: { tool_name?: string; agent_id?: unknown; tool_input?: { command?: unknown; file_path?: unknown; subagent_type?: unknown; model?: unknown } }, cwd = process.cwd()): Record<string, unknown> | undefined {
   const t = input.tool_input;
   if (reviewKeyAccess(t)) {

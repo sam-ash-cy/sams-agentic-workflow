@@ -137,7 +137,7 @@ Without the PATH entry, run `bun ~/sams-agentic-workflow/cli/src/main.ts` wherev
 The bootstrap script, in `~/.claude` (or `$CLAUDE_CONFIG_DIR`):
 1. copies `global/CLAUDE.md` to `saw-workflow.md` and adds an `@saw-workflow.md` line to `CLAUDE.md`
 2. copies `global/settings.example.json` to `settings.json` only if there is none (otherwise prints `kept:` and leaves merging to you)
-3. adds this folder as a plugin marketplace and installs the `sams-agentic-workflow` plugin, which pulls in the pinned `mattpocock-skills` and `engineering` plugins
+3. adds this folder as a plugin marketplace and installs the `sams-agentic-workflow` plugin and the pinned `mattpocock-skills` and `engineering` plugins. Those two are soft companions, not plugin dependencies: if one is missing, saw still loads and session-start names the features that are off and the install command
 
 It never overwrites without a backup (`*.bak.<timestamp>`).
 
