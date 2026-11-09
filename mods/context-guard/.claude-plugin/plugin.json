@@ -1,0 +1,10 @@
+{
+  "name": "context-guard",
+  "version": "0.1.0",
+  "description": "Warns as context fills and, past a limit, holds new prompts until you hand off to a fresh session",
+  "types": "./types/index.d.ts",
+  "userConfig": {
+    "warnPct": { "type": "number", "title": "Warn at %", "description": "Context fill that shows a warning", "default": 60 },
+    "forcePct": { "type": "number", "title": "Force handoff at %", "description": "Context fill past which ordinary prompts are held; 100 turns it off", "default": 80 }
+  }
+}

@@ -1,0 +1,13 @@
+{
+  "name": "prompt-band",
+  "version": "0.1.0",
+  "description": "Buttons above the prompt: Improve, Plan first, Review, Ship check, Compact and Handoff, with usage limits",
+  "types": "./types/index.d.ts",
+  "userConfig": {
+    "improveDailyLimit": { "type": "number", "title": "Improve: uses per day", "description": "Model-backed presses (Improve, Handoff) allowed per day", "default": 30 },
+    "cooldownSec": { "type": "number", "title": "Cooldown (seconds)", "description": "Minimum gap between model-backed presses", "default": 10 },
+    "model": { "type": "string", "title": "Model", "description": "Model for Improve and Handoff", "default": "haiku" },
+    "reviewCommand": { "type": "string", "title": "Review command", "description": "What the Review button puts in the prompt", "default": "/code-review low" },
+    "compactAtPct": { "type": "number", "title": "Show Compact at %", "description": "Context fill at which the Compact button appears", "default": 50 }
+  }
+}
