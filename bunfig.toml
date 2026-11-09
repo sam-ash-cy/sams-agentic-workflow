@@ -1,2 +1,4 @@
 [test]
 preload = ["./cli/test/setup.ts"]
+# mods/*/tests run under `claude plugin test`, not bun test.
+pathIgnorePatterns = ["mods/**"]
