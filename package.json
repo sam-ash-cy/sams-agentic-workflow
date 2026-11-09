@@ -5,5 +5,5 @@
   "license": "MIT",
   "type": "module",
   "bin": { "saw": "bin/saw" },
-  "scripts": { "test": "bun test", "saw": "bun cli/src/main.ts" }
+  "scripts": { "test": "bun test", "saw": "bun cli/src/main.ts", "test:mods": "bun cli/src/main.ts mods check" }
 }

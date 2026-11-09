@@ -30,6 +30,7 @@ import { sanitize, sanitizeHistory } from "./sanitize";
 import { syncSkillDenies } from "./skills";
 import { applyPlan, gh, readState, repoName, repoPlan, type Gh } from "./repo";
 import { formatHook, runCheck, TRUSTED_LAYERS } from "./run";
+import { checkMods } from "./mods";
 import { currentTask, endTask, gate, markUntaskedEdit, pickTier, recordCheck, reviewEvidence, setPhase, startTask, taskReport, taskStatus, taskSteps } from "./task";
 import { patchToml, readToml, stringifyToml } from "./toml";
 import { applyProfile, parseProfiles } from "./profiles";
@@ -67,6 +68,7 @@ const USAGE = `usage: saw <command>
   retro [--dry-run]                  write a proposal for each check failing in repeat_threshold+ tasks
   eval [--case <glob>] [--runs <n>] [--dry-run] [--save-baseline]   run the eval suite (claude plugin eval) and compare with the baseline
   eval compare <before.json> <after.json>  compare two saved eval results
+  mods check [<name>]                validate and test the mods under mods/ (needs the claude CLI)
   run <check> [--changed]            run checks.<check> quietly and record the result (--changed: only tests for changed files)
   gate                               Stop hook: block "done" until the tier's checks pass
   lint-context                       AGENTS.md / CLAUDE.md size limits
@@ -526,6 +528,7 @@ export function run(argv: string[], cwd = process.cwd()): number {
     return 0;
   }
   if (command === "eval") return evalCommand(cwd, resolved.config, args);
+  if (command === "mods") return modsCommand(args);
   if (command === "task") return taskCommand(cwd, resolved.config, args);
   if (command === "run" && sub) {
     try {
@@ -989,6 +992,25 @@ function printSkillSuggestions(cwd: string, config: Table, playbook: string): bo
   console.log("skills that may help with work like this:");
   for (const r of found) console.log(`  ${offer(config, r)}`);
   return true;
+}
+
+function modsCommand(args: Args): number {
+  const [, sub, name] = args.positional;
+  if (sub !== "check") return fail(USAGE);
+  let hasClaude = false;
+  try {
+    hasClaude = Bun.spawnSync(["claude", "--version"], { stdout: "ignore", stderr: "ignore" }).exitCode === 0;
+  } catch {
+    // Bun throws when the executable isn't on PATH.
+  }
+  if (!hasClaude) {
+    console.log("saw mods check: claude CLI not found; skipped");
+    return 0;
+  }
+  const results = checkMods(PLUGIN_ROOT, (cmd) => Bun.spawnSync(cmd, { stdout: "inherit", stderr: "inherit" }).exitCode, name);
+  if (results.length === 0) return fail(name ? `no mod named ${name}` : "no mods under mods/");
+  for (const r of results) console.log(`${r.name.padEnd(16)} validate ${r.validate === 0 ? "ok" : "FAILED"}  test ${r.test === null ? "none" : r.test === 0 ? "ok" : "FAILED"}`);
+  return results.every((r) => r.validate === 0 && (r.test ?? 0) === 0) ? 0 : 1;
 }
 
 function evalCommand(cwd: string, config: Table, args: Args): number {

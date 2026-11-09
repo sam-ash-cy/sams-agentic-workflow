@@ -1,0 +1,5 @@
+{
+  "name": "guardrail-hook",
+  "version": "0.1.0",
+  "description": "Blocks commits and pushes on auto-generated branch names and commit messages with AI attribution"
+}
