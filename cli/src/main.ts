@@ -6,7 +6,7 @@ import { isAbsolute, join, relative, resolve as resolvePath } from "node:path";
 import { baseBranch, flatten, inside, layerPaths, layerValues, loosens, parseValue, resolve, setPath, unsetPath, validate, weakenedSafety, type Layer } from "./config";
 import { DEFAULTS, type Table, type Value } from "./defaults";
 import { readIfExists } from "./fs";
-import { syncAgents } from "./agents";
+import { syncAgents, syncSession } from "./agents";
 import { AGENTS, checkAdapters, installAdapters } from "./adapters";
 import { syncVault, vaultPath } from "./vault";
 import { budgetHook, contextHook, routerNudge } from "./context";
@@ -430,7 +430,12 @@ export function run(argv: string[], cwd = process.cwd()): number {
     }
     console.log(`saw sync: ${dryRun ? "would write" : "wrote"} .saw/resolved.json`);
     for (const a of syncAgents(args.values["plugin-dir"] ?? PLUGIN_ROOT, resolved.config, dryRun)) {
-      console.log(`  agent ${a.name.padEnd(18)} model: ${a.model}${a.changed ? (dryRun ? " (would change)" : " (changed)") : ""}`);
+      console.log(`  agent ${a.name.padEnd(18)} model: ${a.model}${a.effort ? ` effort: ${a.effort}` : ""}${a.changed ? (dryRun ? " (would change)" : " (changed)") : ""}`);
+    }
+    if (args.flags.has("--session")) {
+      const s = syncSession(cwd, resolved.config, dryRun);
+      const keys = Object.entries(s.set).map(([k, v]) => `${k}=${v}`).join(" ");
+      console.log(`  session ${keys || "(no plan-phase model/effort to set)"}${s.changed ? (dryRun ? " (would write .claude/settings.local.json)" : " (wrote .claude/settings.local.json; restart to apply)") : ""}`);
     }
     const models = resolved.config.models as { mode?: string; strong?: string };
     if (models.mode === "single") console.log(`  single-model mode: agents inherit; to pin one model for all subagents set CLAUDE_CODE_SUBAGENT_MODEL=${models.strong}`);
