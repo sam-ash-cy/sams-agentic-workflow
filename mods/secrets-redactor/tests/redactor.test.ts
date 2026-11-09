@@ -2,7 +2,7 @@ import { expect, test } from 'claude-code/testing'
 
 // Fixtures are AWS's documented example key and tokens built at run time, so no
 // scanner mistakes this file for a leak.
-const AWS = 'AKIAIOSFODNN7EXAMPLE'
+const AWS = 'AKIAIOSFODNN7EXAMPLE' // saw-sanitize: allow (AWS's documented example key)
 const GH = 'ghp_' + 'a1B2c3D4e5'.repeat(4)
 const ANT = 'sk-ant-' + 'Zx9Qw8Er7Ty6'.repeat(3)
 
@@ -11,7 +11,7 @@ const prompt = (text: string) => ({ text, wait: false, origin: { kind: 'composer
 const stdoutOf =(r: { result?: unknown }) => String((r.result as { stdout?: string } | undefined)?.stdout)
 
 test('the same value gets the same placeholder across calls', async ($, on) => {
-  on('tool.call', out(`key ${AWS} from bob@corp.io at 10.1.2.3`))
+  on('tool.call', out(`key ${AWS} from bob@corp.io at 10.1.2.3`)) // saw-sanitize: allow (fake test address)
   const a = stdoutOf(await $.tool.call({ tool: 'Bash', command: 'cat a' }))
   const b = stdoutOf(await $.tool.call({ tool: 'Bash', command: 'cat b' }))
   expect(a).toBe('key «SECRET_1» from «EMAIL_1» at «IP_1»')
@@ -60,7 +60,7 @@ test('git SHAs, UUIDs, versions and base64 fixtures are left alone', async ($, o
     'id: 3f2504e0-4f89-11d3-9a0c-0305e82c3301',
     'sha_token: 9b82f5a3e3b5c1d2',
     'fixture: "dGVzdCBmaXh0dXJlIGRhdGE="',
-    'token: "dGVzdCBmaXh0dXJlIGRhdGE="',
+    'token: "dGVzdCBmaXh0dXJlIGRhdGE="', // saw-sanitize: allow (base64 of "test fixture data")
     'version 1.2.3 and 127.0.0.1, Version 4.0.0.0',
   ].join('\n')
   on('tool.call', out(text))
