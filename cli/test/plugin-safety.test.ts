@@ -26,7 +26,7 @@ test("companion warnings name only the missing plugins whose features are on", (
 
 test("read-only tools skip the full guard but never reach the review key", () => {
   expect(readOnlyGuard({ tool_name: "Read", tool_input: { file_path: "README.md" } })).toBeUndefined();
-  expect(decision(readOnlyGuard({ tool_name: "Read", tool_input: { file_path: "/home/x/.saw/review-key" } }))).toBe("deny");
+  expect(decision(readOnlyGuard({ tool_name: "Read", tool_input: { file_path: "~/.saw/review-key" } }))).toBe("deny");
   expect(readOnlyGuard({ tool_name: "Bash", tool_input: { command: "ls" } })).toBeNull();
 });
 
