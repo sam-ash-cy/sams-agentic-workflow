@@ -2,3 +2,5 @@
 # The repo's own GitHub owner: the marketplace entry and the template CI checkout point at it.
 sam-ash-cy/sams-agentic-workflow
 "owner": { "name": "sam-ash-cy" }
+# trail learnings record their author as the git user name, which every public commit already shows.
+author: Samash1234567

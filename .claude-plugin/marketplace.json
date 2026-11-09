@@ -5,6 +5,7 @@
     {
       "name": "sams-agentic-workflow",
       "source": "./",
+      "version": "0.1.0",
       "description": "A configurable, token-light agentic workflow: tiered routing, verification, reviews and evidence-driven self-improvement."
     },
     {
