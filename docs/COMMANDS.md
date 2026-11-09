@@ -14,7 +14,7 @@ Global flag on every command: `--set key=value` overrides a setting for that cal
 | `saw init --upgrade [--dry-run]` | Updates template files you haven't edited; lists edited ones as `kept (edited)`. |
 | `saw uninstall [--dry-run]` | Removes template files you haven't edited. |
 | `saw doctor [--hooks] [--no-plugin]` | Checks settings (unknown keys, bad values, weakened guardrails), the environment and the plugin install (`claude plugin list`). `--hooks` runs each plugin hook once; `--no-plugin` or `SAW_NO_PLUGIN=1` skips the plugin check. |
-| `saw sync [--plugin-dir <dir>] [--dry-run]` | Writes `.saw/resolved.json`, sets each agent's model from `[models]`, and denies the skills of features you turned off. Run after changing features or models. |
+| `saw sync [--plugin-dir <dir>] [--dry-run] [--session]` | Writes `.saw/resolved.json`, sets each agent's `model:` and `effort:` from `[models]`, and denies the skills of features you turned off. `--session` also writes the plan phase's `model` (`opusplan` when plan is opus and implement is sonnet) and `effortLevel` into `.claude/settings.local.json`, which takes effect on the next start. Run after changing features or models. |
 | `saw agents check` | Checks that each agent in `agents.enabled` will read `AGENTS.md`. |
 
 `saw init` flags: `--type web|api|cli|lib|infra` sets `project.type`; `--hooks` points `core.hooksPath` at `.githooks` (won't replace another hook manager without `--force`); `--agents codex,cursor,gemini` adds adapters for Cursor and Gemini CLI (Codex reads `AGENTS.md` natively); `--repo` prints what `saw repo apply` would change (read-only).
@@ -259,6 +259,25 @@ Later layers win; `--set` beats all of them for one call. From `workflow.toml`, 
 | `models.cheap` / `mid` / `strong` | `"haiku"` / `"sonnet"` / `"opus"` | Model names for each class. |
 | `models.roles.<role>` | explore, research: `cheap`; implement, architect, security_review: `strong`; review, ui_verify: `mid` | Class (or model) per agent role. |
 | `models.roles.plan` | unset | When set, SessionStart warns if the session runs another model. |
+| `models.phases.<phase>.model` / `.effort` | unset | Per-phase model (class or name) and effort (`low`, `medium`, `high`, `xhigh`, `max`). Phases are the role names plus `plan`. Overrides `models.roles.<phase>`. |
+| `models.phases.<phase>.<tier>.model` / `.effort` | unset | The same per tier (`trivial`, `standard`, `complex`, `critical`), for the open task's tier. |
+
+What each part forces:
+- **Subagents, model: hard.** `saw guard` denies a call on a model other than the phase/tier setting.
+- **Subagents, effort: hard when Claude Code reads it.** `saw sync` writes the base effort into `effort:` frontmatter, and Claude Code applies it only if it supports that field. Tier effort overrides are not written, because one agent file can't vary by tier.
+- **Main session (plan mode): a setting or a warning.** A hook can't switch the running model. `saw sync --session` sets `opusplan`, which runs plan mode on Opus and the rest on Sonnet, together with `effortLevel` for the next start. Any other pairing only gets a SessionStart warning.
+
+```toml
+[models.phases.plan]
+model = "opus"
+effort = "low"
+[models.phases.implement]
+model = "sonnet"
+effort = "medium"
+[models.phases.implement.critical]
+model = "opus"
+effort = "high"
+```
 | `context.agents_md_max_lines` | `100` | `saw lint-context` limit. |
 | `context.claude_md_max_lines` | `200` | `saw lint-context` limit. |
 | `context.window_tokens` | `200000` | Context window size for the nudges. |

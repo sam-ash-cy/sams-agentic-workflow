@@ -1,0 +1,11 @@
+{
+  "name": "context-saver",
+  "version": "0.1.0",
+  "description": "Saves context without losing quality: trims long command output (full copy kept), skips repeat reads of unchanged files, and steers compaction",
+  "types": "./types/index.d.ts",
+  "userConfig": {
+    "maxOutputChars": { "type": "number", "title": "Trim command output over (chars)", "description": "Bash output longer than this is trimmed to head, tail and error lines; 0 turns it off", "default": 8000 },
+    "dedupeReads": { "type": "boolean", "title": "Skip repeat reads", "description": "Answer a re-read of an unchanged file range with a pointer instead of the text", "default": true },
+    "steerCompaction": { "type": "boolean", "title": "Steer compaction", "description": "Tell the summarizer to keep decisions, tasks, file:line refs and rules", "default": true }
+  }
+}
