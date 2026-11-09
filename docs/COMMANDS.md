@@ -410,6 +410,24 @@ Three ECC hooks duplicate saw's (GateGuard, its compact nudge, a Stop-time forma
 
 **GitHub settings**: `saw config set repo.enabled true`, review `saw repo plan`, then `saw repo apply --yes`.
 
+### Mod: secrets-redactor
+
+`mods/secrets-redactor/` is a Claude Code mod that keeps secrets out of the model's context. Load it with `claude --plugin-dir mods/secrets-redactor`.
+
+- **Redact.** Tool output is scanned for secrets, email addresses and IPv4 addresses. Each value is replaced with a placeholder such as `«SECRET_1»`, `«EMAIL_2»` or `«IP_3»`. The same value keeps the same placeholder for the whole session. Secrets covered: AWS, GitHub, Anthropic, OpenAI, Stripe and Slack keys and tokens, JWTs, private key blocks, passwords in connection strings, and random-looking `KEY=` / `token:` values. The placeholder map lives only in session state. The mod never logs it or writes it to disk.
+- **Restore.** Placeholders in a tool call's input are swapped back for the real values before the tool runs, so commands and edits still work.
+- **Guard.** A Write, Edit or MultiEdit that would hardcode a new secret is denied, and the model is told to use an environment variable and an `.env.example` placeholder instead. `.env` files are exempt. Every hit shows a toast and adds a note to the model's context.
+- **False positives.** Git SHAs, hex digests, UUIDs, version numbers, loopback addresses, paths and plain words are left alone. A `KEY=` value has to look random (mixed character classes and high entropy) before it counts.
+
+| Option | Default | Meaning |
+| --- | --- | --- |
+| `secrets` / `emails` / `ips` | `true` | Turn each category on or off |
+| `allowlist` | example.com, noreply, `git@` | Comma-separated regexes. A value matching any of them is never redacted |
+| `onSecret` | `redact` | `redact` hides secrets. `warn` flags them without hiding. `stop` hides them, then blocks tool calls and holds prompts until you send `!secrets-ok` (optionally followed by your prompt) |
+| `blockHardcoded` | `true` | Deny edits that hardcode a secret |
+
+An errored tool result is redacted too, and comes back to the model as a refusal. In `stop` mode, only a secret not seen earlier in the session halts work. Limitation: a placeholder restored into a tool call's input becomes the real value in the input the tool runs with, so the session transcript may store it there.
+
 ## Recipes
 
 Mix freely. Anything that loosens a guardrail goes in `--scope local` or `--scope global`. Afterwards run `saw doctor`, and `saw sync` if you changed features or models. The four whole [profiles](#profiles) (`saw profile apply`) cover faster solo work, teams, maximum safety and automation.

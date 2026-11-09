@@ -1,0 +1,14 @@
+{
+  "name": "secrets-redactor",
+  "version": "0.1.0",
+  "description": "Hides secrets, emails and IPs in tool output behind stable placeholders, restores them in tool input, and blocks hardcoded secrets in edits",
+  "types": "./types/index.d.ts",
+  "userConfig": {
+    "secrets": { "type": "boolean", "title": "Redact secrets", "description": "API keys, tokens, JWTs, private keys, passwords in connection strings and KEY= values", "default": true },
+    "emails": { "type": "boolean", "title": "Redact emails", "description": "Email addresses", "default": true },
+    "ips": { "type": "boolean", "title": "Redact IPs", "description": "IPv4 addresses (loopback and 0.0.0.0 are left alone)", "default": true },
+    "allowlist": { "type": "string", "title": "Allowlist", "description": "Comma-separated regexes; a value matching any is never redacted", "default": "@example[.](com|org|net)$,^noreply@,^git@,users[.]noreply[.]github[.]com$" },
+    "onSecret": { "type": "string", "title": "On a secret", "description": "redact: hide it; warn: leave it but flag it; stop: hide it and hold tool calls and prompts until you reply !secrets-ok", "default": "redact", "options": ["redact", "warn", "stop"] },
+    "blockHardcoded": { "type": "boolean", "title": "Block hardcoded secrets", "description": "Deny Write/Edit/MultiEdit whose new content hardcodes a secret (.env files excepted)", "default": true }
+  }
+}
