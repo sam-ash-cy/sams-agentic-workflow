@@ -26,6 +26,7 @@ import { depAuditFor, guessType, init, recordInstalled, uninstall, upgrade, type
 import { lintContext, lintMemory } from "./lint";
 import { docsNudge, docsStatus, REFRESH_BRIEF } from "./docs";
 import { outline } from "./outline";
+import { checkVersions, notesFor, release, verifyTag } from "./release";
 import { sanitize, sanitizeHistory } from "./sanitize";
 import { syncSkillDenies } from "./skills";
 import { applyPlan, gh, readState, repoName, repoPlan, type Gh } from "./repo";
@@ -73,6 +74,9 @@ const USAGE = `usage: saw <command>
   gate                               Stop hook: block "done" until the tier's checks pass
   lint-context                       AGENTS.md / CLAUDE.md size limits
   memory lint                        stale file refs in docs/learnings and docs/decisions, duplicate learnings, size limits
+  release [patch|minor|major|<x.y.z>] [--pre <id>] [--dry-run] [--all] [--allow-branch]
+                                     bump every manifest, write CHANGELOG.md, commit and make an annotated tag (never pushes)
+  release notes <tag> | verify <tag> one version's changelog section; check a tag matches every manifest (CI)
   sanitize [--history]               before going public: secrets, home paths, emails and your own names in published files (--history: in every commit)
   context                            UserPromptSubmit hook: suggest /compact as context fills; warn on the task's token budget
   guard                              PreToolUse hook: enforce [safety] and [autonomy] on shell commands and file edits, models.roles on saw agent calls
@@ -97,7 +101,7 @@ interface Args {
   values: Record<string, string>;
 }
 
-const VALUE_FLAGS = ["--runs", "--repo", "--pr", "--tier", "--playbook", "--note", "--plugin-dir", "--reviewed-by", "--type", "--tokens", "--case", "--agents", "--tone", "--max-words", "--unit", "--unit-id", "--port", "--report"];
+const VALUE_FLAGS = ["--runs", "--repo", "--pr", "--tier", "--playbook", "--note", "--plugin-dir", "--reviewed-by", "--type", "--tokens", "--case", "--agents", "--tone", "--max-words", "--unit", "--unit-id", "--port", "--report", "--pre"];
 const PLUGIN_ROOT = join(import.meta.dir, "..", "..");
 
 function parseArgs(argv: string[]): Args {
@@ -338,6 +342,9 @@ export function run(argv: string[], cwd = process.cwd()): number {
     const gg = gateguardWarning(read(join(claudeDir, "plugins", "installed_plugins.json")), read(join(claudeDir, "settings.json")), process.env.ECC_GATEGUARD);
     if (gg) console.error(`warning: ${gg}`);
     if (args.flags.has("--hooks")) problems.push(...checkHooks(cwd));
+    const drift = checkVersions(PLUGIN_ROOT);
+    for (const d of drift) console.error(`problem: version drift: ${d}`);
+    problems.push(...drift);
     if ((resolved.config.features as Record<string, boolean>).ecc) {
       const installed = join(process.env.CLAUDE_CONFIG_DIR ?? join(homedir(), ".claude"), "plugins", "installed_plugins.json");
       const ecc = eccProblem(existsSync(installed) ? readFileSync(installed, "utf8") : undefined, readLock(join(PLUGIN_ROOT, "deps.lock.toml")).ecc?.sha);
@@ -649,6 +656,37 @@ export function run(argv: string[], cwd = process.cwd()): number {
     for (const p of problems) console.error(p);
     console.log(problems.length ? `saw memory lint: ${problems.length} problem(s)` : "saw memory lint: ok");
     return problems.length ? 1 : 0;
+  }
+  if (command === "release") {
+    if (sub === "notes" || sub === "verify") {
+      if (!key) return fail(`usage: saw release ${sub} <tag>`);
+      if (sub === "verify") {
+        const problems = verifyTag(cwd, key);
+        for (const p of problems) console.error(`problem: ${p}`);
+        console.log(problems.length ? `saw release verify: ${problems.length} problem(s)` : `saw release verify: ${key} ok`);
+        return problems.length ? 1 : 0;
+      }
+      const notes = notesFor(readIfExists(join(cwd, "CHANGELOG.md")) ?? "", key);
+      if (!notes) return fail(`no CHANGELOG.md section for ${key}`);
+      process.stdout.write(notes);
+      return 0;
+    }
+    const dryRun = args.flags.has("--dry-run");
+    let result: ReturnType<typeof release>;
+    try {
+      result = release(cwd, { bump: sub, pre: args.values.pre || undefined, dryRun, all: args.flags.has("--all"), allowBranch: args.flags.has("--allow-branch") });
+    } catch (e) {
+      return fail((e as Error).message);
+    }
+    console.log(`saw release ${result.tag}${dryRun ? " (dry run, nothing written)" : ""}`);
+    for (const f of result.files) console.log(`  ${dryRun ? "would write" : "wrote"} ${f}`);
+    console.log("", result.notes);
+    if (result.problems.length) {
+      for (const p of result.problems) console.error(`problem: ${p}`);
+      return 1;
+    }
+    if (!dryRun) console.log(`committed and tagged ${result.tag}. Publish with: git push origin HEAD --follow-tags`);
+    return 0;
   }
   if (command === "sanitize") {
     if (resolved.sources["release.names"] === "project") {
