@@ -93,6 +93,11 @@ test("release: dry run writes nothing; a real run commits and tags, and never pu
   try {
     const dir = repo();
     git(dir, "init", "-q", "-b", "main");
+    // CI runners have no global identity, and release() spawns git without gitEnv.
+    git(dir, "config", "user.name", "t");
+    git(dir, "config", "user.email", "t@example.invalid"); // saw-sanitize: allow (reserved .invalid test address)
+    git(dir, "config", "commit.gpgsign", "false");
+    git(dir, "config", "tag.gpgsign", "false");
     git(dir, "add", ".");
     git(dir, "commit", "-q", "-m", "feat: first");
 

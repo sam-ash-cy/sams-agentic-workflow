@@ -235,7 +235,13 @@ export function release(root: string, opts: ReleaseOptions): ReleaseResult {
 
   writeVersions(root, version);
   const path = join(root, "CHANGELOG.md");
-  writeFileSync(path, prependChangelog(existsSync(path) ? readFileSync(path, "utf8") : undefined, section, version));
+  let existing: string | undefined;
+  try {
+    existing = readFileSync(path, "utf8");
+  } catch {
+    existing = undefined; // no CHANGELOG.md yet
+  }
+  writeFileSync(path, prependChangelog(existing, section, version));
   for (const step of [["add", "--", ...files], ["commit", "-q", "-m", `chore(release): ${tag}`], ["tag", "-a", "--cleanup=verbatim", tag, "-m", `${tag}\n\n${notes}`]]) {
     const r = git(root, step);
     if (!r.ok) {
