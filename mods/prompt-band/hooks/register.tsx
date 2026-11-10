@@ -243,7 +243,8 @@ export const register: Register = (on, options) => {
     const cost = costLabel(await read($, sessionUsd), await read($, taskCost), opts.budgetUsd ?? 0)
 
     return (
-      <Box columnGap={2} marginBottom={1} paddingX={1} flexWrap="wrap">
+      <Box flexDirection="column" marginBottom={1} paddingX={1}>
+        <Box columnGap={2} rowGap={1} flexWrap="wrap">
         {working && <Text dimColor>{working === 'improve' ? 'Improving… ' : 'Writing handoff… '}</Text>}
         <Button key="improve" label="Improve prompt" dimColor={off} onPress={press('improve')} />
         <Button key="plan" label="Plan before coding" dimColor={off} onPress={press('plan')} />
@@ -253,6 +254,7 @@ export const register: Register = (on, options) => {
           <Button key="compact" label={`Compact context (${pct}%)`} dimColor={off} onPress={press('compact')} />
         )}
         <Button key="handoff" label="Write handoff note" dimColor={off} onPress={press('handoff')} />
+        </Box>
         <Text dimColor={!cost.color} color={cost.color}>{cost.text}</Text>
       </Box>
     )
