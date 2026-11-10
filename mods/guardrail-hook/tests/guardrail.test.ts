@@ -27,6 +27,22 @@ test('a commit on a well-named branch goes through', async ($, on) => {
   expect(r.deny).toBeUndefined()
 })
 
+test('a push on release/v1.0.1 goes through', async ($, on) => {
+  on('process.run', branch('release/v1.0.1'))
+  on('session.cwd', () => ({ value: '/repo' }))
+  on('tool.call', () => ({ result: { stdout: 'ok' } }))
+  const r = await $.tool.call({ tool: 'Bash', command: 'git push origin HEAD' })
+  expect(r.deny).toBeUndefined()
+})
+
+test('a push on hotfix/broken-icon goes through', async ($, on) => {
+  on('process.run', branch('hotfix/broken-icon'))
+  on('session.cwd', () => ({ value: '/repo' }))
+  on('tool.call', () => ({ result: { stdout: 'ok' } }))
+  const r = await $.tool.call({ tool: 'Bash', command: 'git push origin HEAD' })
+  expect(r.deny).toBeUndefined()
+})
+
 test('a commit on a later line, after git -c options, is still checked', async ($, on) => {
   on('process.run', branch('claude/xyz'))
   on('session.cwd', () => ({ value: '/repo' }))

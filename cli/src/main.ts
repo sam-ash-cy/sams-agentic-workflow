@@ -30,7 +30,7 @@ import { depAuditFor, guessType, init, recordInstalled, uninstall, upgrade, type
 import { lintContext, lintMemory } from "./lint";
 import { docsNudge, docsStatus, REFRESH_BRIEF } from "./docs";
 import { outline } from "./outline";
-import { checkVersions, commitsSince, notesFor, release, verifyTag } from "./release";
+import { checkVersions, commitsSince, notesFor, release, tagRelease, verifyTag } from "./release";
 import { prBody, SAFE_REF } from "./pr-body";
 import { applySplit, parseSplit, planSplit } from "./split";
 import { sanitize, sanitizeHistory } from "./sanitize";
@@ -83,7 +83,8 @@ const USAGE = `usage: saw <command>
   lint-context                       AGENTS.md / CLAUDE.md size limits
   memory lint                        stale file refs in docs/learnings and docs/decisions, duplicate learnings, size limits
   release [patch|minor|major|<x.y.z>] [--pre <id>] [--dry-run] [--all] [--allow-branch]   (on release/vX.Y.Z or hotfix/*)
-                                     bump every manifest, write CHANGELOG.md, commit and make an annotated tag (never pushes)
+                                     bump every manifest, write CHANGELOG.md and commit (never pushes; tag on main after the merge)
+  release tag [--dry-run] [--allow-branch]   on main after the release merge: annotated vX.Y.Z tag from CHANGELOG.md (never pushes)
   split <plan.md> [--dry-run]        one worktree + branch per step heading that names a branch ("feat/x" in backticks), its brief in .saw/brief.md
   release notes <tag> | verify <tag> one version's changelog section; check a tag matches every manifest (CI)
   sanitize [--history]               before going public: secrets, home paths, emails and your own names in published files (--history: in every commit)
@@ -730,6 +731,13 @@ export function run(argv: string[], cwd = process.cwd()): number {
     return results.every((r) => r.ok) ? 0 : 1;
   }
   if (command === "release") {
+    if (sub === "tag") {
+      const r = tagRelease(cwd, { dryRun: args.flags.has("--dry-run"), allowBranch: args.flags.has("--allow-branch") });
+      for (const p of r.problems) console.error(`problem: ${p}`);
+      if (r.problems.length) return 1;
+      console.log(args.flags.has("--dry-run") ? `saw release tag: would tag ${r.tag}` : `tagged ${r.tag}. Publish with: git push origin ${r.tag}`);
+      return 0;
+    }
     if (sub === "notes" || sub === "verify") {
       if (!key) return fail(`usage: saw release ${sub} <tag>`);
       if (sub === "verify") {
@@ -757,7 +765,7 @@ export function run(argv: string[], cwd = process.cwd()): number {
       for (const p of result.problems) console.error(`problem: ${p}`);
       return 1;
     }
-    if (!dryRun) console.log(`committed and tagged ${result.tag}. Publish with: git push origin HEAD --follow-tags, then open a PR from this branch into main and merge it with a merge commit (not squash) so the tag stays in main's history`);
+    if (!dryRun) console.log(`committed ${result.tag}. Next: git push, open a PR from this branch into main, merge it, then on main run saw release tag and git push origin ${result.tag}`);
     return 0;
   }
   if (command === "sanitize") {
