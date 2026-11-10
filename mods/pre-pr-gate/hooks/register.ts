@@ -21,7 +21,19 @@ export function missingSkills(status: string): string[] {
 
 async function check($: EngineInterface, opts: Options): Promise<string | null> {
   const argv = (opts.sawCommand ?? 'saw').split(' ').filter(Boolean)
-  const r = await $.process.run([...argv, 'task', 'status'], { cwd: await $.session.cwd(), timeoutMs: 15000 })
+  const cwd = await $.session.cwd()
+  const run = (cmd: string[]) => $.process.run(cmd, { cwd, timeoutMs: 15000 })
+  let r: Awaited<ReturnType<typeof run>>
+  try {
+    r = await run([...argv, 'task', 'status'])
+  } catch {
+    // Windows spawns only .exe files: saw is bin/saw.cmd there, which needs cmd.
+    try {
+      r = await run(['cmd', '/c', ...argv, 'task', 'status'])
+    } catch {
+      return `pre-pr-gate: could not run \`${argv.join(' ')} task status\`; set the pre-pr-gate sawCommand option to a command that runs saw.`
+    }
+  }
   if (r.exitCode !== 0) return null // no open task, or saw missing: the saw hooks decide
   const missing = missingSkills(r.stdout)
   if (missing.length === 0) return null
