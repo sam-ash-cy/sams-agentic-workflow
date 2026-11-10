@@ -8,6 +8,7 @@
     "cooldownSec": { "type": "number", "title": "Cooldown (seconds)", "description": "Minimum gap between model-backed presses", "default": 10 },
     "model": { "type": "string", "title": "Model", "description": "Model for Improve and Handoff", "default": "haiku" },
     "reviewCommand": { "type": "string", "title": "Review command", "description": "What the Review button puts in the prompt", "default": "/code-review low" },
-    "compactAtPct": { "type": "number", "title": "Show Compact at %", "description": "Context fill at which the Compact button appears", "default": 50 }
+    "compactAtPct": { "type": "number", "title": "Show Compact at %", "description": "Context fill at which the Compact button appears", "default": 50 },
+    "budgetUsd": { "type": "number", "title": "Task budget ($)", "description": "Warn at 80% and past this much spend per saw task; 0 shows the cost without warnings", "default": 0 }
   }
 }
