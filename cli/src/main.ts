@@ -20,6 +20,7 @@ import { dataVersion, renderHtml, renderMarkdown } from "./dashboard";
 import { logEvent, readEvents } from "./events";
 import { appendMetric, buildMetric, readMetrics } from "./metrics";
 import { compare, summarise, type Comparison, type Summary } from "./evals";
+import { failureCandidates } from "./failures";
 import { configSuggestions, readProposals, retro } from "./retro";
 import { companionWarnings, compareUrl, eccProblem, gateguardWarning, pin, readLock, verifyLock } from "./deps";
 import { depAuditFor, guessType, init, recordInstalled, uninstall, upgrade, type ChangeReport, type InitReport } from "./init";
@@ -531,7 +532,7 @@ export function run(argv: string[], cwd = process.cwd()): number {
     const autonomy = resolved.config.autonomy as { level: string; actions: Record<string, string> };
     // suggest mode (or self_improve = never) lists candidates without writing files.
     const write = !args.flags.has("--dry-run") && autonomy.level !== "suggest" && autonomy.actions.self_improve !== "never";
-    const result = retro(dir, readMetrics(cwd), r.repeat_threshold, write);
+    const result = retro(dir, readMetrics(cwd), r.repeat_threshold, write, undefined, failureCandidates(cwd, r.repeat_threshold));
     for (const c of result.pending) {
       console.log(`  ${c.check}: failed in ${c.tasks} tasks${write ? "" : " (not written)"}`);
     }
