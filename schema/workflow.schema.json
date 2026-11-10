@@ -116,6 +116,10 @@
           "type": "boolean",
           "default": true
         },
+        "advisor": {
+          "type": "boolean",
+          "default": true
+        },
         "task_skills": {
           "type": "boolean",
           "default": true
@@ -189,6 +193,16 @@
             "engineering:code-review",
             "appsec-review"
           ]
+        }
+      }
+    },
+    "advisor": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "model": {
+          "type": "string",
+          "default": "claude-opus-5-5"
         }
       }
     },

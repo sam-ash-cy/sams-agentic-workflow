@@ -6,6 +6,7 @@
 import { appendFileSync, closeSync, existsSync, fstatSync, mkdirSync, openSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { isAbsolute, join, relative, resolve } from "node:path";
 import type { Table } from "./defaults";
+import { advisorModel } from "./skills";
 import { branchSettings } from "./branch";
 import { readReviews, reportVerdict, reviewBudget, signatureValid, type ReviewSettings } from "./review-session";
 
@@ -127,7 +128,7 @@ export function requiredChecks(config: Table, tier: string, seen = new Set<strin
   return [...new Set([...parent, ...(entry.run ?? [])])].filter((c) => !(c in REVIEW_FEATURES) || features[REVIEW_FEATURES[c]!] !== false);
 }
 
-const REVIEW_FEATURES: Record<string, string> = { code_review: "code_review", security_review: "security_review", docs: "docs_step" };
+const REVIEW_FEATURES: Record<string, string> = { code_review: "code_review", security_review: "security_review", docs: "docs_step", advisor: "advisor" };
 
 // Playbooks that ship something users read about; only these owe the docs check.
 const DELIVERS = ["feature", "foundation"];
@@ -192,6 +193,10 @@ export function taskSteps(config: Table, tier: string, playbook = "feature"): st
     (taskChecks(config, tier, playbook).includes("docs") ? "; then saw task record docs pass --note \"<files>\" (or --note \"none needed: <why>\")" : ""));
   if (features.ecc && delivers) steps.push("before the PR: ecc:verification-loop (build, types, lint, tests, diff review)");
   if (features.brag && delivers) steps.push("optional after the PR merges: a launch video with the brag skill");
+  if (taskChecks(config, tier, playbook).includes("advisor")) {
+    const model = advisorModel(config);
+    steps.push(`advisor: after the plan and before reporting done, call the advisor tool (${model}); then saw task record advisor pass --note "<its advice, and what you did>"`);
+  }
   if (features.task_skills && tier !== "trivial") {
     const fit = taskSkills(config, tier, playbook);
     if (fit.length) steps.push(`skills that fit (run each where it helps): ${fit.join(", ")}`);
@@ -213,7 +218,7 @@ export function taskSteps(config: Table, tier: string, playbook = "feature"): st
 
 // Checks judged by the agent and recorded with `saw task record`; every other
 // check needs a command in [checks] and only counts when `saw run` ran it.
-export const JUDGEMENT_CHECKS = ["code_review", "security_review", "threat_model", "rollback_plan", "docs"];
+export const JUDGEMENT_CHECKS = ["code_review", "security_review", "threat_model", "rollback_plan", "docs", "advisor"];
 
 export interface Status {
   label: Label;
