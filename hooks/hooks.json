@@ -1,25 +1,25 @@
 {
   "hooks": {
     "PreToolUse": [
-      { "matcher": "Bash|Edit|Write|MultiEdit|NotebookEdit|Agent|Task|Read|Grep|Glob", "hooks": [{ "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/saw\" guard" }] },
-      { "matcher": "Bash", "hooks": [{ "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/saw\" session-hook" }] }
+      { "matcher": "Bash|Edit|Write|MultiEdit|NotebookEdit|Agent|Task|Read|Grep|Glob", "hooks": [{ "type": "command", "command": "bun --no-install \"${CLAUDE_PLUGIN_ROOT}/cli/src/main.ts\" guard" }] },
+      { "matcher": "Bash", "hooks": [{ "type": "command", "command": "bun --no-install \"${CLAUDE_PLUGIN_ROOT}/cli/src/main.ts\" session-hook" }] }
     ],
     "PostToolUse": [
-      { "matcher": "Bash", "hooks": [{ "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/saw\" session-hook" }] },
-      { "matcher": "Edit|Write|MultiEdit", "hooks": [{ "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/saw\" format-hook" }] }
+      { "matcher": "Bash", "hooks": [{ "type": "command", "command": "bun --no-install \"${CLAUDE_PLUGIN_ROOT}/cli/src/main.ts\" session-hook" }] },
+      { "matcher": "Edit|Write|MultiEdit", "hooks": [{ "type": "command", "command": "bun --no-install \"${CLAUDE_PLUGIN_ROOT}/cli/src/main.ts\" format-hook" }] }
     ],
     "PostToolUseFailure": [
-      { "hooks": [{ "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/saw\" failure-hook" }] }
+      { "hooks": [{ "type": "command", "command": "bun --no-install \"${CLAUDE_PLUGIN_ROOT}/cli/src/main.ts\" failure-hook" }] }
     ],
     "Stop": [
-      { "hooks": [{ "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/saw\" gate" }] },
-      { "hooks": [{ "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/saw\" style-check" }] }
+      { "hooks": [{ "type": "command", "command": "bun --no-install \"${CLAUDE_PLUGIN_ROOT}/cli/src/main.ts\" gate" }] },
+      { "hooks": [{ "type": "command", "command": "bun --no-install \"${CLAUDE_PLUGIN_ROOT}/cli/src/main.ts\" style-check" }] }
     ],
     "SessionStart": [
-      { "hooks": [{ "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/saw\" session-start" }] }
+      { "hooks": [{ "type": "command", "command": "bun --no-install \"${CLAUDE_PLUGIN_ROOT}/cli/src/main.ts\" session-start" }] }
     ],
     "UserPromptSubmit": [
-      { "hooks": [{ "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/saw\" context" }] }
+      { "hooks": [{ "type": "command", "command": "bun --no-install \"${CLAUDE_PLUGIN_ROOT}/cli/src/main.ts\" context" }] }
     ]
   }
 }

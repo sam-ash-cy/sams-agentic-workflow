@@ -108,4 +108,4 @@ saw doesn't copy these into the repo. They are pinned by commit in `deps.lock.to
 - [brag](https://github.com/latent-spaces/brag) by Shunit Haviv Hakimi (MIT), optional launch videos (`features.brag`). Its bundled music is CC BY 4.0 by [Sascha Ende](https://ende.app): credit him wherever you publish a video made with it.
 - [ECC](https://github.com/affaan-m/ECC) by Affaan Mustafa (MIT), optional plugin (`features.ecc`). saw recommends turning off its duplicate hooks; see [optional extras](docs/COMMANDS.md#optional-extras).
 
-Tests: `bun test`. Licence: [MIT](LICENSE).
+Tests: `bun run test`. Licence: [MIT](LICENSE).
