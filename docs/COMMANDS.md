@@ -258,6 +258,7 @@ Later layers win; `--set` beats all of them for one call. From `workflow.toml`, 
 | `project.type` | `"web"` | `web`, `api`, `cli`, `lib`, `infra`. |
 | `routing.default_tier` | `"auto"` | `auto` lets the router pick; or force a tier. |
 | `routing.always_grill` | `["complex","critical"]` | Tiers that always get grilling. |
+| `routing.mode` | `"hard"` | `hard` (needs `features.verify_hook`, a project with `workflow.toml`): saw guard denies Edit/Write/MultiEdit/NotebookEdit of files in the repo while no task is open, naming the router skill, `saw task start --tier <t> --playbook <p>` and `saw task adhoc`. `.saw/`, `.claude/`, the repo's own top-level `plans/*.md` and paths outside the repo are exempt. `soft`: the router nudge and the Stop block only. Working-tree changes made without an edit tool (`sed -i`, redirects) are caught by the Stop block in both modes. |
 | `autonomy.level` | `"propose"` | `suggest` (never acts), `propose` (asks before outward-facing actions), `act`. **G** |
 | `autonomy.actions.commit` | `"ask"` | `never`, `ask` or `allow`. **G** |
 | `autonomy.actions.push` | `"never"` | **G** |

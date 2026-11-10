@@ -23,6 +23,7 @@ Defaults are what a fresh `saw init` gives you. "Key" is the setting that contro
 | Category | Feature | Default | Key | Needs |
 |---|---|---|---|---|
 | Routing | Tier + playbook per task, `saw task start` steps | on | `[routing]` | plugin |
+| | Routing enforced (hard: edits wait for an open task; shell writes still hit the Stop gate; session start says when a repo has no `workflow.toml`) | on | `features.verify_hook`, `routing.mode` | |
 | | Grilling (clarifying questions) on complex and critical | on | `features.grilling`, `routing.always_grill` | |
 | | Branch guard: tasks branch (or worktree) off `main`; no commits on it | on | `features.branch_guard`, `[branch]` | |
 | | Skills named per playbook at task start | on | `features.task_skills`, `[task_skills]` | the named plugins |

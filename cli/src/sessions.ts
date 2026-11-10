@@ -9,6 +9,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSy
 import { join } from "node:path";
 import type { Table } from "./defaults";
 import { reviewApplies, reviewedSince } from "./review-session";
+import { statePath } from "./session-state";
 import { currentTask } from "./task";
 
 export const UNITS = ["phase", "stage", "feature"] as const;
@@ -36,10 +37,6 @@ export interface SessionHookInput {
   tool_input?: { command?: unknown };
   tool_response?: unknown;
 }
-
-// One file per session, so sessions sharing a checkout don't overwrite each other.
-const statePath = (cwd: string, sessionId: string): string =>
-  join(cwd, ".saw", "sessions", `${sessionId.replace(/[^\w-]/g, "_")}.json`);
 
 function load(cwd: string, sessionId: string): SessionState {
   try {

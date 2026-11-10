@@ -9,6 +9,7 @@ import type { Table } from "./defaults";
 import { currentTask } from "./task";
 import { guardAgent, implementerEdit } from "./model-guard";
 import { testsFirstEdit } from "./tests-first";
+import { routingEdit } from "./routing-guard";
 import { REVIEW_KEY } from "./review-session";
 
 type Decision = "deny" | "ask";
@@ -245,7 +246,7 @@ export function guardHook(config: Table, input: { tool_name?: string; agent_id?:
     : wrongModel
       ? { decision: "deny", reason: wrongModel }
       : edit
-        ? strictestVerdict(strictestVerdict(typeof t?.file_path === "string" ? guardEdit(config, t.file_path, homedir(), cwd) : undefined, implementerEdit(config, input, cwd)), testsFirstEdit(config, editTarget(t), cwd))
+        ? strictestVerdict(strictestVerdict(strictestVerdict(typeof t?.file_path === "string" ? guardEdit(config, t.file_path, homedir(), cwd) : undefined, implementerEdit(config, input, cwd)), testsFirstEdit(config, editTarget(t), cwd)), routingEdit(config, editTarget(t), cwd))
         : undefined;
   const target = typeof t?.file_path === "string" ? t.file_path : typeof t?.notebook_path === "string" ? t.notebook_path : undefined;
   const g2 = g ?? baseBranchGuard(config, input.tool_name ?? "", typeof t?.command === "string" ? t.command : "", cwd, undefined, target);

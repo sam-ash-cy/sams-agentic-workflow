@@ -105,7 +105,9 @@ export const DEFAULTS: Table = {
   // features.branch_guard: the branch to branch off (global or project layer).
   // mode auto: a worktree for complex and critical tasks (features.worktrees), a branch otherwise.
   branch: { base: "main", mode: "auto" },
-  routing: { default_tier: "auto", always_grill: ["complex", "critical"] },
+  // routing.mode hard (features.verify_hook): saw guard denies edits to files in a saw project
+  // until a task is open (router skill, then `saw task start` or `saw task adhoc`). soft = nudges only.
+  routing: { default_tier: "auto", always_grill: ["complex", "critical"], mode: "hard" },
   // features.tdd: mode hard = on standard-or-higher tasks in these playbooks, saw
   // guard denies code edits (tests excepted) until `saw run test` has failed since
   // the task started. Needs [checks].test. soft = the step only.
@@ -254,6 +256,7 @@ export const ENUMS: Record<string, string[]> = {
   "branch.mode": ["branch", "worktree", "auto"],
   "routing.default_tier": ["auto", "trivial", "standard", "complex", "critical"],
   "tokens.mode": ["soft", "hard"],
+  "routing.mode": ["soft", "hard"],
   "tdd.mode": ["soft", "hard"],
   "verify.require_review_evidence": ["off", "agent", "review_session"],
   "style.tone": ["normal", "structured", "detailed", "verbose"],
