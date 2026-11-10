@@ -8,6 +8,7 @@ import { branchSettings, currentBranch, onBase, worktreeTask } from "./branch";
 import type { Table } from "./defaults";
 import { currentTask } from "./task";
 import { guardAgent, implementerEdit } from "./model-guard";
+import { testsFirstEdit } from "./tests-first";
 import { REVIEW_KEY } from "./review-session";
 
 type Decision = "deny" | "ask";
@@ -176,6 +177,10 @@ export function guardEdit(config: Table, path: string, home = homedir(), cwd = p
   return { decision: level === "never" ? "deny" : "ask", reason: `autonomy: edit_global is ${level === "never" ? "set to never" : "ask"} (${path})` };
 }
 
+// The file an edit tool touches (NotebookEdit names it notebook_path).
+const editTarget = (t?: { file_path?: unknown; notebook_path?: unknown }): string | undefined =>
+  typeof t?.file_path === "string" ? t.file_path : typeof t?.notebook_path === "string" ? t.notebook_path : undefined;
+
 const strictestVerdict = (a: Verdict, b: Verdict): Verdict => a?.decision === "deny" ? a : b?.decision === "deny" ? b : a ?? b;
 
 function strictest(a?: string, b?: string): string | undefined {
@@ -240,7 +245,7 @@ export function guardHook(config: Table, input: { tool_name?: string; agent_id?:
     : wrongModel
       ? { decision: "deny", reason: wrongModel }
       : edit
-        ? strictestVerdict(typeof t?.file_path === "string" ? guardEdit(config, t.file_path, homedir(), cwd) : undefined, implementerEdit(config, input, cwd))
+        ? strictestVerdict(strictestVerdict(typeof t?.file_path === "string" ? guardEdit(config, t.file_path, homedir(), cwd) : undefined, implementerEdit(config, input, cwd)), testsFirstEdit(config, editTarget(t), cwd))
         : undefined;
   const target = typeof t?.file_path === "string" ? t.file_path : typeof t?.notebook_path === "string" ? t.notebook_path : undefined;
   const g2 = g ?? baseBranchGuard(config, input.tool_name ?? "", typeof t?.command === "string" ? t.command : "", cwd, undefined, target);
