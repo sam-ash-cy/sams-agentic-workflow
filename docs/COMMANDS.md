@@ -143,9 +143,19 @@ When a prompt mentions something a missing catalog entry covers, the UserPromptS
 | `saw deps diff <name> <sha>` | The compare URL to review before moving a pin. |
 | `saw deps pin <name> <sha> --reviewed-by <who>` | Moves a pin and records the reviewer. |
 | `saw split <plan.md> [--dry-run]` | Splits an approved plan into parallel worktrees: each heading that names a branch in backticks (``## Docs `docs/cost` ``) gets a worktree beside the repo, on that branch off `origin/<branch.base>`, with its section and the plan's shared context in `.saw/brief.md`. Prints the `claude` command to start each session; existing paths are left alone. |
-| `saw release [patch\|minor\|major\|<x.y.z>] [--pre <id>] [--dry-run] [--all] [--allow-branch]` | Maintainers. Bumps the version in `package.json` (the source of truth), `.claude-plugin/plugin.json`, the marketplace entry and every `mods/*/.claude-plugin/plugin.json`; prepends a `CHANGELOG.md` section built from Conventional Commit titles since the last tag (breaking, features, fixes; `--all` adds the rest); commits `chore(release): vX.Y.Z` and makes an annotated tag. With no bump it suggests one from the commits (before 1.0 a breaking change is minor); the first release tags the current version. `--pre beta` makes `-beta.0`, `-beta.1`…; a plain release after that finalises and folds the beta sections in. Refuses on a dirty tree, an existing tag, version drift, or a branch other than `main`. **Never pushes**: run `git push origin main --follow-tags`, and `.github/workflows/release.yml` verifies on every OS, publishes the GitHub Release and fast-forwards the `beta` (every tag) and `stable` (final releases) branches. |
+| `saw release [patch\|minor\|major\|<x.y.z>] [--pre <id>] [--dry-run] [--all] [--allow-branch]` | Maintainers. Bumps the version in `package.json` (the source of truth), `.claude-plugin/plugin.json`, the marketplace entry and every `mods/*/.claude-plugin/plugin.json`; prepends a `CHANGELOG.md` section built from Conventional Commit titles since the last tag (breaking, features, fixes; `--all` adds the rest); commits `chore(release): vX.Y.Z` and makes an annotated tag. With `release.flow = "release-branch"` it doesn't tag; `saw release tag` tags `main` after the merge. With no bump it suggests one from the commits (before 1.0 a breaking change is minor); the first release tags the current version. `--pre beta` makes `-beta.0`, `-beta.1`…; a plain release after that finalises and folds the beta sections in. Refuses on a dirty tree, an existing tag, version drift, or a branch other than `main` (with `release.flow = "release-branch"`: other than `release/vX.Y.Z`, matching the version, or `hotfix/*`) (`--allow-branch` overrides). **Never pushes**: run `git push origin main --follow-tags`. In the release-branch flow, after the merge, `saw release tag` on `main` makes the annotated `vX.Y.Z` tag from its CHANGELOG section (refusing off `main`, on drift, or with no section); pushing the tag runs `.github/workflows/release.yml` verifies on every OS, publishes the GitHub Release and fast-forwards the `beta` (every tag) and `stable` (final releases) branches. |
 | `saw release notes <tag>` / `saw release verify <tag>` | One version's changelog section; check a tag matches every manifest. Used by the release workflow. |
 | `saw sanitize [--history]` | Secrets, home paths, emails and your names (git user, OS user, `release.names`) in files a push would publish; `--history` scans every commit. Allow a line with `saw-sanitize: allow`, or list literals in `.sanitize-allow`. |
+
+**Release-branch flow (opt-in, `release.flow = "release-branch"`; this repo uses it).** `main` only moves when something ships; the `merge-source` CI job fails any PR into `main` that isn't from `release/vX.Y.Z` or `hotfix/<desc>`.
+
+1. **Start a version:** cut `release/vX.Y.Z` from `main` and push it.
+2. **Work:** branch `feat/…`, `fix/…` or `docs/…` from the open `release/vX.Y.Z` (not `main`, so you build on what's already in the release), and open the PR into `release/vX.Y.Z`. CI must pass; merge with squash or rebase (linear history).
+3. **Ship:** on `release/vX.Y.Z`, run `saw release` (bumps every manifest, writes `CHANGELOG.md`, commits) and push. Open a PR from `release/vX.Y.Z` into `main` and merge it (squash or rebase; `main` keeps linear history) once CI is green.
+4. **Tag:** on an up-to-date `main`, run `saw release tag`, then `git push origin vX.Y.Z`. The tag push runs `.github/workflows/release.yml`, which publishes the GitHub Release and moves `stable`.
+5. **Hotfix:** branch `hotfix/<desc>` from `main`, run `saw release` on it, PR it into `main`, tag `main` as in step 4, then merge `main` into any open release branch.
+
+Rulesets for `main` and `release/**` are in `.github/rulesets/`: import them in Settings → Rules → Rulesets, or run `gh api -X POST repos/<owner>/<repo>/rulesets --input .github/rulesets/main.json` (and again with `release.json`).
 
 ## GitHub
 
@@ -345,6 +355,7 @@ effort = "high"
 | `knowledge.store` | `"repo"` | `repo`, `vault` or `both`. |
 | `knowledge.vault_path` | `""` | Absolute path to your central vault. **P** |
 | `release.names` | `[]` | Extra names of yours for `saw sanitize`. **P** |
+| `release.flow` | `"main"` | `main`: `saw release` runs on `main` and tags. `release-branch`: cut on `release/vX.Y.Z` or `hotfix/*`, tag `main` after the merge with `saw release tag`. |
 | `agents.enabled` | `["claude"]` | Agents checked by `saw agents check`: `claude`, `codex`, `cursor`, `gemini`. |
 | `logging.enabled` | `true` | Event log in `.saw/events.jsonl`. |
 | `logging.level` | `"info"` | `debug`, `info`, `warn`. |

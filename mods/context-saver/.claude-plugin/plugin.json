@@ -1,6 +1,6 @@
 {
   "name": "context-saver",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Saves context without losing quality: trims long command output (full copy kept), skips repeat reads of unchanged files, and steers compaction",
   "types": "./types/index.d.ts",
   "userConfig": {

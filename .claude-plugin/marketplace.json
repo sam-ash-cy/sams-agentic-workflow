@@ -7,11 +7,20 @@
     {
       "name": "sams-agentic-workflow",
       "source": "./",
-      "version": "1.0.0",
+      "version": "1.0.1",
       "description": "Make your coding agent prove it's done: risk-tiered routing, a gate that blocks 'done' until checks pass, hook-enforced guardrails, token budgets and evidence-driven retros. 45+ features, each switchable globally or per project.",
       "category": "development",
       "homepage": "https://github.com/sam-ash-cy/sams-agentic-workflow",
-      "keywords": ["workflow", "verification", "guardrails", "hooks", "code-review", "tdd", "token-budget", "agentic"]
+      "keywords": [
+        "workflow",
+        "verification",
+        "guardrails",
+        "hooks",
+        "code-review",
+        "tdd",
+        "token-budget",
+        "agentic"
+      ]
     },
     {
       "name": "mattpocock-skills",
@@ -46,13 +55,45 @@
       "source": "./mods/render",
       "description": "saw mod: themed rendering of replies (tables, code, mermaid, charts), based on prismantis (MIT). Terminal claude, Claude Code >= 2.1.287."
     },
-    { "name": "context-guard", "source": "./mods/context-guard", "description": "saw mod: context-guard." },
-    { "name": "context-saver", "source": "./mods/context-saver", "description": "saw mod: context-saver." },
-    { "name": "guardrail-hook", "source": "./mods/guardrail-hook", "description": "saw mod: guardrail-hook." },
-    { "name": "pre-pr-gate", "source": "./mods/pre-pr-gate", "description": "saw mod: pre-pr-gate." },
-    { "name": "prompt-band", "source": "./mods/prompt-band", "description": "saw mod: prompt-band." },
-    { "name": "secrets-redactor", "source": "./mods/secrets-redactor", "description": "saw mod: keeps secrets out of the model's context." },
-    { "name": "trail-nudge", "source": "./mods/trail-nudge", "description": "saw mod: trail-nudge." },
-    { "name": "workflow-pane", "source": "./mods/workflow-pane", "description": "saw mod: workflow pane beside the chat." }
+    {
+      "name": "context-guard",
+      "source": "./mods/context-guard",
+      "description": "saw mod: context-guard."
+    },
+    {
+      "name": "context-saver",
+      "source": "./mods/context-saver",
+      "description": "saw mod: context-saver."
+    },
+    {
+      "name": "guardrail-hook",
+      "source": "./mods/guardrail-hook",
+      "description": "saw mod: guardrail-hook."
+    },
+    {
+      "name": "pre-pr-gate",
+      "source": "./mods/pre-pr-gate",
+      "description": "saw mod: pre-pr-gate."
+    },
+    {
+      "name": "prompt-band",
+      "source": "./mods/prompt-band",
+      "description": "saw mod: prompt-band."
+    },
+    {
+      "name": "secrets-redactor",
+      "source": "./mods/secrets-redactor",
+      "description": "saw mod: keeps secrets out of the model's context."
+    },
+    {
+      "name": "trail-nudge",
+      "source": "./mods/trail-nudge",
+      "description": "saw mod: trail-nudge."
+    },
+    {
+      "name": "workflow-pane",
+      "source": "./mods/workflow-pane",
+      "description": "saw mod: workflow pane beside the chat."
+    }
   ]
 }

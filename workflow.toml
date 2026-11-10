@@ -1,0 +1,4 @@
+# This repo's own saw settings. Plugin users are unaffected.
+[release]
+# Cut on release/vX.Y.Z (or hotfix/*), merge into main, then `saw release tag` on main.
+flow = "release-branch"

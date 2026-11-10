@@ -221,7 +221,7 @@ Releases are tagged `vX.Y.Z` (pre-releases `vX.Y.Z-beta.N`) and listed on the Gi
 | Stable (recommended) | `https://github.com/sam-ash-cy/sams-agentic-workflow.git#stable` | each final release |
 | Beta | `...sams-agentic-workflow.git#beta` | every release, betas included |
 | Pinned | `...sams-agentic-workflow.git#v1.0.0` | nothing; re-add at a new tag to upgrade |
-| Edge | `...sams-agentic-workflow.git` | every commit on `main` |
+| Latest | `...sams-agentic-workflow.git` | every merge to `main`: releases and hotfixes only |
 
 To switch, `claude plugin marketplace remove sams-agentic-workflow`, add it again with the new ref, then `claude plugin marketplace update sams-agentic-workflow`. With a local clone, `git checkout stable` (or a tag) instead of `git pull` on `main`. Run `saw doctor` afterwards; it flags manifests whose versions disagree.
 
