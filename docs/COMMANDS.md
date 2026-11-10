@@ -147,7 +147,14 @@ When a prompt mentions something a missing catalog entry covers, the UserPromptS
 | `saw release notes <tag>` / `saw release verify <tag>` | One version's changelog section; check a tag matches every manifest. Used by the release workflow. |
 | `saw sanitize [--history]` | Secrets, home paths, emails and your names (git user, OS user, `release.names`) in files a push would publish; `--history` scans every commit. Allow a line with `saw-sanitize: allow`, or list literals in `.sanitize-allow`. |
 
-**Branches.** Each version gets a `release/vX.Y.Z` branch cut from `main`; feature, fix and docs PRs target it. Only `release/vX.Y.Z` (when it is ready to ship) and `hotfix/<desc>` branches merge into `main`; the `merge-source` CI job fails any other PR into `main`. To ship: on `release/vX.Y.Z`, run `saw release`, push with `--follow-tags`, open a PR into `main` and merge it with a merge commit. After a hotfix, merge `main` into the open release branch. Rulesets for both branches are in `.github/rulesets/` (import them in Settings → Rules → Rulesets, or `gh api -X POST repos/<owner>/<repo>/rulesets --input .github/rulesets/main.json`).
+**Branches and releases.** `main` only moves when something ships; the `merge-source` CI job fails any PR into `main` that isn't from `release/vX.Y.Z` or `hotfix/<desc>`.
+
+1. **Start a version:** cut `release/vX.Y.Z` from `main` and push it.
+2. **Work:** branch `feat/…`, `fix/…` or `docs/…` from the open `release/vX.Y.Z` (not `main`, so you build on what's already in the release), and open the PR into `release/vX.Y.Z`. CI must pass; merge with squash or rebase (linear history).
+3. **Ship:** on `release/vX.Y.Z`, run `saw release` (bumps every manifest, writes `CHANGELOG.md`, commits and tags `vX.Y.Z`), then `git push origin HEAD --follow-tags`. The tag push runs `.github/workflows/release.yml`, which publishes the GitHub Release. Open a PR from `release/vX.Y.Z` into `main` and merge it with a **merge commit** (not squash), so the tag stays in `main`'s history.
+4. **Hotfix:** branch `hotfix/<desc>` from `main`, run `saw release` on it, PR it into `main` with a merge commit, then merge `main` into any open release branch.
+
+Rulesets for `main` and `release/**` are in `.github/rulesets/`: import them in Settings → Rules → Rulesets, or run `gh api -X POST repos/<owner>/<repo>/rulesets --input .github/rulesets/main.json` (and again with `release.json`).
 
 ## GitHub
 
