@@ -173,6 +173,7 @@ test("release: the default flow releases and tags on main, as in 1.0.0", () => {
     const dir = repo();
     git(dir, "init", "-q", "-b", "main");
     git(dir, "config", "user.name", "t");
+    git(dir, "config", "user.email", "t@example.invalid"); // saw-sanitize: allow (reserved .invalid test address)
     git(dir, "config", "commit.gpgsign", "false");
     git(dir, "config", "tag.gpgsign", "false");
     git(dir, "add", ".");
