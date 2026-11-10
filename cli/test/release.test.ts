@@ -92,7 +92,7 @@ test("release: dry run writes nothing; a real run commits and tags, and never pu
   Object.assign(process.env, gitEnv);
   try {
     const dir = repo();
-    git(dir, "init", "-q", "-b", "release");
+    git(dir, "init", "-q", "-b", "release/v0.1.0");
     // CI runners have no global identity, and release() spawns git without gitEnv.
     git(dir, "config", "user.name", "t");
     git(dir, "config", "user.email", "t@example.invalid"); // saw-sanitize: allow (reserved .invalid test address)
@@ -112,6 +112,7 @@ test("release: dry run writes nothing; a real run commits and tags, and never pu
     expect(git(dir, "cat-file", "-t", "v0.1.0")).toBe("tag");
     expect(readFileSync(join(dir, "CHANGELOG.md"), "utf8")).toContain("## [0.1.0] - 2026-11-09");
     expect(release(dir, { bump: "0.1.0" }).problems).toContain("tag v0.1.0 already exists");
+    git(dir, "checkout", "-q", "-b", "release/v0.2.0");
 
     git(dir, "commit", "-q", "--allow-empty", "-m", "fix: second");
     const beta = release(dir, { bump: "minor", pre: "beta", date: "d" });
@@ -133,9 +134,9 @@ test("release: dry run writes nothing; a real run commits and tags, and never pu
     expect(release(dir, { dryRun: true, all: true }).notes).not.toContain("v0.2.0");
 
     git(dir, "checkout", "-q", "-b", "main");
-    expect(release(dir, { dryRun: true }).problems[0]).toContain("not release or hotfix/*");
+    expect(release(dir, { dryRun: true }).problems[0]).toContain("not release/v");
     git(dir, "checkout", "-q", "-b", "feat/x");
-    expect(release(dir, { dryRun: true }).problems[0]).toContain("not release or hotfix/*");
+    expect(release(dir, { dryRun: true }).problems[0]).toContain("not release/v");
     writeFileSync(join(dir, "dirty"), "x");
     expect(release(dir, { dryRun: true, allowBranch: true }).problems).toEqual(["working tree is not clean"]);
   } finally {
@@ -143,14 +144,16 @@ test("release: dry run writes nothing; a real run commits and tags, and never pu
   }
 }, 30_000); // many git spawns: slow on Windows runners
 
-test("release: only release and hotfix/* merge into main or cut a release", () => {
-  for (const ok of ["release", "hotfix/fix-icon", "hotfix/1.0.2"]) {
+test("release: only release/vX.Y.Z and hotfix/* merge into main or cut a release", () => {
+  for (const ok of ["release/v1.0.1", "hotfix/fix-icon", "hotfix/1.0.2"]) {
     expect(mergesIntoMain(ok)).toBe(true);
-    expect(branchProblems(ok)).toEqual([]);
+    expect(branchProblems(ok, "1.0.1")).toEqual([]);
   }
-  for (const bad of ["main", "feat/x", "release/1.0.1", "hotfix/", "hotfix/a b", ""]) {
+  for (const bad of ["main", "release", "feat/x", "release/1.0.1", "release/v1.0", "hotfix/", "hotfix/a b", ""]) {
     expect(mergesIntoMain(bad)).toBe(false);
-    expect(branchProblems(bad)).toHaveLength(1);
+    expect(branchProblems(bad, "1.0.1")).toHaveLength(1);
   }
-  expect(branchProblems("feat/x", true)).toEqual([]);
+  expect(branchProblems("release/v1.1.0", "1.1.0-beta.2")).toEqual([]);
+  expect(branchProblems("release/v1.0.1", "1.0.2")[0]).toContain("does not match");
+  expect(branchProblems("feat/x", "1.0.1", true)).toEqual([]);
 });

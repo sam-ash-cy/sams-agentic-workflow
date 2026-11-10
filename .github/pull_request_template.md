@@ -1,6 +1,6 @@
 <!--
-Base branch: `release` for features, fixes and docs. Only `release` (when ready to ship)
-and `hotfix/<desc>` branches may target `main`; CI fails anything else.
+Base branch: the open `release/vX.Y.Z` branch for features, fixes and docs. Only
+`release/vX.Y.Z` (when ready to ship) and `hotfix/<desc>` may target `main`; CI fails anything else.
 -->
 
 ## Why

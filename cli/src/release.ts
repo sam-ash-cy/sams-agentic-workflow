@@ -213,18 +213,22 @@ export function nextVersion(current: string, commits: Commit[], hasTag: boolean,
   return bump(current, (b as Bump | undefined) ?? suggestBump(current, commits), pre);
 }
 
-/** Branches that may merge into `main`: the long-lived `release` branch, and `hotfix/*`. */
+/** Branches that may merge into `main`: `release/vX.Y.Z` and `hotfix/*`. */
 export function mergesIntoMain(head: string): boolean {
-  return head === "release" || /^hotfix\/[\w.-]+$/.test(head);
+  return /^release\/v\d+\.\d+\.\d+$/.test(head) || /^hotfix\/[\w.-]+$/.test(head);
 }
 
 /**
- * Releases are cut on `release` (or a `hotfix/*` branch), then merged into `main`
- * with a merge commit, so `main` only ever moves to released code.
+ * Releases are cut on `release/vX.Y.Z` (or a `hotfix/*` branch), then merged into
+ * `main` with a merge commit, so `main` only ever moves to released code. A release
+ * branch must name the version being made (`release/v1.2.0` also takes `1.2.0-beta.N`).
  */
-export function branchProblems(branch: string, allowBranch = false): string[] {
-  if (allowBranch || mergesIntoMain(branch)) return [];
-  return [`on branch ${branch || "(detached)"}, not release or hotfix/* (pass --allow-branch to override)`];
+export function branchProblems(branch: string, version: string, allowBranch = false): string[] {
+  if (allowBranch) return [];
+  const base = version.replace(/-.*/, "");
+  if (!mergesIntoMain(branch)) return [`on branch ${branch || "(detached)"}, not release/v${base} or hotfix/* (pass --allow-branch to override)`];
+  if (branch.startsWith("release/") && branch !== `release/v${base}`) return [`branch ${branch} does not match this release, v${version}`];
+  return [];
 }
 
 /** Bumps the manifests, writes CHANGELOG.md, commits and makes an annotated tag. Never pushes. */
@@ -243,7 +247,7 @@ export function release(root: string, opts: ReleaseOptions): ReleaseResult {
   if (git(root, ["rev-parse", "-q", "--verify", `refs/tags/${tag}`]).ok) problems.push(`tag ${tag} already exists`);
   if (git(root, ["status", "--porcelain"]).out) problems.push("working tree is not clean");
   const branch = git(root, ["branch", "--show-current"]).out;
-  problems.push(...branchProblems(branch, opts.allowBranch));
+  problems.push(...branchProblems(branch, version, opts.allowBranch));
   problems.push(...checkVersions(root));
   if (opts.dryRun || problems.length) return { version, tag, notes, files, problems };
 

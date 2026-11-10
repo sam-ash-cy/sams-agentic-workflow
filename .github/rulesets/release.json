@@ -1,9 +1,9 @@
 {
-  "name": "release: protected integration branch",
+  "name": "release/**: protected release branches",
   "target": "branch",
   "enforcement": "active",
   "conditions": {
-    "ref_name": { "include": ["refs/heads/release", "refs/heads/release/**"], "exclude": [] }
+    "ref_name": { "include": ["refs/heads/release/**"], "exclude": [] }
   },
   "rules": [
     { "type": "deletion" },

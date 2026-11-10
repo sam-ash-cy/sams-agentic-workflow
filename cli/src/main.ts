@@ -82,7 +82,7 @@ const USAGE = `usage: saw <command>
   gate                               Stop hook: block "done" until the tier's checks pass
   lint-context                       AGENTS.md / CLAUDE.md size limits
   memory lint                        stale file refs in docs/learnings and docs/decisions, duplicate learnings, size limits
-  release [patch|minor|major|<x.y.z>] [--pre <id>] [--dry-run] [--all] [--allow-branch]   (on release or hotfix/*)
+  release [patch|minor|major|<x.y.z>] [--pre <id>] [--dry-run] [--all] [--allow-branch]   (on release/vX.Y.Z or hotfix/*)
                                      bump every manifest, write CHANGELOG.md, commit and make an annotated tag (never pushes)
   split <plan.md> [--dry-run]        one worktree + branch per step heading that names a branch ("feat/x" in backticks), its brief in .saw/brief.md
   release notes <tag> | verify <tag> one version's changelog section; check a tag matches every manifest (CI)
