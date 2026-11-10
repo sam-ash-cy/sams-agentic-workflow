@@ -1,0 +1,90 @@
+# Features
+
+Every feature below is a setting. Switch any of them on or off for all your projects, for one repo, or just for yourself in one repo.
+
+| Layer | File | Committed | Use it for |
+|---|---|---|---|
+| default | built in (`cli/src/defaults.ts`) | n/a | every key has one |
+| global | `~/.saw/config.toml` (`$SAW_HOME`) | no | your defaults for every project |
+| project | `workflow.toml` | yes | the team's settings for this repo |
+| local | `workflow.local.toml` | no (gitignored) | your settings for this repo |
+
+Later layers win, and a per-command `--set key=value` overrides all four for that call. Guardrails (`safety.*`, `autonomy.*` and a few others) only tighten from `workflow.toml`, so a cloned repo can't loosen them on your machine. `saw explain <key>` shows which layer set a value and why another was ignored. Rules for each key: [COMMANDS.md](COMMANDS.md#configuration-keys).
+
+```bash
+saw config set features.tdd false --scope global      # every project
+saw config set features.brag true                     # this repo, committed
+saw config set features.budgets false --scope local   # just you, this repo
+saw explain features.tdd
+```
+
+Defaults are what a fresh `saw init` gives you. "Key" is the setting that controls it. Optional extras need the external dependency installed first.
+
+| Category | Feature | Default | Key | Needs |
+|---|---|---|---|---|
+| Routing | Tier + playbook per task, `saw task start` steps | on | `[routing]` | plugin |
+| | Grilling (clarifying questions) on complex and critical | on | `features.grilling`, `routing.always_grill` | |
+| | Branch guard: tasks branch (or worktree) off `main`; no commits on it | on | `features.branch_guard`, `[branch]` | |
+| | Skills named per playbook at task start | on | `features.task_skills`, `[task_skills]` | the named plugins |
+| | Test-first step (hard: code edits wait for a failing `saw run test`) | on | `features.tdd`, `tdd.mode` | |
+| Verification | Mechanical checks, quiet output, full logs kept | on | `[checks]`, `[output]` | your commands |
+| | Required checks per tier (tiers can `extends`) | on | `[verify]` | |
+| | Gate: block "done" until checks pass | on | `features.verify_hook` | plugin |
+| | Format after each edit | on (needs `checks.format`) | `features.format_hook` | |
+| | Docs step on feature and foundation tasks | on | `features.docs_step` | `engineering` plugin (installed by bootstrap) |
+| | Living docs: flag blank docs and reference drift at task end; docs step on debug/integration/hardening | on | `features.living_docs` | |
+| | Review reports required for a review pass | off | `verify.require_review_evidence` | |
+| Reviews | Code and security review on standard+ | on | `features.code_review`, `features.security_review` | |
+| | Advisor consult on standard+ (Claude Code's advisor, Opus 5.5 by default) | on | `features.advisor`, `advisor.model` | |
+| | PR description from commits and checks (`saw task pr-body`) | manual | | `gh` |
+| | Review agents (code, security, architecture, UI, research) | on | `[models.roles]`, `[models.phases]` (model + effort per phase and tier) | plugin |
+| | Independent read-only review session per unit | off | `[review_session]` | `claude` CLI |
+| | Whole-project auditors on chosen triggers | on | `features.audit`, `[audit]` | auditor skills |
+| Safety | Guard hook: deny-list, push, destructive and deploy approval, no secrets | on | `[safety]` | plugin |
+| | Autonomy per action (commit, push, PR, deps, sessions, global edits) | propose / ask | `[autonomy]` | plugin |
+| Context and tokens | Token budget per tier (`soft` warns, `hard` stops) | soft | `features.budgets`, `[tokens]` | |
+| | `/compact` and handoff nudges | on | `features.compact_nudge`, `[context]` | |
+| | Claude Code auto-compact set from settings | inherit | `context.autocompact`, `context.autocompact_window` | |
+| | Task and session cost above the prompt, budget warnings | on | prompt-band `budgetUsd` | prompt-band mod |
+| | Handoff card on stop, `saw resume` in the next session | on | | plugin |
+| | Model per agent role | routed | `[models]` | |
+| | Reply tone and word cap, checked on Stop | on | `features.style_hook`, `[style]` | |
+| | Trail code map in task steps | off | `features.trail` | Trail CLI |
+| Sessions | One session per phase, stage or feature | soft | `[sessions]` | |
+| | Worktree per complex task | on | `features.worktrees` | |
+| | Split a task across sessions | off | `features.parallel_sessions` | |
+| | `saw split`: a plan's branch headings become parallel worktrees | manual | `branch.base` | |
+| | Implementer agent writes planned units | off | `features.implementer` | |
+| UI and launch | unslop UI polish in the design playbook | off | `features.unslop` | unslop skill |
+| | Launch video after feature PRs | off | `features.brag` | brag skill, Hyperframes |
+| | ECC context and verification skills | off | `features.ecc` | ECC plugin |
+| Knowledge | `docs/` vault (decisions, learnings, plans, features) | on | `saw init` | |
+| | Central personal vault index | on (needs `vault_path`) | `features.obsidian`, `[knowledge]` | |
+| Metrics | Per-task metrics and event log | on | `features.metrics`, `[logging]` | |
+| | Static or live dashboard | on | `features.dashboard`, `[dashboard]` | |
+| | Retro proposals and settings suggestions | on | `features.retro`, `[retro]` | |
+| | Failure memory: recurring failing tests flagged and proposed | on | `features.retro`, `retro.repeat_threshold` | |
+| | Eval suite with baseline comparison | manual | `[evals]` | `claude` CLI |
+| Agents | `AGENTS.md` for Codex, Cursor, Gemini CLI | claude only | `[agents]` | |
+| GitHub | Repo settings as code (`saw repo plan/apply`) | off | `[repo]` | `gh` |
+| Supply chain | Pinned third-party skills, licence check | on | `[deps]` | |
+| Release | `saw sanitize` for secrets, paths, emails, names | manual | `[release]` | |
+| Automation | Autopilot: approved queue, one headless session + PR per item | off | `[autopilot]` | `claude` CLI, `gh` |
+
+## Mods
+
+Optional add-ons, each its own plugin in this marketplace: `claude plugin install <name>@sams-agentic-workflow`.
+
+| Mod | What it does |
+|---|---|
+| `prompt-band` | buttons above the prompt (Improve, Plan first, Review, Ship check, Compact, Handoff) with usage limits |
+| `workflow-pane` | a pane beside the chat: current tier, playbook, and which checks passed or are missing |
+| `render` | themed rendering of replies: tables, headings, code, mermaid, charts (based on prismantis, MIT) |
+| `secrets-redactor` | hides secrets, emails and IPs in tool output behind placeholders; blocks hardcoded secrets in edits |
+| `context-guard` | warns as context fills; past a limit, holds new prompts until you hand off |
+| `context-saver` | trims long command output (full copy kept), skips repeat reads, steers compaction |
+| `guardrail-hook` | blocks commits on auto-generated branch names and commit messages with AI attribution |
+| `pre-pr-gate` | blocks `gh pr create` until the task's pre-PR skills are recorded |
+| `trail-nudge` | reminds the model of the matching Trail command when it greps or reads source |
+
+Ready-made profiles (`saw profile apply solo|team|strict|autopilot`) and goal recipes: [COMMANDS.md](COMMANDS.md#recipes).
