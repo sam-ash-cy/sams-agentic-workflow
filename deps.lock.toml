@@ -51,3 +51,13 @@ sha = "b38be6a7f6350964d59328b52f0624e1d1d552d1"
 licence = "MIT"
 reviewed_by = "pending"
 reviewed_on = ""
+
+# Render mod base: prismantis by Nahum Litvin (MIT), its plugin/ folder copied into mods/render
+# (LICENSE and THIRD_PARTY_NOTICES.md kept). Reviewed at this SHA: no network or eval; $.process.run
+# only for an optional LaTeX engine and the OS clipboard helpers; $.fs reads local images only.
+[prismantis]
+repo = "https://github.com/NahumLitvin/prismantis"
+sha = "0f49b1479e31d6d050a4638b657c3f8df8d50901"
+licence = "MIT"
+reviewed_by = "pending"
+reviewed_on = ""
