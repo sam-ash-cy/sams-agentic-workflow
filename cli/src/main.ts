@@ -11,6 +11,7 @@ import { AGENTS, checkAdapters, installAdapters } from "./adapters";
 import { syncVault, vaultPath } from "./vault";
 import { budgetHook, contextHook, routerNudge } from "./context";
 import { planModelWarning } from "./model-guard";
+import { applyBranch, branchSettings, currentBranch, markWorktreeTask, planBranch } from "./branch";
 import { guardHook, readOnlyGuard, unreadableSettingsGuard } from "./guard";
 import { sessionHook, UNITS } from "./sessions";
 import { recordReview, reviewApplies, reviewArgv, reviewBrief, writeChange, type ReviewSettings } from "./review-session";
@@ -873,10 +874,18 @@ function taskCommand(cwd: string, config: Table, args: Args): number {
       if ((unit === undefined) !== (args.values["unit-id"] === undefined) || args.values["unit-id"] === "") return fail("--unit and --unit-id <name> go together");
       const playbook = args.values.playbook ?? "feature";
       if (playbook === "audit" && !(config.features as Record<string, boolean>).audit) return fail("features.audit is off");
-      const t = startTask(cwd, pickTier(config, args.values.tier), playbook, {
+      const tier = pickTier(config, args.values.tier);
+      const bs = branchSettings(config);
+      const plan = planBranch(bs, tier, currentBranch(cwd), args.values.branch, !!(config.features as Record<string, boolean>).worktrees, cwd);
+      if (plan.reason && sub === "start") return fail(`branch_guard: ${plan.reason}`);
+      const moved = applyBranch(plan, bs, cwd);
+      if (!moved.ok) return fail(`branch_guard: ${moved.message}`);
+      if (moved.message) console.log(`branch: ${moved.message}`);
+      const t = startTask(plan.action === "worktree" && plan.path ? plan.path : cwd, tier, playbook, {
         tone,
         max_words: rawCap === undefined ? undefined : Number(rawCap),
       });
+      if (plan.action === "worktree" && plan.path && plan.name) markWorktreeTask(cwd, plan.path, plan.name);
       console.log(`task: ${t.tier} / ${t.playbook} · ${styleLine(effectiveStyle(config, t))}`);
       logEvent(cwd, config, "info", "tier", `${t.tier} / ${t.playbook}`, { tier: t.tier, playbook: t.playbook, requested: args.values.tier ?? null });
       console.log(`steps: ${taskSteps(config, t.tier, t.playbook).join(" · ")}`);
@@ -1153,6 +1162,27 @@ export function docsPluginProblem(listOutput: string, config: Table): string | u
   return `features.docs_step is on but the engineering plugin is ${block ? "disabled" : "not installed"} (it provides engineering:documentation): \`claude plugin ${block ? "enable" : "install"} engineering@sams-agentic-workflow\`, or set features.docs_step false`;
 }
 
+function modNames(): string[] {
+  const dir = join(PLUGIN_ROOT, "mods");
+  return existsSync(dir) ? readdirSync(dir).filter((d) => existsSync(join(dir, d, ".claude-plugin", "plugin.json"))) : [];
+}
+
+// saw doctor: each saw mod installed and enabled, and whether this host draws
+// them. Mods that render (panes, bands, buttons) only show in the terminal TUI.
+export function modsReport(listOutput: string, mods: string[], entrypoint: string | undefined): { lines: string[]; problems: string[] } {
+  const lines: string[] = [];
+  const problems: string[] = [];
+  for (const m of mods) {
+    const block = new RegExp(`(?:^|\\s)${m}@sams-agentic-workflow[^]*?(?=\\n\\s*❯|$)`).exec(listOutput)?.[0];
+    const state = !block ? "not installed" : /disabled/i.test(block) ? "disabled" : "enabled";
+    // Mods are optional: one not installed is a note, a disabled one a problem.
+    lines.push(`mod ${m.padEnd(18)} ${state}${state === "not installed" ? ` (optional: claude plugin install ${m}@sams-agentic-workflow)` : ""}`);
+    if (state === "disabled") problems.push(`mod ${m} is disabled: \`claude plugin enable ${m}@sams-agentic-workflow\``);
+  }
+  if (mods.length && entrypoint && entrypoint !== "cli") lines.push(`host ${entrypoint}: mod panes, bands and buttons draw only in the terminal \`claude\`; run it there to see them`);
+  return { lines, problems };
+}
+
 function checkPlugin(config: Table): string[] {
   if (!Bun.which("claude")) {
     console.log("  plugin: skipped (claude not on PATH)");
@@ -1163,7 +1193,10 @@ function checkPlugin(config: Table): string[] {
   const problem = proc.exitCode === 0 ? pluginProblem(out) ?? docsPluginProblem(out, config) : `\`claude plugin list\` exited ${proc.exitCode}`;
   if (problem) console.error(`problem: ${problem}`);
   else console.log("  plugin: ok");
-  return problem ? [problem] : [];
+  const mods = proc.exitCode === 0 ? modsReport(out, modNames(), process.env.CLAUDE_CODE_ENTRYPOINT) : { lines: [], problems: [] };
+  for (const l of mods.lines) console.log(`  ${l}`);
+  for (const m of mods.problems) console.error(`problem: ${m}`);
+  return [...(problem ? [problem] : []), ...mods.problems];
 }
 
 // run() returns this when a server is running: the entrypoint must not exit.

@@ -31,6 +31,10 @@ export const DEFAULTS: Table = {
     // `git worktree add` / `claude -p` when off.
     worktrees: true,
     parallel_sessions: false,
+    // Never work on [branch].base: saw task start branches (or opens a
+    // worktree) off it, saw guard denies commits there and edits during a
+    // non-trivial task.
+    branch_guard: true,
     // Third-party UI polish skill (deps.lock.toml): a design-playbook step when
     // on; saw sync denies the skill when off.
     unslop: false,
@@ -77,6 +81,9 @@ export const DEFAULTS: Table = {
       spawn_sessions: "ask",
     },
   },
+  // features.branch_guard: the branch to branch off (global or project layer).
+  // mode auto: a worktree for complex and critical tasks (features.worktrees), a branch otherwise.
+  branch: { base: "main", mode: "auto" },
   routing: { default_tier: "auto", always_grill: ["complex", "critical"] },
   tokens: {
     mode: "soft",
@@ -211,6 +218,7 @@ export const ENUMS: Record<string, string[]> = {
   "recommend.mode": ["auto", "manual"],
   "project.type": ["web", "api", "cli", "lib", "infra"],
   "autonomy.level": ["suggest", "propose", "act"],
+  "branch.mode": ["branch", "worktree", "auto"],
   "routing.default_tier": ["auto", "trivial", "standard", "complex", "critical"],
   "tokens.mode": ["soft", "hard"],
   "verify.require_review_evidence": ["off", "agent", "review_session"],
