@@ -3,8 +3,10 @@
 // hands the decision to the user, anything else allows.
 
 import { homedir } from "node:os";
-import { isAbsolute, relative, resolve as resolvePath } from "node:path";
+import { isAbsolute, relative, resolve as resolvePath, sep } from "node:path";
+import { branchSettings, currentBranch, onBase, worktreeTask } from "./branch";
 import type { Table } from "./defaults";
+import { currentTask } from "./task";
 import { guardAgent, implementerEdit } from "./model-guard";
 import { REVIEW_KEY } from "./review-session";
 
@@ -226,7 +228,7 @@ export function unreadableSettingsGuard(input: { tool_name?: string; tool_input?
   return { systemMessage: `saw guard: ${problem}`, hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "ask", permissionDecisionReason: `saw guard: ${problem}; approve this call, or fix the file first` } };
 }
 
-export function guardHook(config: Table, input: { tool_name?: string; agent_id?: unknown; tool_input?: { command?: unknown; file_path?: unknown; subagent_type?: unknown; model?: unknown } }, cwd = process.cwd()): Record<string, unknown> | undefined {
+export function guardHook(config: Table, input: { tool_name?: string; agent_id?: unknown; tool_input?: { command?: unknown; file_path?: unknown; notebook_path?: unknown; subagent_type?: unknown; model?: unknown } }, cwd = process.cwd()): Record<string, unknown> | undefined {
   const t = input.tool_input;
   if (reviewKeyAccess(t)) {
     return { hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: "saw guard: ~/.saw/review-key signs saw's review records; no tool may read, list or change it" } };
@@ -240,10 +242,41 @@ export function guardHook(config: Table, input: { tool_name?: string; agent_id?:
       : edit
         ? strictestVerdict(typeof t?.file_path === "string" ? guardEdit(config, t.file_path, homedir(), cwd) : undefined, implementerEdit(config, input, cwd))
         : undefined;
-  if (!g) {
+  const target = typeof t?.file_path === "string" ? t.file_path : typeof t?.notebook_path === "string" ? t.notebook_path : undefined;
+  const g2 = g ?? baseBranchGuard(config, input.tool_name ?? "", typeof t?.command === "string" ? t.command : "", cwd, undefined, target);
+  if (!g2) {
     const rewritten = input.tool_name === "Bash" && typeof t?.command === "string" ? rewriteCommand(config, t.command) : undefined;
     // No permission decision: the rewritten command still goes through the usual prompt.
     return rewritten ? { hookSpecificOutput: { hookEventName: "PreToolUse", updatedInput: { ...t, command: rewritten } } } : undefined;
   }
-  return { hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: g.decision, permissionDecisionReason: `saw guard: ${g.reason}` } };
+  return { hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: g2.decision, permissionDecisionReason: `saw guard: ${g2.reason}` } };
+}
+
+// Also inside a quoted `bash -c "git commit ..."`.
+const COMMIT = /(?:^|[;&|\n("'`]\s*)git\s+(?:(?:-[Cc]\s+\S+|--[\w-]+(?:=\S+)?)\s+)*commit\b/;
+
+// features.branch_guard: no commit on [branch].base, and no edit there while a
+// non-trivial task is open. Asks git only for those calls.
+export function baseBranchGuard(config: Table, tool: string, command: string, cwd: string, branch?: (cwd: string) => string, filePath?: string): Verdict {
+  const s = branchSettings(config);
+  if (!s.enabled) return undefined;
+  const edit = ["Edit", "Write", "MultiEdit", "NotebookEdit"].includes(tool);
+  const commit = tool === "Bash" && COMMIT.test(command);
+  if (!edit && !commit) return undefined;
+  if (edit) {
+    // Only files in this repo: plan files and memory under ~/.claude stay writable.
+    const rel = relative(resolvePath(cwd), resolvePath(cwd, filePath ?? ""));
+    if (!filePath || rel === ".." || rel.startsWith(`..${sep}`) || isAbsolute(rel)) return undefined;
+    const task = currentTask(cwd);
+    const away = !task ? worktreeTask(cwd) : undefined;
+    if (away) {
+      const current = (branch ?? currentBranch)(cwd);
+      if (current && onBase(current, s.base)) return { decision: "deny", reason: `features.branch_guard: the task is open in worktree ${away.path} (${away.name}); edit the files there, not on ${current}` };
+      return undefined;
+    }
+    if (!task || task.tier === "trivial") return undefined;
+  }
+  const current = (branch ?? currentBranch)(cwd);
+  if (!current || !onBase(current, s.base)) return undefined;
+  return { decision: "deny", reason: `features.branch_guard: on ${current}; branch off ${s.base} first (saw task start --branch <type>/<kebab>, or git switch -c <type>/<kebab>)` };
 }

@@ -11,6 +11,7 @@ import { AGENTS, checkAdapters, installAdapters } from "./adapters";
 import { syncVault, vaultPath } from "./vault";
 import { budgetHook, contextHook, routerNudge } from "./context";
 import { planModelWarning } from "./model-guard";
+import { applyBranch, branchSettings, currentBranch, markWorktreeTask, planBranch } from "./branch";
 import { guardHook, readOnlyGuard, unreadableSettingsGuard } from "./guard";
 import { sessionHook, UNITS } from "./sessions";
 import { recordReview, reviewApplies, reviewArgv, reviewBrief, writeChange, type ReviewSettings } from "./review-session";
@@ -872,10 +873,18 @@ function taskCommand(cwd: string, config: Table, args: Args): number {
       if ((unit === undefined) !== (args.values["unit-id"] === undefined) || args.values["unit-id"] === "") return fail("--unit and --unit-id <name> go together");
       const playbook = args.values.playbook ?? "feature";
       if (playbook === "audit" && !(config.features as Record<string, boolean>).audit) return fail("features.audit is off");
-      const t = startTask(cwd, pickTier(config, args.values.tier), playbook, {
+      const tier = pickTier(config, args.values.tier);
+      const bs = branchSettings(config);
+      const plan = planBranch(bs, tier, currentBranch(cwd), args.values.branch, !!(config.features as Record<string, boolean>).worktrees, cwd);
+      if (plan.reason && sub === "start") return fail(`branch_guard: ${plan.reason}`);
+      const moved = applyBranch(plan, bs, cwd);
+      if (!moved.ok) return fail(`branch_guard: ${moved.message}`);
+      if (moved.message) console.log(`branch: ${moved.message}`);
+      const t = startTask(plan.action === "worktree" && plan.path ? plan.path : cwd, tier, playbook, {
         tone,
         max_words: rawCap === undefined ? undefined : Number(rawCap),
       });
+      if (plan.action === "worktree" && plan.path && plan.name) markWorktreeTask(cwd, plan.path, plan.name);
       console.log(`task: ${t.tier} / ${t.playbook} · ${styleLine(effectiveStyle(config, t))}`);
       logEvent(cwd, config, "info", "tier", `${t.tier} / ${t.playbook}`, { tier: t.tier, playbook: t.playbook, requested: args.values.tier ?? null });
       console.log(`steps: ${taskSteps(config, t.tier, t.playbook).join(" · ")}`);
