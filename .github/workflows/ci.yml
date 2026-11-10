@@ -1,7 +1,7 @@
 name: ci
 on:
   push:
-    branches: [main]
+    branches: [main, "release/**"]
   pull_request:
 permissions:
   contents: read
@@ -9,6 +9,21 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 jobs:
+  # Only release/vX.Y.Z and hotfix/* merge into main; everything else targets the open release branch.
+  merge-source:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: main takes release/vX.Y.Z or hotfix/* only
+        shell: bash
+        env:
+          BASE: ${{ github.base_ref }}
+          HEAD: ${{ github.head_ref }}
+        run: |
+          if [[ "$BASE" != "main" ]]; then echo "base ${BASE:-none}: no restriction"; exit 0; fi
+          if [[ "$HEAD" =~ ^release/v[0-9]+\.[0-9]+\.[0-9]+$ || "$HEAD" =~ ^hotfix/[A-Za-z0-9._-]+$ ]]; then echo "$HEAD -> main ok"; exit 0; fi
+          echo "::error::$HEAD cannot merge into main. Target the open release/vX.Y.Z branch, or name it hotfix/<desc> for a hotfix."
+          exit 1
   actionlint:
     runs-on: ubuntu-latest
     timeout-minutes: 5
