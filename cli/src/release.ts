@@ -213,6 +213,20 @@ export function nextVersion(current: string, commits: Commit[], hasTag: boolean,
   return bump(current, (b as Bump | undefined) ?? suggestBump(current, commits), pre);
 }
 
+/** Branches that may merge into `main`: the long-lived `release` branch, and `hotfix/*`. */
+export function mergesIntoMain(head: string): boolean {
+  return head === "release" || /^hotfix\/[\w.-]+$/.test(head);
+}
+
+/**
+ * Releases are cut on `release` (or a `hotfix/*` branch), then merged into `main`
+ * with a merge commit, so `main` only ever moves to released code.
+ */
+export function branchProblems(branch: string, allowBranch = false): string[] {
+  if (allowBranch || mergesIntoMain(branch)) return [];
+  return [`on branch ${branch || "(detached)"}, not release or hotfix/* (pass --allow-branch to override)`];
+}
+
 /** Bumps the manifests, writes CHANGELOG.md, commits and makes an annotated tag. Never pushes. */
 export function release(root: string, opts: ReleaseOptions): ReleaseResult {
   const problems: string[] = [];
@@ -229,7 +243,7 @@ export function release(root: string, opts: ReleaseOptions): ReleaseResult {
   if (git(root, ["rev-parse", "-q", "--verify", `refs/tags/${tag}`]).ok) problems.push(`tag ${tag} already exists`);
   if (git(root, ["status", "--porcelain"]).out) problems.push("working tree is not clean");
   const branch = git(root, ["branch", "--show-current"]).out;
-  if (branch !== "main" && !opts.allowBranch) problems.push(`on branch ${branch || "(detached)"}, not main (pass --allow-branch to override)`);
+  problems.push(...branchProblems(branch, opts.allowBranch));
   problems.push(...checkVersions(root));
   if (opts.dryRun || problems.length) return { version, tag, notes, files, problems };
 

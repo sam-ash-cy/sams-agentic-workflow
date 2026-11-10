@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { bump, changelog, checkVersions, nextVersion, notesFor, prependChangelog, release, suggestBump, verifyTag, writeVersions, type Commit } from "../src/release";
+import { branchProblems, bump, changelog, mergesIntoMain, checkVersions, nextVersion, notesFor, prependChangelog, release, suggestBump, verifyTag, writeVersions, type Commit } from "../src/release";
 
 const c = (subject: string, body = ""): Commit => ({ hash: "x", subject, body });
 
@@ -92,7 +92,7 @@ test("release: dry run writes nothing; a real run commits and tags, and never pu
   Object.assign(process.env, gitEnv);
   try {
     const dir = repo();
-    git(dir, "init", "-q", "-b", "main");
+    git(dir, "init", "-q", "-b", "release");
     // CI runners have no global identity, and release() spawns git without gitEnv.
     git(dir, "config", "user.name", "t");
     git(dir, "config", "user.email", "t@example.invalid"); // saw-sanitize: allow (reserved .invalid test address)
@@ -132,11 +132,25 @@ test("release: dry run writes nothing; a real run commits and tags, and never pu
     expect(readFileSync(join(dir, "CHANGELOG.md"), "utf8")).not.toContain("beta");
     expect(release(dir, { dryRun: true, all: true }).notes).not.toContain("v0.2.0");
 
+    git(dir, "checkout", "-q", "-b", "main");
+    expect(release(dir, { dryRun: true }).problems[0]).toContain("not release or hotfix/*");
     git(dir, "checkout", "-q", "-b", "feat/x");
-    expect(release(dir, { dryRun: true }).problems[0]).toContain("not main");
+    expect(release(dir, { dryRun: true }).problems[0]).toContain("not release or hotfix/*");
     writeFileSync(join(dir, "dirty"), "x");
     expect(release(dir, { dryRun: true, allowBranch: true }).problems).toEqual(["working tree is not clean"]);
   } finally {
     for (const k of Object.keys(gitEnv)) if (!(k in saved)) delete process.env[k];
   }
 }, 30_000); // many git spawns: slow on Windows runners
+
+test("release: only release and hotfix/* merge into main or cut a release", () => {
+  for (const ok of ["release", "hotfix/fix-icon", "hotfix/1.0.2"]) {
+    expect(mergesIntoMain(ok)).toBe(true);
+    expect(branchProblems(ok)).toEqual([]);
+  }
+  for (const bad of ["main", "feat/x", "release/1.0.1", "hotfix/", "hotfix/a b", ""]) {
+    expect(mergesIntoMain(bad)).toBe(false);
+    expect(branchProblems(bad)).toHaveLength(1);
+  }
+  expect(branchProblems("feat/x", true)).toEqual([]);
+});

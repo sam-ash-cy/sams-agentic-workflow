@@ -82,7 +82,7 @@ const USAGE = `usage: saw <command>
   gate                               Stop hook: block "done" until the tier's checks pass
   lint-context                       AGENTS.md / CLAUDE.md size limits
   memory lint                        stale file refs in docs/learnings and docs/decisions, duplicate learnings, size limits
-  release [patch|minor|major|<x.y.z>] [--pre <id>] [--dry-run] [--all] [--allow-branch]
+  release [patch|minor|major|<x.y.z>] [--pre <id>] [--dry-run] [--all] [--allow-branch]   (on release or hotfix/*)
                                      bump every manifest, write CHANGELOG.md, commit and make an annotated tag (never pushes)
   split <plan.md> [--dry-run]        one worktree + branch per step heading that names a branch ("feat/x" in backticks), its brief in .saw/brief.md
   release notes <tag> | verify <tag> one version's changelog section; check a tag matches every manifest (CI)
@@ -757,7 +757,7 @@ export function run(argv: string[], cwd = process.cwd()): number {
       for (const p of result.problems) console.error(`problem: ${p}`);
       return 1;
     }
-    if (!dryRun) console.log(`committed and tagged ${result.tag}. Publish with: git push origin HEAD --follow-tags`);
+    if (!dryRun) console.log(`committed and tagged ${result.tag}. Publish with: git push origin HEAD --follow-tags, then open a PR from this branch into main and merge it with a merge commit (not squash) so the tag stays in main's history`);
     return 0;
   }
   if (command === "sanitize") {
