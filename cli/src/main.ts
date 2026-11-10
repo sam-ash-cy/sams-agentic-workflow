@@ -32,11 +32,11 @@ import { syncSkillDenies } from "./skills";
 import { applyPlan, gh, readState, repoName, repoPlan, type Gh } from "./repo";
 import { formatHook, runCheck, TRUSTED_LAYERS } from "./run";
 import { checkMods } from "./mods";
-import { currentTask, endTask, gate, markUntaskedEdit, pickTier, recordCheck, reviewEvidence, setPhase, startTask, taskReport, taskStatus, taskSteps } from "./task";
+import { currentTask, endTask, gate, markUntaskedEdit, pickTier, recordCheck, reviewEvidence, setPhase, startTask, taskReport, taskStatus, taskSkills, taskSteps } from "./task";
 import { patchToml, readToml, stringifyToml } from "./toml";
 import { applyProfile, parseProfiles } from "./profiles";
 import { aboutHook, aboutPaths, createAbout, type AboutScope } from "./about-me";
-import { catalog, changedFiles, figmaFallback, findSkills, installedNames, installSteps, isInstalled, offer, readState as readRecommendState, recommendHook, writeState } from "./recommend";
+import { catalog, changedFiles, figmaFallback, findSkills, installedNames, installSteps, isInstalled, missingSkillPlugins, offer, readState as readRecommendState, recommendHook, writeState } from "./recommend";
 
 const USAGE = `usage: saw <command>
   config show [--resolved] [--layers [--json]]   resolved settings (with the layer each came from); --layers: every key in every layer
@@ -879,6 +879,11 @@ function taskCommand(cwd: string, config: Table, args: Args): number {
       console.log(`task: ${t.tier} / ${t.playbook} · ${styleLine(effectiveStyle(config, t))}`);
       logEvent(cwd, config, "info", "tier", `${t.tier} / ${t.playbook}`, { tier: t.tier, playbook: t.playbook, requested: args.values.tier ?? null });
       console.log(`steps: ${taskSteps(config, t.tier, t.playbook).join(" · ")}`);
+      const features = (config.features ?? {}) as Record<string, boolean>;
+      if (features.task_skills && t.tier !== "trivial") {
+        const missing = missingSkillPlugins(taskSkills(config, t.tier, t.playbook), installedNames(cwd));
+        if (missing.length) console.log(`skills not installed: ${missing.map((p) => `${p} plugin`).join(", ")}. Ask the user, then install it with /plugin (or turn features.task_skills off)`);
+      }
       return 0;
     }
     if (sub === "end") {

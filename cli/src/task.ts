@@ -154,6 +154,13 @@ export function pickTier(config: Table, flag: string | undefined): string {
 }
 
 // Lifecycle steps `saw task start` prints for the agent, from [features] and [routing].
+// [task_skills]: the playbook's skills, plus "plan" for complex and critical tasks.
+export function taskSkills(config: Table, tier: string, playbook: string): string[] {
+  const map = (config.task_skills ?? {}) as Record<string, string[]>;
+  const plan = tier === "complex" || tier === "critical" ? map.plan ?? [] : [];
+  return [...new Set([...plan, ...(map[playbook] ?? [])])];
+}
+
 export function taskSteps(config: Table, tier: string, playbook = "feature"): string[] {
   const features = (config.features ?? {}) as Record<string, boolean>;
   const grill = ((config.routing ?? {}) as { always_grill?: string[] }).always_grill ?? [];
@@ -172,6 +179,10 @@ export function taskSteps(config: Table, tier: string, playbook = "feature"): st
     (taskChecks(config, tier, playbook).includes("docs") ? "; then saw task record docs pass --note \"<files>\" (or --note \"none needed: <why>\")" : ""));
   if (features.ecc && delivers) steps.push("before the PR: ecc:verification-loop (build, types, lint, tests, diff review)");
   if (features.brag && delivers) steps.push("optional after the PR merges: a launch video with the brag skill");
+  if (features.task_skills && tier !== "trivial") {
+    const fit = taskSkills(config, tier, playbook);
+    if (fit.length) steps.push(`skills that fit (run each where it helps): ${fit.join(", ")}`);
+  }
   for (const skill of prePrSkills(config, tier)) steps.push(`before the PR, required: run the ${skill} skill, then saw task record skill:${skill} pass --note "<result>"`);
   const checks = taskChecks(config, tier, playbook);
   steps.push(checks.length ? `checks: ${checks.join(", ")}` : "checks: none");
