@@ -6,5 +6,6 @@
   "homepage": "https://github.com/sam-ash-cy/sams-agentic-workflow",
   "repository": "https://github.com/sam-ash-cy/sams-agentic-workflow",
   "license": "MIT",
+  "icon": ".claude-plugin/icon.png",
   "keywords": ["workflow", "verification", "guardrails", "hooks", "code-review", "tdd", "token-budget", "agentic"]
 }
