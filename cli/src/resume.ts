@@ -77,7 +77,9 @@ export function resume(cwd: string, git: Git = realGit): { lines: string[]; ok: 
   if (open && open.started !== c.task.started) return { ok: false, lines: [`saw resume: a different task (${open.tier}/${open.playbook}) is open; end it first with saw task end`] };
   if (!open) restoreTask(cwd, c.task);
   lines.push(`task: ${c.task.tier} / ${c.task.playbook}${c.task.phase ? ` · phase: ${c.task.phase}` : ""}${open ? "" : " (restored)"}`);
-  if (c.branch) {
+  // The card is a file in .saw/, which a repo could commit: never hand git an option.
+  if (c.branch && !/^(?!.*\.\.)[A-Za-z0-9][A-Za-z0-9._/-]*$/.test(c.branch)) lines.push(`branch: card names "${c.branch}", not a branch name; ignored`);
+  else if (c.branch) {
     const now = git(["branch", "--show-current"], cwd).out;
     if (now === c.branch) lines.push(`branch: ${c.branch}`);
     else if (git(["status", "--porcelain"], cwd).out === "" && git(["switch", c.branch], cwd).ok) lines.push(`branch: switched ${now || "(detached)"} -> ${c.branch}`);

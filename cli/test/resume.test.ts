@@ -69,3 +69,12 @@ test("the hint shows while the task is still open, but not after a compact", () 
   expect(r.ok).toBe(true);
   expect(r.lines[0]).not.toContain("restored");
 });
+
+test("a card whose branch is a git option is ignored, nothing switched", () => {
+  const cwd = mkdtempSync(join(tmpdir(), "saw-rs-"));
+  startTask(cwd, "complex", "debug");
+  writeCard(cwd, fakeGit("--orphan=x").git);
+  const g = fakeGit("main");
+  expect(resume(cwd, g.git).lines.join("\n")).toContain("not a branch name");
+  expect(g.calls.some((c) => c[0] === "switch")).toBe(false);
+});
