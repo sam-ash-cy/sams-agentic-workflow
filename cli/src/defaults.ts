@@ -101,6 +101,10 @@ export const DEFAULTS: Table = {
   // mode auto: a worktree for complex and critical tasks (features.worktrees), a branch otherwise.
   branch: { base: "main", mode: "auto" },
   routing: { default_tier: "auto", always_grill: ["complex", "critical"] },
+  // features.tdd: mode hard = on standard-or-higher tasks in these playbooks, saw
+  // guard denies code edits (tests excepted) until `saw run test` has failed since
+  // the task started. Needs [checks].test. soft = the step only.
+  tdd: { mode: "hard", playbooks: ["feature", "foundation", "integration", "debug"] },
   tokens: {
     mode: "soft",
     warn_at: 0.8,
@@ -237,6 +241,7 @@ export const ENUMS: Record<string, string[]> = {
   "branch.mode": ["branch", "worktree", "auto"],
   "routing.default_tier": ["auto", "trivial", "standard", "complex", "critical"],
   "tokens.mode": ["soft", "hard"],
+  "tdd.mode": ["soft", "hard"],
   "verify.require_review_evidence": ["off", "agent", "review_session"],
   "style.tone": ["normal", "structured", "detailed", "verbose"],
   "style.mode": ["soft", "hard"],
