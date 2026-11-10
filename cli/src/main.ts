@@ -27,7 +27,7 @@ import { lintContext, lintMemory } from "./lint";
 import { docsNudge, docsStatus, REFRESH_BRIEF } from "./docs";
 import { outline } from "./outline";
 import { checkVersions, commitsSince, notesFor, release, verifyTag } from "./release";
-import { prBody } from "./pr-body";
+import { prBody, SAFE_REF } from "./pr-body";
 import { sanitize, sanitizeHistory } from "./sanitize";
 import { syncSkillDenies } from "./skills";
 import { applyPlan, gh, readState, repoName, repoPlan, type Gh } from "./repo";
@@ -935,6 +935,7 @@ function taskCommand(cwd: string, config: Table, args: Args): number {
     if (sub === "pr-body") {
       // The commits since the base branch, then the verification section: pipe to gh pr create --body-file -.
       const base = args.values.base || `origin/${((config.branch ?? {}) as { base?: string }).base || "main"}`;
+      if (!SAFE_REF.test(base.replace(/^origin\//, ""))) return fail(`"${base}" is not a branch name`);
       console.log(prBody(commitsSince(cwd, base), taskReport(cwd, config, task)));
       return 0;
     }

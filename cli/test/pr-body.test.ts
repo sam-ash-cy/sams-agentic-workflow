@@ -49,3 +49,11 @@ test("saw task pr-body prints the summary and the verification section", () => {
   expect(text).not.toContain("chore: base");
   expect(text).toContain("**Verification:");
 });
+
+test("a --base that is a git option is refused", () => {
+  const { SAFE_REF } = require("../src/pr-body");
+  expect(SAFE_REF.test("main")).toBe(true);
+  expect(SAFE_REF.test("release/1.x")).toBe(true);
+  expect(SAFE_REF.test("--output=x")).toBe(false);
+  expect(SAFE_REF.test("main..HEAD")).toBe(false);
+});
