@@ -2,10 +2,10 @@
 // task's verification section (saw task report), for gh pr create --body-file -.
 
 import type { Commit } from "./release";
+import { SAFE_REF } from "./branch";
+export { SAFE_REF };
 
-// A branch name safe to hand git: never an option (a committed workflow.toml
-// could set branch.base = "--upload-pack=<cmd>"), never a range.
-export const SAFE_REF = /^(?!.*\.\.)[A-Za-z0-9][A-Za-z0-9._/-]*$/;
+
 
 const SKIP = /^(Merge (branch|pull request|remote-tracking)|fixup! |squash! )/;
 

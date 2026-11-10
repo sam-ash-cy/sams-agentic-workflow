@@ -11,6 +11,7 @@ import { AGENTS, checkAdapters, installAdapters } from "./adapters";
 import { syncVault, vaultPath } from "./vault";
 import { budgetHook, contextHook, routerNudge } from "./context";
 import { planModelWarning } from "./model-guard";
+import { applyBranch, branchSettings, currentBranch, markWorktreeTask, planBranch } from "./branch";
 import { guardHook, readOnlyGuard, unreadableSettingsGuard } from "./guard";
 import { sessionHook, UNITS } from "./sessions";
 import { recordReview, reviewApplies, reviewArgv, reviewBrief, writeChange, type ReviewSettings } from "./review-session";
@@ -20,6 +21,7 @@ import { dataVersion, renderHtml, renderMarkdown } from "./dashboard";
 import { logEvent, readEvents } from "./events";
 import { appendMetric, buildMetric, readMetrics } from "./metrics";
 import { compare, summarise, type Comparison, type Summary } from "./evals";
+import { failureCandidates } from "./failures";
 import { configSuggestions, readProposals, retro } from "./retro";
 import { companionWarnings, compareUrl, eccProblem, gateguardWarning, pin, readLock, verifyLock } from "./deps";
 import { depAuditFor, guessType, init, recordInstalled, uninstall, upgrade, type ChangeReport, type InitReport } from "./init";
@@ -28,16 +30,17 @@ import { docsNudge, docsStatus, REFRESH_BRIEF } from "./docs";
 import { outline } from "./outline";
 import { checkVersions, commitsSince, notesFor, release, verifyTag } from "./release";
 import { prBody, SAFE_REF } from "./pr-body";
+import { applySplit, parseSplit, planSplit } from "./split";
 import { sanitize, sanitizeHistory } from "./sanitize";
 import { syncSkillDenies } from "./skills";
 import { applyPlan, gh, readState, repoName, repoPlan, type Gh } from "./repo";
 import { formatHook, runCheck, TRUSTED_LAYERS } from "./run";
 import { checkMods } from "./mods";
-import { currentTask, endTask, gate, markUntaskedEdit, pickTier, recordCheck, reviewEvidence, setPhase, startTask, taskReport, taskStatus, taskSteps } from "./task";
+import { currentTask, endTask, gate, markUntaskedEdit, pickTier, recordCheck, reviewEvidence, setPhase, startTask, taskReport, taskStatus, taskSkills, taskSteps } from "./task";
 import { patchToml, readToml, stringifyToml } from "./toml";
 import { applyProfile, parseProfiles } from "./profiles";
 import { aboutHook, aboutPaths, createAbout, type AboutScope } from "./about-me";
-import { catalog, changedFiles, figmaFallback, findSkills, installedNames, installSteps, isInstalled, offer, readState as readRecommendState, recommendHook, writeState } from "./recommend";
+import { catalog, changedFiles, figmaFallback, findSkills, installedNames, installSteps, isInstalled, missingSkillPlugins, offer, readState as readRecommendState, recommendHook, writeState } from "./recommend";
 
 const USAGE = `usage: saw <command>
   config show [--resolved] [--layers [--json]]   resolved settings (with the layer each came from); --layers: every key in every layer
@@ -78,6 +81,7 @@ const USAGE = `usage: saw <command>
   memory lint                        stale file refs in docs/learnings and docs/decisions, duplicate learnings, size limits
   release [patch|minor|major|<x.y.z>] [--pre <id>] [--dry-run] [--all] [--allow-branch]
                                      bump every manifest, write CHANGELOG.md, commit and make an annotated tag (never pushes)
+  split <plan.md> [--dry-run]        one worktree + branch per step heading that names a branch ("feat/x" in backticks), its brief in .saw/brief.md
   release notes <tag> | verify <tag> one version's changelog section; check a tag matches every manifest (CI)
   sanitize [--history]               before going public: secrets, home paths, emails and your own names in published files (--history: in every commit)
   context                            UserPromptSubmit hook: suggest /compact as context fills; warn on the task's token budget
@@ -533,7 +537,7 @@ export function run(argv: string[], cwd = process.cwd()): number {
     const autonomy = resolved.config.autonomy as { level: string; actions: Record<string, string> };
     // suggest mode (or self_improve = never) lists candidates without writing files.
     const write = !args.flags.has("--dry-run") && autonomy.level !== "suggest" && autonomy.actions.self_improve !== "never";
-    const result = retro(dir, readMetrics(cwd), r.repeat_threshold, write);
+    const result = retro(dir, readMetrics(cwd), r.repeat_threshold, write, undefined, failureCandidates(cwd, r.repeat_threshold));
     for (const c of result.pending) {
       console.log(`  ${c.check}: failed in ${c.tasks} tasks${write ? "" : " (not written)"}`);
     }
@@ -673,6 +677,25 @@ export function run(argv: string[], cwd = process.cwd()): number {
     for (const p of problems) console.error(p);
     console.log(problems.length ? `saw memory lint: ${problems.length} problem(s)` : "saw memory lint: ok");
     return problems.length ? 1 : 0;
+  }
+  if (command === "split") {
+    if (!sub || !existsSync(sub)) return fail("usage: saw split <plan.md> [--dry-run]");
+    const split = parseSplit(readFileSync(sub, "utf8"));
+    if (split.problems.length) {
+      for (const p of split.problems) console.error(`problem: ${p}`);
+      return 1;
+    }
+    const units = planSplit(split, cwd);
+    const base = ((resolved.config.branch ?? {}) as { base?: string }).base || "main";
+    if (args.flags.has("--dry-run")) {
+      for (const u of units) console.log(`would add ${u.path} on ${u.branch} (${u.title})`);
+      return 0;
+    }
+    const results = applySplit(units, split.context, base, cwd);
+    for (const r of results) console.log(`${r.ok ? "added" : "skipped"} ${r.message}`);
+    console.log("\nStart a session in each:");
+    for (const r of results.filter((x) => x.ok)) console.log(`  cd "${r.unit.path}" && claude "Read .saw/brief.md and do that step only"`);
+    return results.every((r) => r.ok) ? 0 : 1;
   }
   if (command === "release") {
     if (sub === "notes" || sub === "verify") {
@@ -874,13 +897,26 @@ function taskCommand(cwd: string, config: Table, args: Args): number {
       if ((unit === undefined) !== (args.values["unit-id"] === undefined) || args.values["unit-id"] === "") return fail("--unit and --unit-id <name> go together");
       const playbook = args.values.playbook ?? "feature";
       if (playbook === "audit" && !(config.features as Record<string, boolean>).audit) return fail("features.audit is off");
-      const t = startTask(cwd, pickTier(config, args.values.tier), playbook, {
+      const tier = pickTier(config, args.values.tier);
+      const bs = branchSettings(config);
+      const plan = planBranch(bs, tier, currentBranch(cwd), args.values.branch, !!(config.features as Record<string, boolean>).worktrees, cwd);
+      if (plan.reason && sub === "start") return fail(`branch_guard: ${plan.reason}`);
+      const moved = applyBranch(plan, bs, cwd);
+      if (!moved.ok) return fail(`branch_guard: ${moved.message}`);
+      if (moved.message) console.log(`branch: ${moved.message}`);
+      const t = startTask(plan.action === "worktree" && plan.path ? plan.path : cwd, tier, playbook, {
         tone,
         max_words: rawCap === undefined ? undefined : Number(rawCap),
       });
+      if (plan.action === "worktree" && plan.path && plan.name) markWorktreeTask(cwd, plan.path, plan.name);
       console.log(`task: ${t.tier} / ${t.playbook} · ${styleLine(effectiveStyle(config, t))}`);
       logEvent(cwd, config, "info", "tier", `${t.tier} / ${t.playbook}`, { tier: t.tier, playbook: t.playbook, requested: args.values.tier ?? null });
       console.log(`steps: ${taskSteps(config, t.tier, t.playbook).join(" · ")}`);
+      const features = (config.features ?? {}) as Record<string, boolean>;
+      if (features.task_skills && t.tier !== "trivial") {
+        const missing = missingSkillPlugins(taskSkills(config, t.tier, t.playbook), installedNames(cwd));
+        if (missing.length) console.log(`skills not installed: ${missing.map((p) => `${p} plugin`).join(", ")}. Ask the user, then install it with /plugin (or turn features.task_skills off)`);
+      }
       return 0;
     }
     if (sub === "end") {
@@ -1161,6 +1197,27 @@ export function docsPluginProblem(listOutput: string, config: Table): string | u
   return `features.docs_step is on but the engineering plugin is ${block ? "disabled" : "not installed"} (it provides engineering:documentation): \`claude plugin ${block ? "enable" : "install"} engineering@sams-agentic-workflow\`, or set features.docs_step false`;
 }
 
+function modNames(): string[] {
+  const dir = join(PLUGIN_ROOT, "mods");
+  return existsSync(dir) ? readdirSync(dir).filter((d) => existsSync(join(dir, d, ".claude-plugin", "plugin.json"))) : [];
+}
+
+// saw doctor: each saw mod installed and enabled, and whether this host draws
+// them. Mods that render (panes, bands, buttons) only show in the terminal TUI.
+export function modsReport(listOutput: string, mods: string[], entrypoint: string | undefined): { lines: string[]; problems: string[] } {
+  const lines: string[] = [];
+  const problems: string[] = [];
+  for (const m of mods) {
+    const block = new RegExp(`(?:^|\\s)${m}@sams-agentic-workflow[^]*?(?=\\n\\s*❯|$)`).exec(listOutput)?.[0];
+    const state = !block ? "not installed" : /disabled/i.test(block) ? "disabled" : "enabled";
+    // Mods are optional: one not installed is a note, a disabled one a problem.
+    lines.push(`mod ${m.padEnd(18)} ${state}${state === "not installed" ? ` (optional: claude plugin install ${m}@sams-agentic-workflow)` : ""}`);
+    if (state === "disabled") problems.push(`mod ${m} is disabled: \`claude plugin enable ${m}@sams-agentic-workflow\``);
+  }
+  if (mods.length && entrypoint && entrypoint !== "cli") lines.push(`host ${entrypoint}: mod panes, bands and buttons draw only in the terminal \`claude\`; run it there to see them`);
+  return { lines, problems };
+}
+
 function checkPlugin(config: Table): string[] {
   if (!Bun.which("claude")) {
     console.log("  plugin: skipped (claude not on PATH)");
@@ -1171,7 +1228,10 @@ function checkPlugin(config: Table): string[] {
   const problem = proc.exitCode === 0 ? pluginProblem(out) ?? docsPluginProblem(out, config) : `\`claude plugin list\` exited ${proc.exitCode}`;
   if (problem) console.error(`problem: ${problem}`);
   else console.log("  plugin: ok");
-  return problem ? [problem] : [];
+  const mods = proc.exitCode === 0 ? modsReport(out, modNames(), process.env.CLAUDE_CODE_ENTRYPOINT) : { lines: [], problems: [] };
+  for (const l of mods.lines) console.log(`  ${l}`);
+  for (const m of mods.problems) console.error(`problem: ${m}`);
+  return [...(problem ? [problem] : []), ...mods.problems];
 }
 
 // run() returns this when a server is running: the entrypoint must not exit.
