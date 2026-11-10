@@ -16,10 +16,8 @@ jobs:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
       # Lints workflow files (expression injection, typos, shellcheck on run: blocks).
       - name: actionlint
-        shell: bash
-        run: |
-          bash <(curl -sSfL https://raw.githubusercontent.com/rhysd/actionlint/914e7df21a07ef503a81201c76d2b11c789d3fca/scripts/download-actionlint.bash) 1.7.12
-          ./actionlint -color
+        # Official image by the actionlint author. TODO: pin by digest (rhysd/actionlint:1.7.12@sha256:...).
+        run: docker run --rm -v "$PWD:/repo" --workdir /repo rhysd/actionlint:1.7.12 -color
   test:
     timeout-minutes: 15
     strategy:

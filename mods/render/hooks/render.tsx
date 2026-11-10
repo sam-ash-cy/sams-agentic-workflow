@@ -143,7 +143,7 @@ const bareKey = (reach: Reach, href: string | undefined): string[] => (href === 
 
 const plainLink = (text: string, href: string): string => {
   const target = href.replace(/^mailto:/i, '')
-  return text === target || `http://${text}` === target ? target : `${text} (${target})`
+  return text === target || (target.startsWith('http://') && target.slice(7) === text) ? target : `${text} (${target})`
 }
 
 const LINK_MAX = 2048
