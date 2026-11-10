@@ -8,6 +8,8 @@
   "license": "MIT",
   "privacyPolicyUrl": "https://github.com/sam-ash-cy/sams-agentic-workflow/blob/main/PRIVACY.md",
   "supportUrl": "https://github.com/sam-ash-cy/sams-agentic-workflow/issues",
+  "documentationUrl": "https://github.com/sam-ash-cy/sams-agentic-workflow/tree/main/docs",
+  "termsOfServiceUrl": "https://github.com/sam-ash-cy/sams-agentic-workflow/blob/main/LICENSE",
   "icon": ".claude-plugin/icon.png",
   "keywords": ["workflow", "verification", "guardrails", "hooks", "code-review", "tdd", "token-budget", "agentic"]
 }
