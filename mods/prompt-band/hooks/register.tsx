@@ -192,16 +192,16 @@ export const register: Register = (on, options) => {
     const press = (id: string) => () => void pressButton($, opts, id)
 
     return (
-      <Box>
+      <Box columnGap={2} marginBottom={1} paddingX={1} flexWrap="wrap">
         {working && <Text dimColor>{working === 'improve' ? 'Improving… ' : 'Writing handoff… '}</Text>}
-        <Button key="improve" label="Improve" dimColor={off} onPress={press('improve')} />
-        <Button key="plan" label="Plan first" dimColor={off} onPress={press('plan')} />
-        <Button key="review" label="Review" dimColor={off} onPress={press('review')} />
-        <Button key="ship" label="Ship check" dimColor={off} onPress={press('ship')} />
+        <Button key="improve" label="Improve prompt" dimColor={off} onPress={press('improve')} />
+        <Button key="plan" label="Plan before coding" dimColor={off} onPress={press('plan')} />
+        <Button key="review" label="Review my changes" dimColor={off} onPress={press('review')} />
+        <Button key="ship" label="Pre-ship checks" dimColor={off} onPress={press('ship')} />
         {pct >= (opts.compactAtPct ?? 50) && (
-          <Button key="compact" label={`Compact (${pct}%)`} dimColor={off} onPress={press('compact')} />
+          <Button key="compact" label={`Compact context (${pct}%)`} dimColor={off} onPress={press('compact')} />
         )}
-        <Button key="handoff" label="Handoff" dimColor={off} onPress={press('handoff')} />
+        <Button key="handoff" label="Write handoff note" dimColor={off} onPress={press('handoff')} />
       </Box>
     )
   })
