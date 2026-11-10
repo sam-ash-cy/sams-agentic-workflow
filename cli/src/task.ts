@@ -84,8 +84,16 @@ export function setPhase(cwd: string, phase: string): Task {
   return task;
 }
 
+// Puts a saved task back as the open one (saw resume).
+export function restoreTask(cwd: string, task: Task): void {
+  mkdirSync(dir(cwd), { recursive: true });
+  writeFileSync(join(dir(cwd), "task.json"), JSON.stringify(task, null, 2) + "\n");
+}
+
 export function endTask(cwd: string): void {
   rmSync(join(dir(cwd), "task.json"), { force: true });
+  // A closed task has nothing to resume.
+  rmSync(join(dir(cwd), "handoff.json"), { force: true });
 }
 
 export function recordCheck(cwd: string, result: Omit<CheckResult, "at">): void {

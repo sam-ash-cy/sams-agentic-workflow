@@ -7,6 +7,7 @@ import { baseBranch, flatten, inside, layerPaths, layerValues, loosens, parseVal
 import { DEFAULTS, type Table, type Value } from "./defaults";
 import { readIfExists } from "./fs";
 import { syncAgents, syncSession } from "./agents";
+import { resume, resumeHint, writeCard } from "./resume";
 import { syncCompact } from "./autocompact";
 import { AGENTS, checkAdapters, installAdapters } from "./adapters";
 import { syncVault, vaultPath } from "./vault";
@@ -77,6 +78,7 @@ const USAGE = `usage: saw <command>
   eval compare <before.json> <after.json>  compare two saved eval results
   mods check [<name>]                validate and test the mods under mods/ (needs the claude CLI)
   run <check> [--changed]            run checks.<check> quietly and record the result (--changed: only tests for changed files)
+  resume                             restore the task, branch and plan a stopped session left in .saw/handoff.json
   gate                               Stop hook: block "done" until the tier's checks pass
   lint-context                       AGENTS.md / CLAUDE.md size limits
   memory lint                        stale file refs in docs/learnings and docs/decisions, duplicate learnings, size limits
@@ -590,6 +592,11 @@ export function run(argv: string[], cwd = process.cwd()): number {
     }
     const block = gate(cwd, resolved.config, input);
     if (block) console.log(JSON.stringify(block));
+    try {
+      writeCard(cwd);
+    } catch {
+      // A handoff card is a convenience: never let it break the Stop hook.
+    }
     const tier = currentTask(cwd)?.tier;
     if (block) logEvent(cwd, resolved.config, "warn", "gate.block", block.reason, { tier });
     else if (tier) logEvent(cwd, resolved.config, "info", "gate.pass", `stop allowed (${tier})`, { tier });
@@ -620,6 +627,11 @@ export function run(argv: string[], cwd = process.cwd()): number {
     }
     return 0;
   }
+  if (command === "resume") {
+    const r = resume(cwd);
+    for (const l of r.lines) console.log(l);
+    return r.ok ? 0 : 1;
+  }
   if (command === "session-start") {
     let input = {};
     try {
@@ -634,7 +646,8 @@ export function run(argv: string[], cwd = process.cwd()): number {
     const installed = join(process.env.CLAUDE_CONFIG_DIR ?? join(homedir(), ".claude"), "plugins", "installed_plugins.json");
     const missing = companionWarnings(existsSync(installed) ? readFileSync(installed, "utf8") : undefined, resolved.config.features as Record<string, boolean>).map((m) => `saw: ${m}`);
     for (const m of missing) logEvent(cwd, resolved.config, "warn", "plugin.companion", m);
-    const context = [(warning?.hookSpecificOutput as { additionalContext?: string } | undefined)?.additionalContext, about, ...missing].filter(Boolean).join("\n\n");
+    const hint = resumeHint(cwd, (input as { source?: string }).source);
+    const context = [(warning?.hookSpecificOutput as { additionalContext?: string } | undefined)?.additionalContext, about, hint, ...missing].filter(Boolean).join("\n\n");
     const systemMessage = [warning?.systemMessage, ...missing].filter(Boolean).join("\n") || undefined;
     if (context || systemMessage) console.log(JSON.stringify({ systemMessage, hookSpecificOutput: { hookEventName: "SessionStart", additionalContext: context } }));
     return 0;
