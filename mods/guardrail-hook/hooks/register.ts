@@ -10,7 +10,7 @@ const START = String.raw`(?:^|[;&|\n(]\s*)`
 const GIT_COMMIT = new RegExp(`${START}${GIT_OPTS}commit\\b`)
 const GIT_PUSH = new RegExp(`${START}${GIT_OPTS}push\\b`)
 const GIT_DIR = /(?:^|[;&|\n(]\s*)git\s+(?:-c\s+\S+\s+|--[\w-]+\s+)*-C\s+("[^"]+"|'[^']+'|\S+)/
-const GOOD_BRANCH = /^(feat|fix|docs|refactor|test|chore|ci|perf|build|style|revert)\/[a-z0-9]+(-[a-z0-9]+)*$/
+const GOOD_BRANCH = /^(feat|fix|docs|refactor|test|chore|ci|perf|build|style|revert|hotfix)\/[a-z0-9]+(-[a-z0-9]+)*$|^release\/v\d+\.\d+\.\d+$/
 const AUTO_BRANCH = /^(claude\/|worktree-)/
 const ATTRIBUTION = /co-authored-by:\s*claude|generated with \[?claude|🤖 generated/i
 

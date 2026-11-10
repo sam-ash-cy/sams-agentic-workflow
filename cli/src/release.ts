@@ -220,7 +220,7 @@ export function mergesIntoMain(head: string): boolean {
 
 /**
  * Releases are cut on `release/vX.Y.Z` (or a `hotfix/*` branch), then merged into
- * `main` with a merge commit, so `main` only ever moves to released code. A release
+ * `main` (tagged there afterwards with tagRelease), so `main` only ever moves to released code. A release
  * branch must name the version being made (`release/v1.2.0` also takes `1.2.0-beta.N`).
  */
 export function branchProblems(branch: string, version: string, allowBranch = false): string[] {
@@ -231,7 +231,7 @@ export function branchProblems(branch: string, version: string, allowBranch = fa
   return [];
 }
 
-/** Bumps the manifests, writes CHANGELOG.md, commits and makes an annotated tag. Never pushes. */
+/** Bumps the manifests, writes CHANGELOG.md and commits. Tagging happens on main, after the merge (tagRelease). Never pushes. */
 export function release(root: string, opts: ReleaseOptions): ReleaseResult {
   const problems: string[] = [];
   const since = lastTag(root);
@@ -260,7 +260,7 @@ export function release(root: string, opts: ReleaseOptions): ReleaseResult {
     existing = undefined; // no CHANGELOG.md yet
   }
   writeFileSync(path, prependChangelog(existing, section, version));
-  for (const step of [["add", "--", ...files], ["commit", "-q", "-m", `chore(release): ${tag}`], ["tag", "-a", "--cleanup=verbatim", tag, "-m", `${tag}\n\n${notes}`]]) {
+  for (const step of [["add", "--", ...files], ["commit", "-q", "-m", `chore(release): ${tag}`]]) {
     const r = git(root, step);
     if (!r.ok) {
       problems.push(`git ${step[0]} failed: ${r.out}`);
@@ -268,6 +268,31 @@ export function release(root: string, opts: ReleaseOptions): ReleaseResult {
     }
   }
   return { version, tag, notes, files, problems };
+}
+
+/**
+ * After the release branch is merged: tags `main` with the version in the
+ * manifests, using its CHANGELOG.md section as the message. Never pushes.
+ */
+export function tagRelease(root: string, opts: { dryRun?: boolean; allowBranch?: boolean } = {}): { tag: string; problems: string[] } {
+  const tag = `v${currentVersion(root)}`;
+  const problems = checkVersions(root);
+  const branch = git(root, ["branch", "--show-current"]).out;
+  if (branch !== "main" && !opts.allowBranch) problems.push(`on branch ${branch || "(detached)"}, not main: merge the release branch first (pass --allow-branch to override)`);
+  if (git(root, ["status", "--porcelain"]).out) problems.push("working tree is not clean");
+  if (git(root, ["rev-parse", "-q", "--verify", `refs/tags/${tag}`]).ok) problems.push(`tag ${tag} already exists`);
+  let changelogText = "";
+  try {
+    changelogText = readFileSync(join(root, "CHANGELOG.md"), "utf8");
+  } catch {
+    changelogText = ""; // reported below
+  }
+  const notes = notesFor(changelogText, tag);
+  if (!notes) problems.push(`no CHANGELOG.md section for ${tag}: run saw release on the release branch first`);
+  if (opts.dryRun || problems.length) return { tag, problems };
+  const r = git(root, ["tag", "-a", "--cleanup=verbatim", tag, "-m", `${tag}\n\n${notes}`]);
+  if (!r.ok) problems.push(`git tag failed: ${r.out}`);
+  return { tag, problems };
 }
 
 /** For CI: the pushed tag must match every manifest. */

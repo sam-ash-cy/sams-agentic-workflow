@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { branchProblems, bump, changelog, mergesIntoMain, checkVersions, nextVersion, notesFor, prependChangelog, release, suggestBump, verifyTag, writeVersions, type Commit } from "../src/release";
+import { branchProblems, bump, changelog, mergesIntoMain, checkVersions, nextVersion, notesFor, prependChangelog, release, tagRelease, suggestBump, verifyTag, writeVersions, type Commit } from "../src/release";
 
 const c = (subject: string, body = ""): Commit => ({ hash: "x", subject, body });
 
@@ -108,6 +108,11 @@ test("release: dry run writes nothing; a real run commits and tags, and never pu
     expect(git(dir, "tag")).toBe("");
 
     expect(release(dir, { date: "2026-11-09" }).problems).toEqual([]);
+    // release() commits but never tags; the tag goes on main after the merge.
+    expect(git(dir, "tag")).toBe("");
+    expect(tagRelease(dir).problems[0]).toContain("not main");
+    expect(tagRelease(dir, { allowBranch: true, dryRun: true }).problems).toEqual([]);
+    expect(tagRelease(dir, { allowBranch: true }).problems).toEqual([]);
     expect(git(dir, "tag")).toBe("v0.1.0");
     expect(git(dir, "cat-file", "-t", "v0.1.0")).toBe("tag");
     expect(readFileSync(join(dir, "CHANGELOG.md"), "utf8")).toContain("## [0.1.0] - 2026-11-09");
@@ -117,6 +122,7 @@ test("release: dry run writes nothing; a real run commits and tags, and never pu
     git(dir, "commit", "-q", "--allow-empty", "-m", "fix: second");
     const beta = release(dir, { bump: "minor", pre: "beta", date: "d" });
     expect(beta.problems).toEqual([]);
+    expect(tagRelease(dir, { allowBranch: true }).problems).toEqual([]);
     expect(beta.version).toBe("0.2.0-beta.0");
     expect(checkVersions(dir)).toEqual([]);
     expect(JSON.parse(readFileSync(join(dir, "mods", "band", ".claude-plugin", "plugin.json"), "utf8")).version).toBe("0.2.0-beta.0");
@@ -128,6 +134,8 @@ test("release: dry run writes nothing; a real run commits and tags, and never pu
     git(dir, "commit", "-q", "--allow-empty", "-m", "feat: third");
     const final = release(dir, { bump: "v0.2.0", date: "d" });
     expect(final.problems).toEqual([]);
+    expect(tagRelease(dir, { allowBranch: true }).problems).toEqual([]);
+    expect(tagRelease(dir, { allowBranch: true }).problems).toContain("tag v0.2.0 already exists");
     expect(final.notes).toContain("- second");
     expect(final.notes).toContain("- third");
     expect(readFileSync(join(dir, "CHANGELOG.md"), "utf8")).not.toContain("beta");
