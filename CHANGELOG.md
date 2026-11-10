@@ -10,6 +10,7 @@ All notable changes to this project. Versions follow [Semantic Versioning](https
 
 ### Fixes
 
+- make the release-branch flow opt-in with release.flow ([#67](https://github.com/sam-ash-cy/sams-agentic-workflow/pull/67))
 - tag releases on main after the release branch merges ([#65](https://github.com/sam-ash-cy/sams-agentic-workflow/pull/65))
 - clear plugin directory pattern holds ([#61](https://github.com/sam-ash-cy/sams-agentic-workflow/pull/61))
 - plugin directory review findings ([#60](https://github.com/sam-ash-cy/sams-agentic-workflow/pull/60))
