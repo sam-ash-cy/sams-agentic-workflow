@@ -76,6 +76,10 @@
           "type": "boolean",
           "default": false
         },
+        "branch_guard": {
+          "type": "boolean",
+          "default": true
+        },
         "unslop": {
           "type": "boolean",
           "default": false
@@ -291,6 +295,25 @@
               "default": "ask"
             }
           }
+        }
+      }
+    },
+    "branch": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "base": {
+          "type": "string",
+          "default": "main"
+        },
+        "mode": {
+          "type": "string",
+          "default": "auto",
+          "enum": [
+            "branch",
+            "worktree",
+            "auto"
+          ]
         }
       }
     },
