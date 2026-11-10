@@ -6,6 +6,7 @@ import { homedir } from "node:os";
 import { isAbsolute, relative, resolve as resolvePath } from "node:path";
 import type { Table } from "./defaults";
 import { guardAgent, implementerEdit } from "./model-guard";
+import { testsFirstEdit } from "./tests-first";
 import { REVIEW_KEY } from "./review-session";
 
 type Decision = "deny" | "ask";
@@ -174,6 +175,10 @@ export function guardEdit(config: Table, path: string, home = homedir(), cwd = p
   return { decision: level === "never" ? "deny" : "ask", reason: `autonomy: edit_global is ${level === "never" ? "set to never" : "ask"} (${path})` };
 }
 
+// The file an edit tool touches (NotebookEdit names it notebook_path).
+const editTarget = (t?: { file_path?: unknown; notebook_path?: unknown }): string | undefined =>
+  typeof t?.file_path === "string" ? t.file_path : typeof t?.notebook_path === "string" ? t.notebook_path : undefined;
+
 const strictestVerdict = (a: Verdict, b: Verdict): Verdict => a?.decision === "deny" ? a : b?.decision === "deny" ? b : a ?? b;
 
 function strictest(a?: string, b?: string): string | undefined {
@@ -226,7 +231,7 @@ export function unreadableSettingsGuard(input: { tool_name?: string; tool_input?
   return { systemMessage: `saw guard: ${problem}`, hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "ask", permissionDecisionReason: `saw guard: ${problem}; approve this call, or fix the file first` } };
 }
 
-export function guardHook(config: Table, input: { tool_name?: string; agent_id?: unknown; tool_input?: { command?: unknown; file_path?: unknown; subagent_type?: unknown; model?: unknown } }, cwd = process.cwd()): Record<string, unknown> | undefined {
+export function guardHook(config: Table, input: { tool_name?: string; agent_id?: unknown; tool_input?: { command?: unknown; file_path?: unknown; notebook_path?: unknown; subagent_type?: unknown; model?: unknown } }, cwd = process.cwd()): Record<string, unknown> | undefined {
   const t = input.tool_input;
   if (reviewKeyAccess(t)) {
     return { hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: "saw guard: ~/.saw/review-key signs saw's review records; no tool may read, list or change it" } };
@@ -238,7 +243,7 @@ export function guardHook(config: Table, input: { tool_name?: string; agent_id?:
     : wrongModel
       ? { decision: "deny", reason: wrongModel }
       : edit
-        ? strictestVerdict(typeof t?.file_path === "string" ? guardEdit(config, t.file_path, homedir(), cwd) : undefined, implementerEdit(config, input, cwd))
+        ? strictestVerdict(strictestVerdict(typeof t?.file_path === "string" ? guardEdit(config, t.file_path, homedir(), cwd) : undefined, implementerEdit(config, input, cwd)), testsFirstEdit(config, editTarget(t), cwd))
         : undefined;
   if (!g) {
     const rewritten = input.tool_name === "Bash" && typeof t?.command === "string" ? rewriteCommand(config, t.command) : undefined;

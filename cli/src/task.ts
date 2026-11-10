@@ -153,6 +153,13 @@ export function pickTier(config: Table, flag: string | undefined): string {
   throw new Error("--tier is required (routing.default_tier is auto)");
 }
 
+// [tdd] mode hard: saw guard holds code edits until a test run fails (tests-first.ts).
+export function tddSettings(config: Table): { hard: boolean; playbooks: string[] } {
+  const on = ((config.features ?? {}) as Record<string, boolean>).tdd;
+  const t = (config.tdd ?? {}) as { mode?: string; playbooks?: string[] };
+  return { hard: !!on && t.mode === "hard", playbooks: t.playbooks ?? [] };
+}
+
 // Lifecycle steps `saw task start` prints for the agent, from [features] and [routing].
 export function taskSteps(config: Table, tier: string, playbook = "feature"): string[] {
   const features = (config.features ?? {}) as Record<string, boolean>;
@@ -160,7 +167,11 @@ export function taskSteps(config: Table, tier: string, playbook = "feature"): st
   const steps: string[] = [];
   if (features.grilling && grill.includes(tier)) steps.push("grilling first");
   if (features.trail) steps.push("trail ask/skeleton before reading code");
-  if (features.tdd && tier !== "trivial") steps.push("tdd (failing test first)");
+  if (features.tdd && tier !== "trivial") {
+    const tdd = tddSettings(config);
+    const enforced = tdd.hard && tdd.playbooks.includes(playbook) && !!((config.checks ?? {}) as Record<string, unknown>).test;
+    steps.push(enforced ? "tests first: write the failing tests from the plan, run `saw run test` and see it fail, then write the code (saw guard holds code edits until then)" : "tdd (failing test first)");
+  }
   const big = tier === "complex" || tier === "critical";
   if (features.worktrees && big) steps.push("one worktree per task");
   if (features.parallel_sessions && big) steps.push("split independent steps into sessions (autonomy.actions.spawn_sessions)");

@@ -203,7 +203,7 @@ Later layers win; `--set` beats all of them for one call. From `workflow.toml`, 
 | Key | Default | Purpose |
 |---|---|---|
 | `features.grilling` | `true` | Clarifying questions before complex work. |
-| `features.tdd` | `true` | Test-first step in task steps. |
+| `features.tdd` | `true` | Test-first step in task steps. With `tdd.mode = "hard"` (default) and a `[checks].test` command, saw guard denies code edits (test files excepted) on standard-or-higher tasks in `tdd.playbooks` (default feature, foundation, integration, debug) until `saw run test` has failed since the task started. `"soft"`: the step only. |
 | `features.code_review` | `true` | `code_review` in `[verify]`; off drops it. |
 | `features.security_review` | `true` | `security_review` in `[verify]`; off drops it. |
 | `features.verify_hook` | `true` | The gate and the no-task router reminder. |
