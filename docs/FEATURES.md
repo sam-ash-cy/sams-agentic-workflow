@@ -69,6 +69,8 @@ Defaults are what a fresh `saw init` gives you. "Key" is the setting that contro
 | GitHub | Repo settings as code (`saw repo plan/apply`) | off | `[repo]` | `gh` |
 | Supply chain | Pinned third-party skills, licence check | on | `[deps]` | |
 | Release | `saw sanitize` for secrets, paths, emails, names | manual | `[release]` | |
+| | `saw release`: version bump, CHANGELOG from Conventional Commits, annotated tag | manual | `[release]` | |
+| | Release-branch flow: cut on `release/vX.Y.Z` or `hotfix/*`, merge into `main`, then `saw release tag` | off (`main`) | `release.flow` | |
 | Automation | Autopilot: approved queue, one headless session + PR per item | off | `[autopilot]` | `claude` CLI, `gh` |
 
 ## Mods
