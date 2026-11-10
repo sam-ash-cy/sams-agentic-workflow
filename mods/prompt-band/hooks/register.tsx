@@ -1,7 +1,7 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
-import type { Busy } from '../types'
+import type { Busy, TaskCost } from '../types'
 
 // Buttons above the prompt. Text-only buttons fill the draft; Improve and
 // Handoff call a model, so they share a cooldown and a daily cap.
@@ -10,6 +10,54 @@ const busy = atom({ plugin: 'prompt-band', key: 'busy' } as const, null as Busy)
 const lastPressAt = atom({ plugin: 'prompt-band', key: 'lastPressAt' } as const, 0)
 const contextPct = atom({ plugin: 'prompt-band', key: 'contextPct' } as const, 0)
 const isTurnRunning = atom({ plugin: 'prompt-band', key: 'isTurnRunning' } as const, false)
+const sessionUsd = atom({ plugin: 'prompt-band', key: 'sessionUsd' } as const, 0)
+const taskCost = atom({ plugin: 'prompt-band', key: 'taskCost' } as const, null as TaskCost)
+
+const WARN_AT = 0.8
+const usd = (n: number): string => `$${n.toFixed(2)}`
+
+// The open saw task's start time, from .saw/task.json; undefined when none is open.
+async function taskStarted($: EngineInterface): Promise<string | undefined> {
+  try {
+    const t = JSON.parse(await $.fs.read('.saw/task.json')) as { started?: unknown }
+    return typeof t.started === 'string' ? t.started : undefined
+  } catch {
+    return undefined
+  }
+}
+
+// Moves the task baseline when a task starts or ends, and toasts once at
+// budgetUsd * WARN_AT and once past budgetUsd.
+async function measureCost($: EngineInterface, opts: Options, total: number): Promise<void> {
+  await update($, sessionUsd, () => total)
+  const started = await taskStarted($)
+  const prev = await read($, taskCost)
+  const cur: TaskCost = !started ? null : prev?.started === started ? prev : { started, baseUsd: total, warned: [] }
+  const budget = opts.budgetUsd ?? 0
+  if (cur && budget > 0) {
+    const spent = total - cur.baseUsd
+    const share = spent / budget
+    const hit = share >= 1 ? 1 : share >= WARN_AT ? WARN_AT : 0
+    if (hit && !cur.warned.includes(hit)) {
+      await $.ui.toast(hit === 1
+        ? `This task is over its ${usd(budget)} budget (${usd(spent)}).`
+        : `This task has used ${Math.round(share * 100)}% of its ${usd(budget)} budget (${usd(spent)}).`)
+      // Past the budget implies the warning: don't send it afterwards.
+      const warned = [...new Set([...cur.warned, WARN_AT, hit])]
+      await update($, taskCost, () => ({ ...cur, warned }))
+      return
+    }
+  }
+  await update($, taskCost, () => cur)
+}
+
+function costLabel(total: number, task: TaskCost, budget: number): { text: string; color?: string } {
+  if (!task) return { text: `${usd(total)} session` }
+  const spent = total - task.baseUsd
+  const share = budget > 0 ? spent / budget : 0
+  const text = `${usd(spent)} task${share >= WARN_AT ? ` of ${usd(budget)}` : ''} · ${usd(total)} session`
+  return { text, color: share >= 1 ? 'red' : share >= WARN_AT ? 'yellow' : undefined }
+}
 
 const MAX_DRAFT = 8000
 const HANDOFF_PATH = '.claude/handoff.md'
@@ -29,6 +77,7 @@ type Options = {
   model?: string
   reviewCommand?: string
   compactAtPct?: number
+  budgetUsd?: number
 }
 
 const today = (now: number): string => new Date(now).toISOString().slice(0, 10)
@@ -180,6 +229,7 @@ export const register: Register = (on, options) => {
   on('session.measure', async ($, e, next) => {
     const pct = e.context.percent
     if (pct !== undefined) await update($, contextPct, () => pct)
+    if (e.cost) await measureCost($, opts, e.cost.usd)
     return next(e)
   })
 
@@ -190,6 +240,7 @@ export const register: Register = (on, options) => {
     const off = working !== null || (await read($, isTurnRunning))
     const pct = await read($, contextPct)
     const press = (id: string) => () => void pressButton($, opts, id)
+    const cost = costLabel(await read($, sessionUsd), await read($, taskCost), opts.budgetUsd ?? 0)
 
     return (
       <Box>
@@ -202,6 +253,7 @@ export const register: Register = (on, options) => {
           <Button key="compact" label={`Compact (${pct}%)`} dimColor={off} onPress={press('compact')} />
         )}
         <Button key="handoff" label="Handoff" dimColor={off} onPress={press('handoff')} />
+        <Text dimColor={!cost.color} color={cost.color}>{cost.text}</Text>
       </Box>
     )
   })
