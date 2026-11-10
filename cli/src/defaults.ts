@@ -57,7 +57,12 @@ export const DEFAULTS: Table = {
     recommend: true,
     // saw task end suggests up to 3 catalog skills that fit the finished task.
     skill_finder: true,
+    // Claude Code's built-in advisor (advisorModel, written by saw sync) is on,
+    // and standard-or-higher tasks owe an advisor check before the PR.
+    advisor: true,
   },
+  // features.advisor: the model the advisor tool asks (global or project layer).
+  advisor: { model: "claude-opus-5-5" },
   // auto: the agent offers to run `saw recommend add <id>` once the user agrees;
   // manual: it only shows the install command.
   recommend: { mode: "auto", mcp: true, skills: true },
@@ -109,7 +114,7 @@ export const DEFAULTS: Table = {
     // A guardrail: workflow.toml can raise it, only your own layers can lower it.
     require_review_evidence: "off",
     trivial: { run: ["test"] },
-    standard: { run: ["format", "lint", "typecheck", "test", "code_review", "security_review", "docs"] },
+    standard: { run: ["format", "lint", "typecheck", "test", "code_review", "security_review", "advisor", "docs"] },
     complex: { extends: "standard", run: [] },
     critical: { extends: "complex", run: ["e2e", "dep_audit", "threat_model", "rollback_plan"] },
   },

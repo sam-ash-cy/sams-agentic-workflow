@@ -4,7 +4,7 @@
 
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import type { Table } from "./defaults";
+import { DEFAULTS, type Table } from "./defaults";
 import { readIfExists } from "./fs";
 
 export const FEATURE_SKILLS: Record<string, string[]> = {
@@ -57,4 +57,46 @@ export function syncSkillDenies(cwd: string, config: Table, dryRun = false): { a
     writeFileSync(trackPath, JSON.stringify(nowOurs, null, 2) + "\n");
   } else rmSync(trackPath, { force: true });
   return { added, removed };
+}
+
+// features.advisor: Claude Code's advisorModel in .claude/settings.local.json,
+// from [advisor].model. A value the user set by hand is left alone; saw only
+// changes or removes the one it wrote (.saw/advisor.json).
+const ADVISOR_TRACK = join(".saw", "advisor.json");
+
+// [advisor].model, or the built-in default when blank.
+export const advisorModel = (config: Table): string => ((config.advisor ?? {}) as { model?: string }).model?.trim() || String((DEFAULTS.advisor as Table).model);
+
+export function syncAdvisor(cwd: string, config: Table, dryRun = false): { from?: string; to?: string; changed: boolean; kept?: string } {
+  const on = ((config.features ?? {}) as Record<string, boolean>).advisor !== false;
+  const want = on ? advisorModel(config) : undefined;
+  const path = join(cwd, ".claude", "settings.local.json");
+  let settings: { advisorModel?: string } & Record<string, unknown> = {};
+  const raw = readIfExists(path);
+  if (raw !== undefined) {
+    try {
+      settings = JSON.parse(raw);
+    } catch {
+      throw new Error(".claude/settings.local.json isn't valid JSON; fix it, then re-run saw sync");
+    }
+  }
+  let ours: string | undefined;
+  try {
+    ours = (JSON.parse(readFileSync(join(cwd, ADVISOR_TRACK), "utf8")) as { model?: string }).model;
+  } catch {
+    // No record: saw wrote nothing yet.
+  }
+  const current = settings.advisorModel;
+  if (current !== undefined && current !== ours) return { from: current, to: current, changed: false, kept: current };
+  if (current === want) return { from: current, to: want, changed: false };
+  if (dryRun) return { from: current, to: want, changed: true };
+  if (want) settings.advisorModel = want;
+  else delete settings.advisorModel;
+  mkdirSync(join(cwd, ".claude"), { recursive: true });
+  writeFileSync(path, JSON.stringify(settings, null, 2) + "\n");
+  if (want) {
+    mkdirSync(join(cwd, ".saw"), { recursive: true });
+    writeFileSync(join(cwd, ADVISOR_TRACK), JSON.stringify({ model: want }) + "\n");
+  } else rmSync(join(cwd, ADVISOR_TRACK), { force: true });
+  return { from: current, to: want, changed: true };
 }

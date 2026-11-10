@@ -111,6 +111,20 @@
         "skill_finder": {
           "type": "boolean",
           "default": true
+        },
+        "advisor": {
+          "type": "boolean",
+          "default": true
+        }
+      }
+    },
+    "advisor": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "model": {
+          "type": "string",
+          "default": "claude-opus-5-5"
         }
       }
     },

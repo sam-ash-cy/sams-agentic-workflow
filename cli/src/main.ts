@@ -28,7 +28,7 @@ import { docsNudge, docsStatus, REFRESH_BRIEF } from "./docs";
 import { outline } from "./outline";
 import { checkVersions, notesFor, release, verifyTag } from "./release";
 import { sanitize, sanitizeHistory } from "./sanitize";
-import { syncSkillDenies } from "./skills";
+import { syncAdvisor, syncSkillDenies } from "./skills";
 import { applyPlan, gh, readState, repoName, repoPlan, type Gh } from "./repo";
 import { formatHook, runCheck, TRUSTED_LAYERS } from "./run";
 import { checkMods } from "./mods";
@@ -460,6 +460,9 @@ export function run(argv: string[], cwd = process.cwd()): number {
       const s = syncSkillDenies(cwd, resolved.config, dryRun);
       for (const e of s.added) console.log(`  deny ${e}${dryRun ? " (would add)" : ""} (feature off)`);
       for (const e of s.removed) console.log(`  allow ${e}${dryRun ? " (would remove deny)" : ""} (feature on)`);
+      const a = syncAdvisor(cwd, resolved.config, dryRun);
+      if (a.kept) console.log(`  advisorModel ${a.kept} (set by you in .claude/settings.local.json; left as is)`);
+      else if (a.changed) console.log(`  advisorModel ${a.to ?? "(off)"}${dryRun ? " (would write" : " (wrote"} .claude/settings.local.json)`);
     } catch (e) {
       return fail((e as Error).message);
     }
