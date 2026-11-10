@@ -115,10 +115,11 @@ export interface RetroResult {
 
 // Writes a proposal for each candidate check that doesn't have one yet
 // (unless `write` is false: suggest mode or --dry-run).
-export function retro(dir: string, metrics: TaskMetric[], threshold: number, write: boolean, today = new Date().toISOString().slice(0, 10)): RetroResult {
+// `extra`: candidates from elsewhere, such as recurring tests (failures.ts).
+export function retro(dir: string, metrics: TaskMetric[], threshold: number, write: boolean, today = new Date().toISOString().slice(0, 10), extra: Candidate[] = []): RetroResult {
   const existing = readProposals(dir);
   const covered = new Set(existing.filter((p) => p.status !== "rejected").map((p) => p.check));
-  const pending = candidates(metrics, threshold).filter((c) => !covered.has(c.check));
+  const pending = [...candidates(metrics, threshold), ...extra].filter((c) => !covered.has(c.check));
   const written: string[] = [];
   if (write && pending.length) {
     mkdirSync(dir, { recursive: true });

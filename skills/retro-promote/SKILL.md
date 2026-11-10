@@ -4,7 +4,7 @@ description: Use after a task ends with failed checks, when the user asks for a 
 ---
 
 ## 1. Find what repeats
-Run `saw retro`. It writes a proposal in `docs/proposals/` for each check that failed in `retro.repeat_threshold` or more tasks (default 2). A failure seen once is not a pattern: leave it.
+Run `saw retro`. It writes a proposal in `docs/proposals/` for each check that failed in `retro.repeat_threshold` or more tasks (default 2). A failure seen once is not a pattern: leave it. A proposal named `test: <name>` is one test that failed in that many tasks (from `.saw/failures.jsonl`, which `saw run` keeps); `saw run` also flags such a test as it fails again.
 
 ## 2. Root cause (one per proposal)
 Read the failing logs in `.saw/logs/` and pick one:
