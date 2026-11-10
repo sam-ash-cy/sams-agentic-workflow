@@ -27,6 +27,7 @@ import { lintContext, lintMemory } from "./lint";
 import { docsNudge, docsStatus, REFRESH_BRIEF } from "./docs";
 import { outline } from "./outline";
 import { checkVersions, notesFor, release, verifyTag } from "./release";
+import { applySplit, parseSplit, planSplit } from "./split";
 import { sanitize, sanitizeHistory } from "./sanitize";
 import { syncSkillDenies } from "./skills";
 import { applyPlan, gh, readState, repoName, repoPlan, type Gh } from "./repo";
@@ -76,6 +77,7 @@ const USAGE = `usage: saw <command>
   memory lint                        stale file refs in docs/learnings and docs/decisions, duplicate learnings, size limits
   release [patch|minor|major|<x.y.z>] [--pre <id>] [--dry-run] [--all] [--allow-branch]
                                      bump every manifest, write CHANGELOG.md, commit and make an annotated tag (never pushes)
+  split <plan.md> [--dry-run]        one worktree + branch per step heading that names a branch ("feat/x" in backticks), its brief in .saw/brief.md
   release notes <tag> | verify <tag> one version's changelog section; check a tag matches every manifest (CI)
   sanitize [--history]               before going public: secrets, home paths, emails and your own names in published files (--history: in every commit)
   context                            UserPromptSubmit hook: suggest /compact as context fills; warn on the task's token budget
@@ -671,6 +673,25 @@ export function run(argv: string[], cwd = process.cwd()): number {
     for (const p of problems) console.error(p);
     console.log(problems.length ? `saw memory lint: ${problems.length} problem(s)` : "saw memory lint: ok");
     return problems.length ? 1 : 0;
+  }
+  if (command === "split") {
+    if (!sub || !existsSync(sub)) return fail("usage: saw split <plan.md> [--dry-run]");
+    const split = parseSplit(readFileSync(sub, "utf8"));
+    if (split.problems.length) {
+      for (const p of split.problems) console.error(`problem: ${p}`);
+      return 1;
+    }
+    const units = planSplit(split, cwd);
+    const base = ((resolved.config.branch ?? {}) as { base?: string }).base || "main";
+    if (args.flags.has("--dry-run")) {
+      for (const u of units) console.log(`would add ${u.path} on ${u.branch} (${u.title})`);
+      return 0;
+    }
+    const results = applySplit(units, split.context, base, cwd);
+    for (const r of results) console.log(`${r.ok ? "added" : "skipped"} ${r.message}`);
+    console.log("\nStart a session in each:");
+    for (const r of results.filter((x) => x.ok)) console.log(`  cd "${r.unit.path}" && claude "Read .saw/brief.md and do that step only"`);
+    return results.every((r) => r.ok) ? 0 : 1;
   }
   if (command === "release") {
     if (sub === "notes" || sub === "verify") {
