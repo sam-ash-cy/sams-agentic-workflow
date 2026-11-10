@@ -1,6 +1,6 @@
 {
   "name": "prompt-band",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "description": "Buttons above the prompt: Improve, Plan first, Review, Ship check, Compact and Handoff, with usage limits",
   "types": "./types/index.d.ts",
   "userConfig": {

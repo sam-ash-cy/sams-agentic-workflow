@@ -1,6 +1,6 @@
 {
   "name": "secrets-redactor",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "description": "Hides secrets, emails and IPs in tool output behind stable placeholders, restores them in tool input, and blocks hardcoded secrets in edits",
   "types": "./types/index.d.ts",
   "userConfig": {
