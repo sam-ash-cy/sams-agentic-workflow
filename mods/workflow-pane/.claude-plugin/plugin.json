@@ -1,6 +1,6 @@
 {
   "name": "workflow-pane",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "A Workflow pane beside the chat: current task tier, playbook and which checks and pre-PR skills passed or are still missing",
   "types": "./types/index.d.ts",
   "userConfig": {

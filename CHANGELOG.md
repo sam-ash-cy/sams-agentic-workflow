@@ -2,6 +2,26 @@
 
 All notable changes to this project. Versions follow [Semantic Versioning](https://semver.org); entries are generated from Conventional Commits by `saw release`.
 
+## [1.0.1] - 2026-11-10
+
+### Features
+
+- ship through a release branch; only release and hotfix/* merge into main ([#64](https://github.com/sam-ash-cy/sams-agentic-workflow/pull/64))
+
+### Fixes
+
+- clear plugin directory pattern holds ([#61](https://github.com/sam-ash-cy/sams-agentic-workflow/pull/61))
+- plugin directory review findings ([#60](https://github.com/sam-ash-cy/sams-agentic-workflow/pull/60))
+- give each hook its own entry file for the directory's exact bun command ([#59](https://github.com/sam-ash-cy/sams-agentic-workflow/pull/59))
+- pass the plugin directory's install-free launch checks ([#58](https://github.com/sam-ash-cy/sams-agentic-workflow/pull/58))
+
+### Other
+
+- docs: privacy policy covers everything the plugin stores, reads and sends ([#63](https://github.com/sam-ash-cy/sams-agentic-workflow/pull/63))
+- docs: plugin listing URLs and privacy policy ([#62](https://github.com/sam-ash-cy/sams-agentic-workflow/pull/62))
+- docs: marketplace-ready README, full feature list and animated demo ([#57](https://github.com/sam-ash-cy/sams-agentic-workflow/pull/57))
+- docs: document the 1.0.0 features and settings ([#56](https://github.com/sam-ash-cy/sams-agentic-workflow/pull/56))
+
 ## [1.0.0] - 2026-11-10
 
 ### Features

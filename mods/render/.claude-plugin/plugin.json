@@ -1,6 +1,6 @@
 {
   "name": "render",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "saw mod, based on prismantis by Nahum Litvin (MIT). Colorful, themeable rendering for Claude Code replies: tables, headings, code, numbers, paths and links.",
   "author": {
     "name": "Nahum Litvin",
