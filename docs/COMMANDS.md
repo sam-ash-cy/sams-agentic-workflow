@@ -64,7 +64,8 @@ The `router` skill runs most of these for the agent.
 | `saw task report [--post [--pr <n>] [--yes]]` | The Markdown verification section for a PR; `--post` comments it with `gh`, as `autonomy.actions.open_pr` allows. |
 | `saw task pr-body [--base <ref>]` | A whole PR description: the commits since `<ref>` (default `origin/<branch.base>`, else `origin/main`) and the verification section. Pipe it to `gh pr create --body-file -`. |
 | `saw task end [--tokens <n>]` | Closes the task and appends its metrics to `.saw/metrics.jsonl`. |
-| `saw run <check> [--changed]` | Runs `checks.<check>` quietly, keeps the full log in `output.full_logs`, records the result. `--changed`: only tests for changed files. |
+| `saw resume` | Restores the task a stopped session left: the Stop hook writes `.saw/handoff.json` (open task, branch, latest plan, checks passed); `saw resume` reopens the task in the new session and switches back to its branch when the tree is clean. |
+| `saw run <check> [--changed]` | Runs `checks.<check>` quietly, keeps the full log in `output.full_logs`, records the result. `--changed`: only tests for changed files. Failing test names (bun, jest/vitest, pytest, go, phpunit) go to `.saw/failures.jsonl`; a test that also failed in an earlier task is flagged as recurring. |
 | `saw outline <file>` | Signatures with line numbers (when Trail isn't used). |
 
 Tiers and what they require by default:
@@ -104,7 +105,7 @@ Review agents in the plugin: `code-reviewer`, `security-reviewer`, `arch-reviewe
 | Command | What it does |
 |---|---|
 | `saw dashboard [--serve [--port <n>]]` | Writes the static metrics page (`dashboard.output`) and the Markdown note if `dashboard.obsidian_note` is set. `--serve`: a live page on 127.0.0.1. |
-| `saw retro [--dry-run]` | A proposal in `retro.proposals_dir` for each check failing in `repeat_threshold`+ tasks, plus suggested `saw config set` commands (never applied). |
+| `saw retro [--dry-run]` | A proposal in `retro.proposals_dir` for each check failing in `repeat_threshold`+ tasks, plus suggested `saw config set` commands (never applied). A single test failing in `repeat_threshold`+ tasks (from `.saw/failures.jsonl`) gets a `test: <name>` proposal of its own. |
 | `saw eval [--case <glob>] [--runs <n>] [--dry-run] [--save-baseline]` | Runs `evals/` with `claude plugin eval` and compares with the baseline. Spends tokens. |
 | `saw eval compare <before.json> <after.json>` | Compares two saved results. |
 
@@ -218,6 +219,12 @@ Later layers win; `--set` beats all of them for one call. From `workflow.toml`, 
 | `features.metrics` | `true` | Per-task metrics in `.saw/metrics.jsonl`. |
 | `features.dashboard` | `true` | `saw dashboard`. |
 | `features.retro` | `true` | `saw retro`. |
+| `features.branch_guard` | `true` | Never work on `branch.base`: `saw task start` creates `<type>/<slug>` off `origin/<branch.base>` (or a worktree), and saw guard denies commits there and edits during a non-trivial task. |
+| `branch.base` | `"main"` | The branch to branch off (global or project layer). |
+| `branch.mode` | `"auto"` | `branch`, `worktree`, or `auto` (a worktree for complex and critical tasks when `features.worktrees` is on, a branch otherwise). |
+| `features.advisor` | `true` | Turns on Claude Code's built-in advisor (`saw sync` writes `advisorModel`); standard-or-higher tasks owe an `advisor` check (`saw task record advisor pass`) before the PR. |
+| `advisor.model` | `"claude-opus-5-5"` | The model the advisor asks (global or project layer), e.g. `claude-fable-5-2` for critical work. |
+| `features.task_skills` | `true` | `saw task start` names the skills in `task_skills.<playbook>` (plus `task_skills.plan` on complex and critical tasks) and how to install missing ones. |
 | `features.audit` | `true` | Run `[audit]` auditors on their triggers. |
 | `features.worktrees` | `true` | Suggest a worktree per complex task; off denies `git worktree add` / `claude -p`. **G** |
 | `features.parallel_sessions` | `false` | Allow splitting a task into sessions. **G** |
@@ -285,6 +292,8 @@ effort = "high"
 | `context.window_tokens` | `200000` | Context window size for the nudges. |
 | `context.suggest_compact_at` | `[0.5, 0.7]` | Shares of the window that suggest `/compact`. |
 | `context.handoff_at` | `0.85` | Share that suggests a handoff. |
+| `context.autocompact` | `"inherit"` | Claude Code's own auto-compact, written by `saw sync`: `inherit` leaves `autoCompactEnabled` alone, `on`/`off` set it. Global layer: `saw sync --scope global` writes `~/.claude/settings.json`; else `.claude/settings.local.json`. |
+| `context.autocompact_window` | `0` | Tokens (100000-1000000) for `autoCompactWindow`; `0` leaves it alone. |
 | `output.quiet` | `true` | Passing checks print nothing; failures print their tail. |
 | `output.max_lines` | `60` | Tail length on failure. |
 | `output.full_logs` | `".saw/logs"` | Where full logs go. |
@@ -432,6 +441,15 @@ Three ECC hooks duplicate saw's (GateGuard, its compact nudge, a Stop-time forma
 ```
 
 **GitHub settings**: `saw config set repo.enabled true`, review `saw repo plan`, then `saw repo apply --yes`.
+
+### Mod: prompt-band
+
+`mods/prompt-band/` draws a row above the prompt with Improve, Compact and Write handoff note buttons, and the spend: `$x task · $y session` while a saw task is open, `$y session` otherwise.
+
+| Option | Default | Meaning |
+| --- | --- | --- |
+| `compactAtPct` | `50` | Context fill at which the Compact button appears |
+| `budgetUsd` | `0` | Per-task budget: a toast at 80% and once past it, and the cost turns yellow then red. `0` shows the cost without warnings |
 
 ### Mod: secrets-redactor
 
