@@ -6,6 +6,7 @@
 import { appendFileSync, closeSync, existsSync, fstatSync, mkdirSync, openSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { isAbsolute, join, relative, resolve } from "node:path";
 import type { Table } from "./defaults";
+import { branchSettings } from "./branch";
 import { readReviews, reportVerdict, reviewBudget, signatureValid, type ReviewSettings } from "./review-session";
 
 export const TIERS = ["trivial", "standard", "complex", "critical"] as const;
@@ -162,6 +163,7 @@ export function taskSteps(config: Table, tier: string, playbook = "feature"): st
   if (features.trail) steps.push("trail ask/skeleton before reading code");
   if (features.tdd && tier !== "trivial") steps.push("tdd (failing test first)");
   const big = tier === "complex" || tier === "critical";
+  if (features.branch_guard && tier !== "trivial") steps.push(`own branch off ${branchSettings(config).base} (saw task start --branch <type>/<kebab>)`);
   if (features.worktrees && big) steps.push("one worktree per task");
   if (features.parallel_sessions && big) steps.push("split independent steps into sessions (autonomy.actions.spawn_sessions)");
   if (features.implementer && tier !== "trivial") steps.push("after the plan: run `saw task phase implement` and hand each unit to the implementer agent (models.roles.implement), then `saw task phase review` and review its diff here");
