@@ -56,7 +56,7 @@ Defaults are what a fresh `saw init` gives you. "Key" is the setting that contro
 |---|---|---|---|---|
 | Routing | Tier + playbook per task, `saw task start` steps | on | `[routing]` | plugin |
 | | Grilling (clarifying questions) on complex and critical | on | `features.grilling`, `routing.always_grill` | |
-| | Test-first step | on | `features.tdd` | |
+| | Test-first step (hard: code edits wait for a failing `saw run test`) | on | `features.tdd`, `tdd.mode` | |
 | Verification | Mechanical checks, quiet output, full logs kept | on | `[checks]`, `[output]` | your commands |
 | | Required checks per tier (tiers can `extends`) | on | `[verify]` | |
 | | Gate: block "done" until checks pass | on | `features.verify_hook` | plugin |

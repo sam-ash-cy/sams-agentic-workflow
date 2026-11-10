@@ -106,6 +106,10 @@ export const DEFAULTS: Table = {
   // mode auto: a worktree for complex and critical tasks (features.worktrees), a branch otherwise.
   branch: { base: "main", mode: "auto" },
   routing: { default_tier: "auto", always_grill: ["complex", "critical"] },
+  // features.tdd: mode hard = on standard-or-higher tasks in these playbooks, saw
+  // guard denies code edits (tests excepted) until `saw run test` has failed since
+  // the task started. Needs [checks].test. soft = the step only.
+  tdd: { mode: "hard", playbooks: ["feature", "foundation", "integration", "debug"] },
   tokens: {
     mode: "soft",
     warn_at: 0.8,
@@ -149,6 +153,12 @@ export const DEFAULTS: Table = {
     window_tokens: 200000,
     suggest_compact_at: [0.5, 0.7],
     handoff_at: 0.85,
+    // Claude Code's own auto-compact, written by saw sync: "inherit" leaves
+    // autoCompactEnabled alone, "on"/"off" set it. autocompact_window (tokens,
+    // 100000-1000000) sets autoCompactWindow; 0 leaves it alone. Global layer:
+    // saw sync --global writes ~/.claude/settings.json; else .claude/settings.local.json.
+    autocompact: "inherit",
+    autocompact_window: 0,
   },
   // rewrite_commands: saw guard runs a Bash call that is exactly a [checks]
   // command as `saw run <check>` instead.
@@ -242,6 +252,7 @@ export const ENUMS: Record<string, string[]> = {
   "branch.mode": ["branch", "worktree", "auto"],
   "routing.default_tier": ["auto", "trivial", "standard", "complex", "critical"],
   "tokens.mode": ["soft", "hard"],
+  "tdd.mode": ["soft", "hard"],
   "verify.require_review_evidence": ["off", "agent", "review_session"],
   "style.tone": ["normal", "structured", "detailed", "verbose"],
   "style.mode": ["soft", "hard"],
@@ -251,4 +262,5 @@ export const ENUMS: Record<string, string[]> = {
   "knowledge.store": ["repo", "vault", "both"],
   "safety.push": ["never", "ask", "allow"],
   "logging.level": ["debug", "info", "warn"],
+  "context.autocompact": ["inherit", "on", "off"],
 };
