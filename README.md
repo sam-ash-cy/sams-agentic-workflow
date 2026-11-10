@@ -56,6 +56,8 @@ Defaults are what a fresh `saw init` gives you. "Key" is the setting that contro
 |---|---|---|---|---|
 | Routing | Tier + playbook per task, `saw task start` steps | on | `[routing]` | plugin |
 | | Grilling (clarifying questions) on complex and critical | on | `features.grilling`, `routing.always_grill` | |
+| | Branch guard: tasks branch (or worktree) off `main`; no commits on it | on | `features.branch_guard`, `[branch]` | |
+| | Skills named per playbook at task start | on | `features.task_skills`, `[task_skills]` | the named plugins |
 | | Test-first step (hard: code edits wait for a failing `saw run test`) | on | `features.tdd`, `tdd.mode` | |
 | Verification | Mechanical checks, quiet output, full logs kept | on | `[checks]`, `[output]` | your commands |
 | | Required checks per tier (tiers can `extends`) | on | `[verify]` | |
@@ -65,6 +67,8 @@ Defaults are what a fresh `saw init` gives you. "Key" is the setting that contro
 | | Living docs: flag blank docs and reference drift at task end; docs step on debug/integration/hardening | on | `features.living_docs` | |
 | | Review reports required for a review pass | off | `verify.require_review_evidence` | |
 | Reviews | Code and security review on standard+ | on | `features.code_review`, `features.security_review` | |
+| | Advisor consult on standard+ (Claude Code's advisor, Opus 5.5 by default) | on | `features.advisor`, `advisor.model` | |
+| | PR description from commits and checks (`saw task pr-body`) | manual | | `gh` |
 | | Review agents (code, security, architecture, UI, research) | on | `[models.roles]`, `[models.phases]` (model + effort per phase and tier) | plugin |
 | | Independent read-only review session per unit | off | `[review_session]` | `claude` CLI |
 | | Whole-project auditors on chosen triggers | on | `features.audit`, `[audit]` | auditor skills |
@@ -72,12 +76,16 @@ Defaults are what a fresh `saw init` gives you. "Key" is the setting that contro
 | | Autonomy per action (commit, push, PR, deps, sessions, global edits) | propose / ask | `[autonomy]` | plugin |
 | Context and tokens | Token budget per tier (`soft` warns, `hard` stops) | soft | `features.budgets`, `[tokens]` | |
 | | `/compact` and handoff nudges | on | `features.compact_nudge`, `[context]` | |
+| | Claude Code auto-compact set from settings | inherit | `context.autocompact`, `context.autocompact_window` | |
+| | Task and session cost above the prompt, budget warnings | on | prompt-band `budgetUsd` | prompt-band mod |
+| | Handoff card on stop, `saw resume` in the next session | on | | plugin |
 | | Model per agent role | routed | `[models]` | |
 | | Reply tone and word cap, checked on Stop | on | `features.style_hook`, `[style]` | |
 | | Trail code map in task steps | off | `features.trail` | Trail CLI |
 | Sessions | One session per phase, stage or feature | soft | `[sessions]` | |
 | | Worktree per complex task | on | `features.worktrees` | |
 | | Split a task across sessions | off | `features.parallel_sessions` | |
+| | `saw split`: a plan's branch headings become parallel worktrees | manual | `branch.base` | |
 | | Implementer agent writes planned units | off | `features.implementer` | |
 | UI and launch | unslop UI polish in the design playbook | off | `features.unslop` | unslop skill |
 | | Launch video after feature PRs | off | `features.brag` | brag skill, Hyperframes |
@@ -87,6 +95,7 @@ Defaults are what a fresh `saw init` gives you. "Key" is the setting that contro
 | Metrics | Per-task metrics and event log | on | `features.metrics`, `[logging]` | |
 | | Static or live dashboard | on | `features.dashboard`, `[dashboard]` | |
 | | Retro proposals and settings suggestions | on | `features.retro`, `[retro]` | |
+| | Failure memory: recurring failing tests flagged and proposed | on | `features.retro`, `retro.repeat_threshold` | |
 | | Eval suite with baseline comparison | manual | `[evals]` | `claude` CLI |
 | Agents | `AGENTS.md` for Codex, Cursor, Gemini CLI | claude only | `[agents]` | |
 | GitHub | Repo settings as code (`saw repo plan/apply`) | off | `[repo]` | `gh` |
