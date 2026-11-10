@@ -31,6 +31,10 @@ export const DEFAULTS: Table = {
     // `git worktree add` / `claude -p` when off.
     worktrees: true,
     parallel_sessions: false,
+    // Never work on [branch].base: saw task start branches (or opens a
+    // worktree) off it, saw guard denies commits there and edits during a
+    // non-trivial task.
+    branch_guard: true,
     // Third-party UI polish skill (deps.lock.toml): a design-playbook step when
     // on; saw sync denies the skill when off.
     unslop: false,
@@ -57,6 +61,22 @@ export const DEFAULTS: Table = {
     recommend: true,
     // saw task end suggests up to 3 catalog skills that fit the finished task.
     skill_finder: true,
+    // saw task start names the skills that fit the task's playbook ([task_skills]),
+    // to run where they help, and how to install the ones missing.
+    task_skills: true,
+  },
+  // features.task_skills: skills per playbook for standard-or-higher tasks;
+  // "plan" applies to every complex or critical task.
+  task_skills: {
+    plan: ["mattpocock-skills:grilling", "engineering:architecture"],
+    foundation: ["engineering:system-design", "mattpocock-skills:codebase-design"],
+    design: ["frontend-design:frontend-design", "design:design-critique", "web-design-guidelines"],
+    feature: ["mattpocock-skills:tdd", "engineering:testing-strategy"],
+    integration: ["api-design-rules", "engineering:testing-strategy"],
+    debug: ["mattpocock-skills:diagnosing-bugs", "engineering:debug"],
+    spike: ["mattpocock-skills:prototype", "mattpocock-skills:research"],
+    hardening: ["appsec-review", "engineering:tech-debt"],
+    audit: ["engineering:code-review", "appsec-review"],
   },
   // auto: the agent offers to run `saw recommend add <id>` once the user agrees;
   // manual: it only shows the install command.
@@ -77,6 +97,9 @@ export const DEFAULTS: Table = {
       spawn_sessions: "ask",
     },
   },
+  // features.branch_guard: the branch to branch off (global or project layer).
+  // mode auto: a worktree for complex and critical tasks (features.worktrees), a branch otherwise.
+  branch: { base: "main", mode: "auto" },
   routing: { default_tier: "auto", always_grill: ["complex", "critical"] },
   tokens: {
     mode: "soft",
@@ -211,6 +234,7 @@ export const ENUMS: Record<string, string[]> = {
   "recommend.mode": ["auto", "manual"],
   "project.type": ["web", "api", "cli", "lib", "infra"],
   "autonomy.level": ["suggest", "propose", "act"],
+  "branch.mode": ["branch", "worktree", "auto"],
   "routing.default_tier": ["auto", "trivial", "standard", "complex", "critical"],
   "tokens.mode": ["soft", "hard"],
   "verify.require_review_evidence": ["off", "agent", "review_session"],

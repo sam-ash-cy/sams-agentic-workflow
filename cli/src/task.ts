@@ -6,6 +6,7 @@
 import { appendFileSync, closeSync, existsSync, fstatSync, mkdirSync, openSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { isAbsolute, join, relative, resolve } from "node:path";
 import type { Table } from "./defaults";
+import { branchSettings } from "./branch";
 import { readReviews, reportVerdict, reviewBudget, signatureValid, type ReviewSettings } from "./review-session";
 
 export const TIERS = ["trivial", "standard", "complex", "critical"] as const;
@@ -154,6 +155,13 @@ export function pickTier(config: Table, flag: string | undefined): string {
 }
 
 // Lifecycle steps `saw task start` prints for the agent, from [features] and [routing].
+// [task_skills]: the playbook's skills, plus "plan" for complex and critical tasks.
+export function taskSkills(config: Table, tier: string, playbook: string): string[] {
+  const map = (config.task_skills ?? {}) as Record<string, string[]>;
+  const plan = tier === "complex" || tier === "critical" ? map.plan ?? [] : [];
+  return [...new Set([...plan, ...(map[playbook] ?? [])])];
+}
+
 export function taskSteps(config: Table, tier: string, playbook = "feature"): string[] {
   const features = (config.features ?? {}) as Record<string, boolean>;
   const grill = ((config.routing ?? {}) as { always_grill?: string[] }).always_grill ?? [];
@@ -162,6 +170,7 @@ export function taskSteps(config: Table, tier: string, playbook = "feature"): st
   if (features.trail) steps.push("trail ask/skeleton before reading code");
   if (features.tdd && tier !== "trivial") steps.push("tdd (failing test first)");
   const big = tier === "complex" || tier === "critical";
+  if (features.branch_guard && tier !== "trivial") steps.push(`own branch off ${branchSettings(config).base} (saw task start --branch <type>/<kebab>)`);
   if (features.worktrees && big) steps.push("one worktree per task");
   if (features.parallel_sessions && big) steps.push("split independent steps into sessions (autonomy.actions.spawn_sessions)");
   if (features.implementer && tier !== "trivial") steps.push("after the plan: run `saw task phase implement` and hand each unit to the implementer agent (models.roles.implement), then `saw task phase review` and review its diff here");
@@ -172,6 +181,10 @@ export function taskSteps(config: Table, tier: string, playbook = "feature"): st
     (taskChecks(config, tier, playbook).includes("docs") ? "; then saw task record docs pass --note \"<files>\" (or --note \"none needed: <why>\")" : ""));
   if (features.ecc && delivers) steps.push("before the PR: ecc:verification-loop (build, types, lint, tests, diff review)");
   if (features.brag && delivers) steps.push("optional after the PR merges: a launch video with the brag skill");
+  if (features.task_skills && tier !== "trivial") {
+    const fit = taskSkills(config, tier, playbook);
+    if (fit.length) steps.push(`skills that fit (run each where it helps): ${fit.join(", ")}`);
+  }
   for (const skill of prePrSkills(config, tier)) steps.push(`before the PR, required: run the ${skill} skill, then saw task record skill:${skill} pass --note "<result>"`);
   const checks = taskChecks(config, tier, playbook);
   steps.push(checks.length ? `checks: ${checks.join(", ")}` : "checks: none");

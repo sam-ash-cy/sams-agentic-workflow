@@ -5,7 +5,8 @@ import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { inside } from "./config";
 import type { Table } from "./defaults";
-import { recordCheck } from "./task";
+import { failingTests, priorFailures, recordFailures } from "./failures";
+import { currentTask, recordCheck } from "./task";
 
 export interface RunResult {
   code: number;
@@ -73,7 +74,16 @@ export function runCheck(cwd: string, config: Table, name: string, opts: { chang
 
   recordCheck(cwd, { name, status: code === 0 ? "pass" : "fail", how: "ran", ...(command !== base ? { note: "changed files only" } : {}) });
   const quiet = output.quiet !== false;
-  const shown = code === 0 && quiet ? "" : quiet ? tail(text, output.max_lines ?? 60) : text;
+  let shown = code === 0 && quiet ? "" : quiet ? tail(text, output.max_lines ?? 60) : text;
+  if (code !== 0) {
+    // Failure memory: name the tests that failed in earlier tasks too, then log this run's.
+    const tests = failingTests(text);
+    const task = currentTask(cwd)?.started ?? "";
+    const prior = priorFailures(cwd, name, tests, task);
+    if (prior.length) shown += `
+failed before, in earlier tasks: ${prior.map((p) => `${p.test} (${p.tasks})`).join(", ")}; a recurring failure needs its root cause (saw retro)`;
+    recordFailures(cwd, name, tests, task);
+  }
   return { code, shown, log };
 }
 
