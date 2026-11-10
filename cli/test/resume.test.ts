@@ -52,6 +52,8 @@ test("no card, a different open task, and saw task end", () => {
   expect(resume(cwd, fakeGit("main").git).ok).toBe(false);
   startTask(cwd, "standard", "feature");
   writeCard(cwd, fakeGit("feat/a").git);
+  // Tasks are told apart by their start time: a fast machine can start both in one millisecond.
+  Bun.sleepSync(5);
   startTask(cwd, "trivial", "feature");
   expect(resume(cwd, fakeGit("feat/a").git).lines[0]).toContain("different task");
   endTask(cwd);
