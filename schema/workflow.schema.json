@@ -115,6 +115,80 @@
         "skill_finder": {
           "type": "boolean",
           "default": true
+        },
+        "task_skills": {
+          "type": "boolean",
+          "default": true
+        }
+      }
+    },
+    "task_skills": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "plan": {
+          "type": "array",
+          "default": [
+            "mattpocock-skills:grilling",
+            "engineering:architecture"
+          ]
+        },
+        "foundation": {
+          "type": "array",
+          "default": [
+            "engineering:system-design",
+            "mattpocock-skills:codebase-design"
+          ]
+        },
+        "design": {
+          "type": "array",
+          "default": [
+            "frontend-design:frontend-design",
+            "design:design-critique",
+            "web-design-guidelines"
+          ]
+        },
+        "feature": {
+          "type": "array",
+          "default": [
+            "mattpocock-skills:tdd",
+            "engineering:testing-strategy"
+          ]
+        },
+        "integration": {
+          "type": "array",
+          "default": [
+            "api-design-rules",
+            "engineering:testing-strategy"
+          ]
+        },
+        "debug": {
+          "type": "array",
+          "default": [
+            "mattpocock-skills:diagnosing-bugs",
+            "engineering:debug"
+          ]
+        },
+        "spike": {
+          "type": "array",
+          "default": [
+            "mattpocock-skills:prototype",
+            "mattpocock-skills:research"
+          ]
+        },
+        "hardening": {
+          "type": "array",
+          "default": [
+            "appsec-review",
+            "engineering:tech-debt"
+          ]
+        },
+        "audit": {
+          "type": "array",
+          "default": [
+            "engineering:code-review",
+            "appsec-review"
+          ]
         }
       }
     },

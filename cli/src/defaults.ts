@@ -61,6 +61,22 @@ export const DEFAULTS: Table = {
     recommend: true,
     // saw task end suggests up to 3 catalog skills that fit the finished task.
     skill_finder: true,
+    // saw task start names the skills that fit the task's playbook ([task_skills]),
+    // to run where they help, and how to install the ones missing.
+    task_skills: true,
+  },
+  // features.task_skills: skills per playbook for standard-or-higher tasks;
+  // "plan" applies to every complex or critical task.
+  task_skills: {
+    plan: ["mattpocock-skills:grilling", "engineering:architecture"],
+    foundation: ["engineering:system-design", "mattpocock-skills:codebase-design"],
+    design: ["frontend-design:frontend-design", "design:design-critique", "web-design-guidelines"],
+    feature: ["mattpocock-skills:tdd", "engineering:testing-strategy"],
+    integration: ["api-design-rules", "engineering:testing-strategy"],
+    debug: ["mattpocock-skills:diagnosing-bugs", "engineering:debug"],
+    spike: ["mattpocock-skills:prototype", "mattpocock-skills:research"],
+    hardening: ["appsec-review", "engineering:tech-debt"],
+    audit: ["engineering:code-review", "appsec-review"],
   },
   // auto: the agent offers to run `saw recommend add <id>` once the user agrees;
   // manual: it only shows the install command.
