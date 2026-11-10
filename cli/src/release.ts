@@ -202,7 +202,8 @@ function repoUrl(root: string): string | undefined {
   return m ? `https://github.com/${m[1]}` : undefined;
 }
 
-export type ReleaseOptions = { bump?: string; pre?: string; dryRun?: boolean; all?: boolean; allowBranch?: boolean; date?: string };
+export type ReleaseFlow = "main" | "release-branch";
+export type ReleaseOptions = { bump?: string; pre?: string; dryRun?: boolean; all?: boolean; allowBranch?: boolean; date?: string; flow?: ReleaseFlow };
 export type ReleaseResult = { version: string; tag: string; notes: string; files: string[]; problems: string[] };
 
 /** The next version: explicit, or bumped, or (first release, nothing asked) the current one. */
@@ -231,7 +232,7 @@ export function branchProblems(branch: string, version: string, allowBranch = fa
   return [];
 }
 
-/** Bumps the manifests, writes CHANGELOG.md and commits. Tagging happens on main, after the merge (tagRelease). Never pushes. */
+/** Bumps the manifests, writes CHANGELOG.md and commits; tags too, unless release.flow is "release-branch" (then tagRelease on main). Never pushes. */
 export function release(root: string, opts: ReleaseOptions): ReleaseResult {
   const problems: string[] = [];
   const since = lastTag(root);
@@ -247,7 +248,9 @@ export function release(root: string, opts: ReleaseOptions): ReleaseResult {
   if (git(root, ["rev-parse", "-q", "--verify", `refs/tags/${tag}`]).ok) problems.push(`tag ${tag} already exists`);
   if (git(root, ["status", "--porcelain"]).out) problems.push("working tree is not clean");
   const branch = git(root, ["branch", "--show-current"]).out;
-  problems.push(...branchProblems(branch, version, opts.allowBranch));
+  const branchFlow = opts.flow === "release-branch";
+  if (branchFlow) problems.push(...branchProblems(branch, version, opts.allowBranch));
+  else if (branch !== "main" && !opts.allowBranch) problems.push(`on branch ${branch || "(detached)"}, not main (pass --allow-branch to override)`);
   problems.push(...checkVersions(root));
   if (opts.dryRun || problems.length) return { version, tag, notes, files, problems };
 
@@ -260,7 +263,12 @@ export function release(root: string, opts: ReleaseOptions): ReleaseResult {
     existing = undefined; // no CHANGELOG.md yet
   }
   writeFileSync(path, prependChangelog(existing, section, version));
-  for (const step of [["add", "--", ...files], ["commit", "-q", "-m", `chore(release): ${tag}`]]) {
+  const steps = [["add", "--", ...files], ["commit", "-q", "-m", `chore(release): ${tag}`]];
+  // The default flow tags here; the release-branch flow tags main after the merge.
+  if (!branchFlow) steps.push(["tag", "-a", "--cleanup=verbatim", tag, "-m", `${tag}
+
+${notes}`]);
+  for (const step of steps) {
     const r = git(root, step);
     if (!r.ok) {
       problems.push(`git ${step[0]} failed: ${r.out}`);

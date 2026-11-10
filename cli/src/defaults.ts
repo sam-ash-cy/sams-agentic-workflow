@@ -197,7 +197,9 @@ export const DEFAULTS: Table = {
   knowledge: { store: "repo", vault_path: "" },
   // saw sanitize: extra names of yours to flag before going public, besides git
   // user.name/email and the OS user (global or local layer only).
-  release: { names: [] },
+  // flow: "main" releases and tags on main; "release-branch" cuts on
+  // release/vX.Y.Z or hotfix/*, and saw release tag tags main after the merge.
+  release: { names: [], flow: "main" },
   // Agents this project supports; saw agents check verifies each reads AGENTS.md.
   agents: { enabled: ["claude"] },
   // Workflow event log (.saw/events.jsonl): tier picks, gate blocks/passes,
@@ -260,6 +262,7 @@ export const ENUMS: Record<string, string[]> = {
   "review_session.mode": ["grill", "audit", "both"],
   "models.mode": ["single", "routed"],
   "knowledge.store": ["repo", "vault", "both"],
+  "release.flow": ["main", "release-branch"],
   "safety.push": ["never", "ask", "allow"],
   "logging.level": ["debug", "info", "warn"],
   "context.autocompact": ["inherit", "on", "off"],
