@@ -25,7 +25,7 @@ import { appendMetric, buildMetric, readMetrics } from "./metrics";
 import { compare, summarise, type Comparison, type Summary } from "./evals";
 import { failureCandidates } from "./failures";
 import { configSuggestions, readProposals, retro } from "./retro";
-import { companionWarnings, compareUrl, eccProblem, gateguardWarning, pin, readLock, verifyLock } from "./deps";
+import { companionWarnings, compareUrl, eccProblem, gateguardWarning, pin, readLock, readSyncedPluginNames, verifyLock } from "./deps";
 import { depAuditFor, guessType, init, recordInstalled, uninstall, upgrade, type ChangeReport, type InitReport } from "./init";
 import { lintContext, lintMemory } from "./lint";
 import { docsNudge, docsStatus, REFRESH_BRIEF } from "./docs";
@@ -38,7 +38,7 @@ import { syncAdvisor, syncSkillDenies } from "./skills";
 import { applyPlan, gh, readState, repoName, repoPlan, type Gh } from "./repo";
 import { formatHook, runCheck, TRUSTED_LAYERS } from "./run";
 import { checkMods } from "./mods";
-import { currentTask, endTask, gate, markUntaskedEdit, pickTier, recordCheck, reviewEvidence, setPhase, startTask, taskReport, taskStatus, taskSkills, taskSteps } from "./task";
+import { currentTask, endTask, gate, gitStatusHash, isSawProject, markUntaskedEdit, pickTier, recordCheck, reviewEvidence, setPhase, startTask, storedTreeHash, storeTreeHash, taskReport, taskStatus, taskSkills, taskSteps } from "./task";
 import { patchToml, readToml, stringifyToml } from "./toml";
 import { applyProfile, parseProfiles } from "./profiles";
 import { aboutHook, aboutPaths, createAbout, type AboutScope } from "./about-me";
@@ -357,7 +357,7 @@ export function run(argv: string[], cwd = process.cwd()): number {
     const claudeDir = process.env.CLAUDE_CONFIG_DIR ?? join(homedir(), ".claude");
     const read = (p: string): string | undefined => (existsSync(p) ? readFileSync(p, "utf8") : undefined);
     // A recommendation, not a failure: GateGuard works, it just duplicates saw guard.
-    const gg = gateguardWarning(read(join(claudeDir, "plugins", "installed_plugins.json")), read(join(claudeDir, "settings.json")), process.env.ECC_GATEGUARD);
+    const gg = gateguardWarning(read(join(claudeDir, "plugins", "installed_plugins.json")), read(join(claudeDir, "settings.json")), process.env.ECC_GATEGUARD, readSyncedPluginNames(join(claudeDir, "plugins", "synced")));
     if (gg) console.error(`warning: ${gg}`);
     if (args.flags.has("--hooks")) problems.push(...checkHooks(cwd));
     const drift = checkVersions(PLUGIN_ROOT);
@@ -365,7 +365,7 @@ export function run(argv: string[], cwd = process.cwd()): number {
     problems.push(...drift);
     if ((resolved.config.features as Record<string, boolean>).ecc) {
       const installed = join(process.env.CLAUDE_CONFIG_DIR ?? join(homedir(), ".claude"), "plugins", "installed_plugins.json");
-      const ecc = eccProblem(existsSync(installed) ? readFileSync(installed, "utf8") : undefined, readLock(join(PLUGIN_ROOT, "deps.lock.toml")).ecc?.sha);
+      const ecc = eccProblem(existsSync(installed) ? readFileSync(installed, "utf8") : undefined, readLock(join(PLUGIN_ROOT, "deps.lock.toml")).ecc?.sha, readSyncedPluginNames(join(dirname(installed), "synced")));
       if (ecc) {
         console.error(`warning: ${ecc}`);
         problems.push(ecc);
@@ -645,11 +645,19 @@ export function run(argv: string[], cwd = process.cwd()): number {
     const about = aboutHook(cwd, resolved.config.features as Record<string, boolean>);
     // Companion plugins are soft dependencies (see COMPANIONS): say which features are off without them.
     const installed = join(process.env.CLAUDE_CONFIG_DIR ?? join(homedir(), ".claude"), "plugins", "installed_plugins.json");
-    const missing = companionWarnings(existsSync(installed) ? readFileSync(installed, "utf8") : undefined, resolved.config.features as Record<string, boolean>).map((m) => `saw: ${m}`);
+    // The desktop app syncs plugins to plugins/synced instead of installed_plugins.json.
+    const missing = companionWarnings(existsSync(installed) ? readFileSync(installed, "utf8") : undefined, resolved.config.features as Record<string, boolean>, readSyncedPluginNames(join(dirname(installed), "synced"))).map((m) => `saw: ${m}`);
     for (const m of missing) logEvent(cwd, resolved.config, "warn", "plugin.companion", m);
-    const hint = resumeHint(cwd, (input as { source?: string }).source);
-    const context = [(warning?.hookSpecificOutput as { additionalContext?: string } | undefined)?.additionalContext, about, hint, ...missing].filter(Boolean).join("\n\n");
-    const systemMessage = [warning?.systemMessage, ...missing].filter(Boolean).join("\n") || undefined;
+    const source = (input as { source?: string }).source;
+    const hint = resumeHint(cwd, source);
+    // Baseline for the Stop gate: a working tree that differs later was changed without an edit hook (shell writes).
+    const sid = (input as { session_id?: string }).session_id;
+    const tree = sid && isSawProject(cwd) ? gitStatusHash(cwd) : undefined;
+    if (sid && tree && !storedTreeHash(cwd, sid)) storeTreeHash(cwd, sid, tree); // resume and compact keep the first baseline
+    // A repo the workflow isn't set up in gets no routing at all: say so, once per session.
+    const unset = existsSync(join(cwd, ".git")) && !isSawProject(cwd) && (source === undefined || source === "startup") ? "saw is not set up here: run `saw init` or /workflow-setup" : undefined;
+    const context = [(warning?.hookSpecificOutput as { additionalContext?: string } | undefined)?.additionalContext, about, hint, ...missing, unset].filter(Boolean).join("\n\n");
+    const systemMessage = [warning?.systemMessage, ...missing, unset].filter(Boolean).join("\n") || undefined;
     if (context || systemMessage) console.log(JSON.stringify({ systemMessage, hookSpecificOutput: { hookEventName: "SessionStart", additionalContext: context } }));
     return 0;
   }

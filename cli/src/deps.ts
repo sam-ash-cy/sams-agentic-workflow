@@ -2,7 +2,8 @@
 // licence allow-list and a named reviewer for every pin: a third-party skill
 // can run commands, so every update is reviewed before it is pinned.
 
-import { existsSync, writeFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import type { Table } from "./defaults";
 import { readToml, stringifyToml } from "./toml";
 
@@ -54,11 +55,11 @@ export function pin(path: string, name: string, sha: string, reviewer: string, t
 // saw doctor: ECC's GateGuard (Fact-Forcing Gate) blocks first shell and edit
 // calls until the agent restates facts, which duplicates saw guard and costs a
 // round trip per file. Warn while ECC is installed and the gate is still on.
-export function gateguardWarning(installedJson: string | undefined, settingsJson: string | undefined, envValue: string | undefined): string | undefined {
+export function gateguardWarning(installedJson: string | undefined, settingsJson: string | undefined, envValue: string | undefined, extra: string[] = []): string | undefined {
   let installed = false;
   let setting: unknown;
   try {
-    installed = Object.keys((installedJson ? JSON.parse(installedJson).plugins : undefined) ?? {}).some((k) => k.startsWith("ecc@"));
+    installed = Object.keys((installedJson ? JSON.parse(installedJson).plugins : undefined) ?? {}).some((k) => k.startsWith("ecc@")) || extra.includes("ecc");
     setting = settingsJson ? JSON.parse(settingsJson).env?.ECC_GATEGUARD : undefined;
   } catch {
     return undefined;
@@ -70,7 +71,7 @@ export function gateguardWarning(installedJson: string | undefined, settingsJson
 // saw doctor with features.ecc on: ECC is a whole Claude Code plugin, so it is
 // checked in installed_plugins.json, not as a skill folder. A different commit
 // from the pin is reported too: hooks there were not reviewed.
-export function eccProblem(installedJson: string | undefined, pinnedSha: string | undefined): string | undefined {
+export function eccProblem(installedJson: string | undefined, pinnedSha: string | undefined, extra: string[] = []): string | undefined {
   let plugins: Record<string, { gitCommitSha?: string }[]> = {};
   try {
     plugins = installedJson ? (JSON.parse(installedJson).plugins ?? {}) : {};
@@ -78,6 +79,7 @@ export function eccProblem(installedJson: string | undefined, pinnedSha: string 
     return "features.ecc is on but installed_plugins.json isn't valid JSON";
   }
   const key = Object.keys(plugins).find((k) => k.startsWith("ecc@"));
+  if (!key && extra.includes("ecc")) return undefined; // synced by the desktop app: no lock entry to compare
   if (!key) return "features.ecc is on but the ecc plugin isn't installed: `claude plugin install ecc@sams-agentic-workflow` (docs/COMMANDS.md, Optional extras), or set features.ecc false";
   const sha = plugins[key]?.[0]?.gitCommitSha;
   if (pinnedSha && sha && sha !== pinnedSha) return `ecc plugin (${key}) is at ${sha.slice(0, 12)}, not the pinned ${pinnedSha.slice(0, 12)}: review with saw deps diff ecc ${sha}, or reinstall from the pin`;
@@ -93,7 +95,40 @@ export const COMPANIONS: Record<string, string[]> = {
   engineering: ["docs_step"],
 };
 
-export function companionWarnings(installedJson: string | undefined, features: Record<string, boolean>): string[] {
+// The desktop app syncs plugins to <config>/plugins/synced/<account_org>/<uuid>/,
+// outside installed_plugins.json; the real name is in .claude-plugin/plugin.json.
+export function syncedPluginNames(pluginJsons: string[]): string[] {
+  const names: string[] = [];
+  for (const text of pluginJsons) {
+    try {
+      const name = (JSON.parse(text) as { name?: unknown }).name;
+      if (typeof name === "string" && name) names.push(name);
+    } catch {
+      // Unreadable plugin.json: it isn't evidence of anything.
+    }
+  }
+  return names;
+}
+
+// Reads <synced>/<account_org>/<uuid>/.claude-plugin/plugin.json; [] when there is no such folder.
+export function readSyncedPluginNames(synced: string): string[] {
+  const texts: string[] = [];
+  try {
+    for (const group of readdirSync(synced, { withFileTypes: true })) {
+      if (!group.isDirectory()) continue;
+      for (const p of readdirSync(join(synced, group.name), { withFileTypes: true })) {
+        const manifest = join(synced, group.name, p.name, ".claude-plugin", "plugin.json");
+        if (p.isDirectory() && existsSync(manifest)) texts.push(readFileSync(manifest, "utf8"));
+      }
+    }
+  } catch {
+    // No synced folder: only installed_plugins.json counts.
+  }
+  return syncedPluginNames(texts);
+}
+
+// extra: names of plugins found installed some other way (see syncedPluginNames).
+export function companionWarnings(installedJson: string | undefined, features: Record<string, boolean>, extra: string[] = []): string[] {
   let plugins: string[];
   try {
     plugins = Object.keys((installedJson ? JSON.parse(installedJson).plugins : undefined) ?? {});
@@ -103,7 +138,7 @@ export function companionWarnings(installedJson: string | undefined, features: R
   const out: string[] = [];
   for (const [name, uses] of Object.entries(COMPANIONS)) {
     const on = uses.filter((f) => features[f]);
-    if (on.length === 0 || plugins.some((k) => k.startsWith(`${name}@`))) continue;
+    if (on.length === 0 || plugins.some((k) => k.startsWith(`${name}@`)) || extra.includes(name)) continue;
     out.push(`the ${name} plugin isn't installed, so ${on.map((f) => `features.${f}`).join(" and ")} can't run: \`claude plugin install ${name}@sams-agentic-workflow\`, or turn ${on.length > 1 ? "them" : "it"} off`);
   }
   return out;

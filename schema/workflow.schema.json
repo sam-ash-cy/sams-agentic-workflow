@@ -352,6 +352,14 @@
             "complex",
             "critical"
           ]
+        },
+        "mode": {
+          "type": "string",
+          "default": "hard",
+          "enum": [
+            "soft",
+            "hard"
+          ]
         }
       }
     },

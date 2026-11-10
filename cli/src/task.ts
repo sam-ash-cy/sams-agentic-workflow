@@ -3,9 +3,12 @@
 // Tasks are anchored to a position in checks.jsonl, not a timestamp, so a
 // result written in the same millisecond as the start can't leak in.
 
+import { spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { appendFileSync, closeSync, existsSync, fstatSync, mkdirSync, openSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
-import { isAbsolute, join, relative, resolve } from "node:path";
+import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import type { Table } from "./defaults";
+import { statePath as sessionFile } from "./session-state";
 import { advisorModel } from "./skills";
 import { branchSettings } from "./branch";
 import { readReviews, reportVerdict, reviewBudget, signatureValid, type ReviewSettings } from "./review-session";
@@ -330,11 +333,48 @@ export function taskReport(cwd: string, config: Table, task: Task): string {
   ].join("\n");
 }
 
+// Shell writes (sed -i, redirects) never fire the edit hook. A hash of `git status
+// --porcelain` (saw's own .saw state excluded), kept in the session's state file, shows whether the working tree
+// changed since session start. undefined: not a git repo, or git failed.
+export function gitStatusHash(cwd: string): string | undefined {
+  try {
+    const r = spawnSync("git", ["status", "--porcelain", "--", ".", ":(exclude).saw"], { cwd, encoding: "utf8", timeout: 5000 });
+    return r.status === 0 ? createHash("sha1").update(r.stdout).digest("hex") : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+export function storedTreeHash(cwd: string, sessionId: string): string | undefined {
+  try {
+    const s = JSON.parse(readFileSync(sessionFile(cwd, sessionId), "utf8")) as { session_id?: string; tree?: string };
+    return s.session_id === sessionId ? s.tree : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+// Merges into the session's state file, keeping the fields sessions.ts keeps there.
+export function storeTreeHash(cwd: string, sessionId: string, tree: string): void {
+  let state: Record<string, unknown> = { session_id: sessionId };
+  try {
+    const s = JSON.parse(readFileSync(sessionFile(cwd, sessionId), "utf8")) as Record<string, unknown>;
+    if (s.session_id === sessionId) state = s;
+  } catch {
+    // No state yet: start clean.
+  }
+  mkdirSync(dirname(sessionFile(cwd, sessionId)), { recursive: true });
+  writeFileSync(sessionFile(cwd, sessionId), JSON.stringify({ ...state, tree }, null, 2) + "\n");
+}
+
+const TREE_CHANGED = "The working tree changed since the session started (a shell write, build output or an edit made outside the agent), but no saw task is open. ";
+const UNTASKED = "Files were edited but no saw task is open, so nothing was verified. Use the router skill to classify the work, run `saw task start --tier <t> --playbook <p>` (or `saw task adhoc` for a one-off edit), then run its checks.";
+
 // Stop hook: returns the JSON to print, or undefined to allow the stop.
 export function gate(
   cwd: string,
   config: Table,
-  hookInput: { stop_hook_active?: boolean; transcript_path?: string },
+  hookInput: { stop_hook_active?: boolean; transcript_path?: string; session_id?: string },
 ): { decision: "block"; reason: string } | undefined {
   const task = currentTask(cwd);
   if (task && typeof hookInput.transcript_path === "string") saveTranscript(cwd, task, hookInput.transcript_path);
@@ -343,13 +383,22 @@ export function gate(
   if (!task) {
     // Files changed but routing never ran, so there is nothing to verify against.
     const marker = join(dir(cwd), "untasked-edits");
-    if (!existsSync(marker)) return undefined;
+    if (!existsSync(marker)) {
+      // No edit hook fired: a shell write shows only as a changed working tree.
+      const sid = hookInput.session_id;
+      if (!sid || !isSawProject(cwd)) return undefined;
+      const before = storedTreeHash(cwd, sid);
+      const now = before ? gitStatusHash(cwd) : undefined;
+      if (!now || now === before) return undefined;
+      storeTreeHash(cwd, sid, now);
+      return { decision: "block", reason: TREE_CHANGED + UNTASKED };
+    }
     // Block once per batch of edits; the next edit sets the marker again.
     rmSync(marker, { force: true });
-    return {
-      decision: "block",
-      reason: "Files were edited but no saw task is open, so nothing was verified. Use the router skill to classify the work, run `saw task start --tier <t> --playbook <p>` (or `saw task adhoc` for a one-off edit), then run its checks.",
-    };
+    const sid = hookInput.session_id;
+    const now = sid && storedTreeHash(cwd, sid) ? gitStatusHash(cwd) : undefined;
+    if (sid && now) storeTreeHash(cwd, sid, now); // this change is reported: don't block it again as a shell write
+    return { decision: "block", reason: UNTASKED };
   }
   const s = taskStatus(cwd, config, task);
   if (s.label === "Verified") return undefined;
