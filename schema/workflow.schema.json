@@ -851,6 +851,14 @@
         "names": {
           "type": "array",
           "default": []
+        },
+        "flow": {
+          "type": "string",
+          "default": "main",
+          "enum": [
+            "main",
+            "release-branch"
+          ]
         }
       }
     },

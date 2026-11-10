@@ -101,13 +101,13 @@ test("release: dry run writes nothing; a real run commits and tags, and never pu
     git(dir, "add", ".");
     git(dir, "commit", "-q", "-m", "feat: first");
 
-    const dry = release(dir, { dryRun: true, date: "2026-11-09" });
+    const dry = release(dir, { flow: "release-branch",  dryRun: true, date: "2026-11-09" });
     expect(dry.problems).toEqual([]);
     expect(dry.version).toBe("0.1.0");
     expect(git(dir, "status", "--porcelain")).toBe("");
     expect(git(dir, "tag")).toBe("");
 
-    expect(release(dir, { date: "2026-11-09" }).problems).toEqual([]);
+    expect(release(dir, { flow: "release-branch",  date: "2026-11-09" }).problems).toEqual([]);
     // release() commits but never tags; the tag goes on main after the merge.
     expect(git(dir, "tag")).toBe("");
     expect(tagRelease(dir).problems[0]).toContain("not main");
@@ -116,11 +116,11 @@ test("release: dry run writes nothing; a real run commits and tags, and never pu
     expect(git(dir, "tag")).toBe("v0.1.0");
     expect(git(dir, "cat-file", "-t", "v0.1.0")).toBe("tag");
     expect(readFileSync(join(dir, "CHANGELOG.md"), "utf8")).toContain("## [0.1.0] - 2026-11-09");
-    expect(release(dir, { bump: "0.1.0" }).problems).toContain("tag v0.1.0 already exists");
+    expect(release(dir, { flow: "release-branch",  bump: "0.1.0" }).problems).toContain("tag v0.1.0 already exists");
     git(dir, "checkout", "-q", "-b", "release/v0.2.0");
 
     git(dir, "commit", "-q", "--allow-empty", "-m", "fix: second");
-    const beta = release(dir, { bump: "minor", pre: "beta", date: "d" });
+    const beta = release(dir, { flow: "release-branch",  bump: "minor", pre: "beta", date: "d" });
     expect(beta.problems).toEqual([]);
     expect(tagRelease(dir, { allowBranch: true }).problems).toEqual([]);
     expect(beta.version).toBe("0.2.0-beta.0");
@@ -132,21 +132,21 @@ test("release: dry run writes nothing; a real run commits and tags, and never pu
     // Annotated tag keeps the "###" headings; finalising keeps the betas' changes.
     expect(git(dir, "tag", "-l", "--format=%(contents)", "v0.2.0-beta.0")).toContain("### Fixes");
     git(dir, "commit", "-q", "--allow-empty", "-m", "feat: third");
-    const final = release(dir, { bump: "v0.2.0", date: "d" });
+    const final = release(dir, { flow: "release-branch",  bump: "v0.2.0", date: "d" });
     expect(final.problems).toEqual([]);
     expect(tagRelease(dir, { allowBranch: true }).problems).toEqual([]);
     expect(tagRelease(dir, { allowBranch: true }).problems).toContain("tag v0.2.0 already exists");
     expect(final.notes).toContain("- second");
     expect(final.notes).toContain("- third");
     expect(readFileSync(join(dir, "CHANGELOG.md"), "utf8")).not.toContain("beta");
-    expect(release(dir, { dryRun: true, all: true }).notes).not.toContain("v0.2.0");
+    expect(release(dir, { flow: "release-branch",  dryRun: true, all: true }).notes).not.toContain("v0.2.0");
 
     git(dir, "checkout", "-q", "-b", "main");
-    expect(release(dir, { dryRun: true }).problems[0]).toContain("not release/v");
+    expect(release(dir, { flow: "release-branch",  dryRun: true }).problems[0]).toContain("not release/v");
     git(dir, "checkout", "-q", "-b", "feat/x");
-    expect(release(dir, { dryRun: true }).problems[0]).toContain("not release/v");
+    expect(release(dir, { flow: "release-branch",  dryRun: true }).problems[0]).toContain("not release/v");
     writeFileSync(join(dir, "dirty"), "x");
-    expect(release(dir, { dryRun: true, allowBranch: true }).problems).toEqual(["working tree is not clean"]);
+    expect(release(dir, { flow: "release-branch",  dryRun: true, allowBranch: true }).problems).toEqual(["working tree is not clean"]);
   } finally {
     for (const k of Object.keys(gitEnv)) if (!(k in saved)) delete process.env[k];
   }
@@ -164,4 +164,24 @@ test("release: only release/vX.Y.Z and hotfix/* merge into main or cut a release
   expect(branchProblems("release/v1.1.0", "1.1.0-beta.2")).toEqual([]);
   expect(branchProblems("release/v1.0.1", "1.0.2")[0]).toContain("does not match");
   expect(branchProblems("feat/x", "1.0.1", true)).toEqual([]);
+});
+
+test("release: the default flow releases and tags on main, as in 1.0.0", () => {
+  const saved = { ...process.env };
+  Object.assign(process.env, gitEnv);
+  try {
+    const dir = repo();
+    git(dir, "init", "-q", "-b", "main");
+    git(dir, "config", "user.name", "t");
+    git(dir, "config", "commit.gpgsign", "false");
+    git(dir, "config", "tag.gpgsign", "false");
+    git(dir, "add", ".");
+    git(dir, "commit", "-q", "-m", "feat: first");
+    expect(release(dir, { date: "d" }).problems).toEqual([]);
+    expect(git(dir, "tag")).toBe("v0.1.0");
+    git(dir, "checkout", "-q", "-b", "release/v0.2.0");
+    expect(release(dir, { dryRun: true }).problems[0]).toContain("not main");
+  } finally {
+    for (const k of Object.keys(gitEnv)) if (!(k in saved)) delete process.env[k];
+  }
 });

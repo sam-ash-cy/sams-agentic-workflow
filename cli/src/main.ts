@@ -82,7 +82,7 @@ const USAGE = `usage: saw <command>
   gate                               Stop hook: block "done" until the tier's checks pass
   lint-context                       AGENTS.md / CLAUDE.md size limits
   memory lint                        stale file refs in docs/learnings and docs/decisions, duplicate learnings, size limits
-  release [patch|minor|major|<x.y.z>] [--pre <id>] [--dry-run] [--all] [--allow-branch]   (on release/vX.Y.Z or hotfix/*)
+  release [patch|minor|major|<x.y.z>] [--pre <id>] [--dry-run] [--all] [--allow-branch]   (on main; release.flow=release-branch: release/vX.Y.Z or hotfix/*)
                                      bump every manifest, write CHANGELOG.md and commit (never pushes; tag on main after the merge)
   release tag [--dry-run] [--allow-branch]   on main after the release merge: annotated vX.Y.Z tag from CHANGELOG.md (never pushes)
   split <plan.md> [--dry-run]        one worktree + branch per step heading that names a branch ("feat/x" in backticks), its brief in .saw/brief.md
@@ -752,9 +752,10 @@ export function run(argv: string[], cwd = process.cwd()): number {
       return 0;
     }
     const dryRun = args.flags.has("--dry-run");
+    const releaseFlow = flatten(resolved.config)["release.flow"] === "release-branch" ? "release-branch" : "main";
     let result: ReturnType<typeof release>;
     try {
-      result = release(cwd, { bump: sub, pre: args.values.pre || undefined, dryRun, all: args.flags.has("--all"), allowBranch: args.flags.has("--allow-branch") });
+      result = release(cwd, { bump: sub, pre: args.values.pre || undefined, dryRun, all: args.flags.has("--all"), allowBranch: args.flags.has("--allow-branch"), flow: releaseFlow });
     } catch (e) {
       return fail((e as Error).message);
     }
@@ -765,7 +766,8 @@ export function run(argv: string[], cwd = process.cwd()): number {
       for (const p of result.problems) console.error(`problem: ${p}`);
       return 1;
     }
-    if (!dryRun) console.log(`committed ${result.tag}. Next: git push, open a PR from this branch into main, merge it, then on main run saw release tag and git push origin ${result.tag}`);
+    if (!dryRun && releaseFlow === "release-branch") console.log(`committed ${result.tag}. Next: git push, open a PR from this branch into main, merge it, then on main run saw release tag and git push origin ${result.tag}`);
+    else if (!dryRun) console.log(`committed and tagged ${result.tag}. Publish with: git push origin main --follow-tags`);
     return 0;
   }
   if (command === "sanitize") {
