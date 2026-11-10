@@ -57,10 +57,10 @@ Rules:
 
 ## Manual setup
 
-The same steps without an agent. Commands are in the [README](../README.md#install).
+The same steps without an agent. Commands are in [Install in detail](#install-in-detail) below.
 
 1. **Check what's there.** `saw doctor --no-plugin` (is `saw` on PATH?), `claude plugin list`, and whether the repo has `workflow.toml`. Skip any step that's done.
-2. **Clone and PATH** (README install step 1).
+2. **Clone and PATH** ([step 1](#1-clone-and-put-saw-on-your-path) below).
 3. **Global**, if you want enforcement in every session: `sh bootstrap.sh --dry-run` (or `.\bootstrap.ps1 -DryRun`), then the real run. It backs up anything it changes and leaves an existing `settings.json` alone.
 4. **Project:**
 
@@ -97,3 +97,151 @@ Open Claude Code in the project and ask for something small. The router replies 
 After a few tasks, `saw dashboard` shows outcomes and tokens per task, and `saw retro` turns repeated failures into proposals under `docs/proposals/`.
 
 Before making a repo public, run `saw sanitize --history`.
+
+## Two parts
+
+| | Claude Code plugin | `saw` CLI |
+|---|---|---|
+| What | skills (`router`, `saw-settings`, `retro-promote`), playbooks, review agents, hooks | a dependency-free TypeScript CLI run with bun |
+| Role | shapes what the agent does | holds settings, records evidence, enforces rules from the hooks |
+| Installed by | `bootstrap.sh` / `bootstrap.ps1`, or `claude plugin install` | the clone, with `bin/` on your PATH |
+| Without the other | skills load, but hooks have nothing to call | works, but no hook runs: nothing is guarded or gated |
+
+You need both for enforcement. `saw` alone is still useful for `saw init`, settings and checks.
+
+## Prerequisites
+
+| Tool | Check | Needed for |
+|---|---|---|
+| [bun](https://bun.sh) 1.3+ | `bun --version` | the `saw` CLI (don't substitute npm or node) |
+| git | `git --version` | everything |
+| [Claude Code](https://claude.com/claude-code) | `claude --version` | the plugin, review sessions, evals, autopilot |
+| `gh` (optional) | `gh --version` | `saw repo`, `saw task report --post`, autopilot PRs |
+
+## Install in detail
+
+There are two scopes. **Global** installs the plugin and the workflow rules for every Claude Code session on this machine. **Project** adds `workflow.toml`, `AGENTS.md` and the `docs/` vault to one repo. Most people do both. Every step has a dry run; run it first.
+
+### 1. Clone and put `saw` on your PATH
+
+Clone somewhere permanent: the plugin and `saw` run from this folder.
+
+macOS / Linux:
+
+```bash
+git clone https://github.com/sam-ash-cy/sams-agentic-workflow.git ~/sams-agentic-workflow
+export PATH="$HOME/sams-agentic-workflow/bin:$PATH"   # also add to ~/.bashrc or ~/.zshrc
+saw doctor --no-plugin
+```
+
+Windows PowerShell:
+
+```powershell
+git clone https://github.com/sam-ash-cy/sams-agentic-workflow.git "$HOME\sams-agentic-workflow"
+[Environment]::SetEnvironmentVariable("Path", [Environment]::GetEnvironmentVariable("Path", "User") + ";$HOME\sams-agentic-workflow\bin", "User")
+# open a new terminal, then:
+saw doctor --no-plugin
+```
+
+Without the PATH entry, run `bun ~/sams-agentic-workflow/cli/src/main.ts` wherever these docs say `saw`.
+
+### 2. Global setup (once per machine)
+
+The bootstrap script, in `~/.claude` (or `$CLAUDE_CONFIG_DIR`):
+1. copies `global/CLAUDE.md` to `saw-workflow.md` and adds an `@saw-workflow.md` line to `CLAUDE.md`
+2. copies `global/settings.example.json` to `settings.json` only if there is none (otherwise prints `kept:` and leaves merging to you)
+3. adds this folder as a plugin marketplace and installs the `sams-agentic-workflow` plugin and the pinned `mattpocock-skills` and `engineering` plugins. Those two are soft companions, not plugin dependencies: if one is missing, saw still loads and session-start names the features that are off and the install command
+
+It never overwrites without a backup (`*.bak.<timestamp>`).
+
+```bash
+cd ~/sams-agentic-workflow
+sh bootstrap.sh --dry-run
+sh bootstrap.sh
+```
+
+```powershell
+cd "$HOME\sams-agentic-workflow"
+.\bootstrap.ps1 -DryRun
+.\bootstrap.ps1
+```
+
+Set `SAW_NO_PLUGIN=1` to skip the plugin step, or `SAW_WITH_ECC=1` to also install ECC. If it prints `skip: plugin install (claude not on PATH)`, fix `claude --version` in that terminal and run it again; finished steps are skipped.
+
+It worked when `claude plugin list` shows the three plugins enabled and `saw doctor` ends with `saw doctor: ok`.
+
+### 3. Project setup
+
+In the root of a git repo:
+
+```bash
+saw init --dry-run
+saw init
+saw config set checks.test "bun test"      # your real commands
+saw doctor --hooks
+```
+
+`saw init` adds `workflow.toml`, `AGENTS.md`, `CLAUDE.md` (importing `AGENTS.md`), the `docs/` vault, a CI workflow and a pre-commit hook file, and gitignores `workflow.local.toml` and `.saw/`. Existing files are kept unless you pass `--force` (which backs them up). See [`saw init`](COMMANDS.md#setup) for `--type`, `--hooks`, `--agents` and `--repo`.
+
+**Project-only plugin.** To enable the plugin for one repo instead of user-wide (teammates get it from the committed `.claude/settings.json`), use the URL, not a local path:
+
+```bash
+claude plugin marketplace add https://github.com/sam-ash-cy/sams-agentic-workflow.git --scope project
+claude plugin install sams-agentic-workflow@sams-agentic-workflow --scope project
+claude plugin install mattpocock-skills@sams-agentic-workflow --scope project
+claude plugin install engineering@sams-agentic-workflow --scope project
+```
+
+Each developer still needs `saw` on their PATH for the hooks to run.
+
+## Updating
+
+```bash
+cd ~/sams-agentic-workflow
+git pull
+claude plugin marketplace update sams-agentic-workflow
+sh bootstrap.sh            # or .\bootstrap.ps1; refreshes saw-workflow.md, backing up the old one
+```
+
+Then in each project:
+
+```bash
+saw init --upgrade --dry-run
+saw init --upgrade
+```
+
+Template files you haven't edited are updated; edited ones are listed as `kept (edited)` for you to merge.
+
+### Release channels and pinning
+
+Releases are tagged `vX.Y.Z` (pre-releases `vX.Y.Z-beta.N`) and listed on the GitHub Releases page with notes from [CHANGELOG.md](../CHANGELOG.md). Pick what you track with the ref after `#` when you add the marketplace:
+
+| Channel | Add the marketplace with | `marketplace update` moves to |
+|---|---|---|
+| Stable (recommended) | `https://github.com/sam-ash-cy/sams-agentic-workflow.git#stable` | each final release |
+| Beta | `...sams-agentic-workflow.git#beta` | every release, betas included |
+| Pinned | `...sams-agentic-workflow.git#v1.0.0` | nothing; re-add at a new tag to upgrade |
+| Edge | `...sams-agentic-workflow.git` | every commit on `main` |
+
+To switch, `claude plugin marketplace remove sams-agentic-workflow`, add it again with the new ref, then `claude plugin marketplace update sams-agentic-workflow`. With a local clone, `git checkout stable` (or a tag) instead of `git pull` on `main`. Run `saw doctor` afterwards; it flags manifests whose versions disagree.
+
+## Uninstalling
+
+**Project.** Removes only template files you haven't edited:
+
+```bash
+saw uninstall --dry-run
+saw uninstall
+```
+
+`workflow.local.toml`, `.saw/`, the `.gitignore` lines, agent adapters and `core.hooksPath` stay; remove them by hand if you want (`git config --unset core.hooksPath`).
+
+**Global.**
+
+```bash
+claude plugin uninstall sams-agentic-workflow@sams-agentic-workflow
+claude plugin prune
+claude plugin marketplace remove sams-agentic-workflow
+```
+
+Then remove the `@saw-workflow.md` line from `~/.claude/CLAUDE.md`, delete `~/.claude/saw-workflow.md` (and its `.bak.*` copies), `~/.saw/` if you don't want your personal settings, the clone, and the PATH entry. Don't delete `~/.claude/settings.json`: it holds your other Claude Code settings. If the bootstrap created it, compare it with `global/settings.example.json` and remove only what came from there.
