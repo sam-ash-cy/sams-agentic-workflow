@@ -34,3 +34,47 @@ test('Improve respects the cooldown', { options: { cooldownSec: 60 } }, async ($
   expect(String(second.text)).toContain('Wait')
   expect(calls).toBe(1)
 })
+
+const measure = (usd: number) => ({ context: { tokens: 1000, window: 200000, percent: 1 }, rateLimits: [], cost: { usd }, changed: ['cost' as const] })
+const task = (started: string) => JSON.stringify({ tier: 'standard', playbook: 'feature', started })
+
+test('cost band shows the session cost with no task open', async ($, on) => {
+  on('session.measure', (_, e) => ({ changed: e.changed }))
+  on('fs.read', () => { throw new Error('ENOENT') })
+  await $.session.measure(measure(1.5))
+  const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
+  expect(await ui.find({ type: 'Text', text: '$1.50 session' })).toBeDefined()
+  await ui.unmount()
+})
+
+test('cost band counts the task from where it started', async ($, on) => {
+  let file = task('2026-11-10T10:00:00Z')
+  on('session.measure', (_, e) => ({ changed: e.changed }))
+  on('fs.read', () => ({ value: file }))
+  await $.session.measure(measure(2))
+  await $.session.measure(measure(2.4))
+  const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
+  expect(await ui.find({ type: 'Text', text: '$0.40 task · $2.40 session' })).toBeDefined()
+  file = task('2026-11-10T11:00:00Z')
+  await $.session.measure(measure(2.5))
+  expect(await ui.find({ type: 'Text', text: '$0.00 task · $2.50 session' })).toBeDefined()
+  await ui.unmount()
+})
+
+test('cost band warns once at the budget share and once past it', { options: { budgetUsd: 1 } }, async ($, on) => {
+  const toasts: string[] = []
+  on('session.measure', (_, e) => ({ changed: e.changed }))
+  on('fs.read', () => ({ value: task('2026-11-10T10:00:00Z') }))
+  on('ui.toast', (_, e) => (toasts.push(String(e.text)), { value: undefined }))
+  await $.session.measure(measure(0))
+  await $.session.measure(measure(0.85))
+  await $.session.measure(measure(0.9))
+  await $.session.measure(measure(1.2))
+  await $.session.measure(measure(1.3))
+  expect(toasts).toHaveLength(2)
+  expect(toasts[0]).toContain('85%')
+  expect(toasts[1]).toContain('over')
+  const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
+  expect(await ui.find({ type: 'Text', text: '$1.30 task of $1.00 · $1.30 session' })).toBeDefined()
+  await ui.unmount()
+})

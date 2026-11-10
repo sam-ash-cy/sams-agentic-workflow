@@ -172,3 +172,9 @@ export function figmaFallback(config: Table, input: { tool_name?: unknown; error
   const message = "[saw] Figma's MCP limit is reached. Carry on in the browser instead: open the Figma file (or the site to match) in the built-in browser, read layout, spacing, colours and type from the page and screenshots, and use the extract-design-system skill to pull tokens from a live site. Tell the user Figma calls are paused until the limit resets.";
   return { systemMessage: "saw: Figma MCP limit reached; continuing in the browser", hookSpecificOutput: { hookEventName: "PostToolUseFailure", additionalContext: message } };
 }
+
+// Plugins behind "plugin:skill" names that aren't installed; bare skill names
+// (user or project skills) aren't checked.
+export function missingSkillPlugins(skills: string[], inst = installedNames(process.cwd())): string[] {
+  return [...new Set(skills.filter((s) => s.includes(":")).map((s) => s.split(":")[0]!.toLowerCase()))].filter((p) => !inst.plugins.has(p));
+}
