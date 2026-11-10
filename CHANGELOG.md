@@ -6,7 +6,7 @@ All notable changes to this project. Versions follow [Semantic Versioning](https
 
 ### Features
 
-- `routing.mode` (`soft` | `hard`, default `hard`): saw guard denies edits to files in a saw project until a task is open. **Behaviour change:** edits made with no task now stop with a message naming the router skill, `saw task start` and `saw task adhoc`; opt out with `saw config set routing.mode soft`. Planned as a minor release.
+- `routing.mode` (`soft` | `hard`, default `hard`): saw guard denies edits to files in a saw project until a task is open. **Behaviour change:** edits made with no task now stop with a message naming the router skill, `saw task start` and `saw task adhoc`; opt out with `saw config set routing.mode soft`.
 - the Stop gate also catches shell writes (`sed -i`, redirects) by comparing `git status --porcelain` with the session-start baseline
 - session start says `saw is not set up here: run saw init or /workflow-setup` in a git repo without `workflow.toml`
 
