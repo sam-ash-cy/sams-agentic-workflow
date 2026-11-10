@@ -65,3 +65,10 @@ test("applySplit adds a worktree per unit off the base, with its brief", () => {
   expect(again.every((r) => !r.ok && r.message.includes("exists"))).toBe(true);
   expect(existsSync(join(root, "repo-cost"))).toBe(true);
 });
+
+test("a branch.base that is a git option is refused before git runs", () => {
+  const root = mkdtempSync(join(tmpdir(), "saw-split-"));
+  const r = applySplit(planSplit(parseSplit(PLAN), join(root, "repo")), "", "--upload-pack=touch pwned", join(root, "repo"));
+  expect(r.every((x) => !x.ok && x.message.includes("not a branch name"))).toBe(true);
+  expect(existsSync(join(root, "repo-cost-band"))).toBe(false);
+});

@@ -8,6 +8,9 @@ import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 
 const BRANCH = /^(feat|fix|docs|refactor|test|chore|ci|perf|build|style|revert)\/[a-z0-9]+(-[a-z0-9]+)*$/;
+// A branch name safe to hand git: never an option (a committed workflow.toml
+// could set branch.base = "--upload-pack=<cmd>"), never a range.
+export const SAFE_REF = /^(?!.*\.\.)[A-Za-z0-9][A-Za-z0-9._/-]*$/;
 const HEADING = /^(#{1,6})\s+(.*)$/;
 const NAMED = /^(.*?)\s*`([^`]+\/[^`]+)`\s*$/;
 
@@ -65,6 +68,7 @@ const git = (cwd: string, args: string[]): { ok: boolean; out: string } => {
 // Adds each worktree off origin/<base> (else the local base) and writes its
 // brief to .saw/brief.md there. A path that exists is left alone.
 export function applySplit(units: (Unit & { path: string })[], context: string, base: string, cwd: string): { unit: Unit & { path: string }; ok: boolean; message: string }[] {
+  if (!SAFE_REF.test(base)) return units.map((unit) => ({ unit, ok: false, message: `branch.base "${base}" is not a branch name; nothing run` }));
   git(cwd, ["fetch", "--quiet", "origin", base]);
   const from = git(cwd, ["rev-parse", "--verify", "--quiet", `origin/${base}`]).ok ? `origin/${base}` : base;
   return units.map((unit) => {
