@@ -1161,6 +1161,27 @@ export function docsPluginProblem(listOutput: string, config: Table): string | u
   return `features.docs_step is on but the engineering plugin is ${block ? "disabled" : "not installed"} (it provides engineering:documentation): \`claude plugin ${block ? "enable" : "install"} engineering@sams-agentic-workflow\`, or set features.docs_step false`;
 }
 
+function modNames(): string[] {
+  const dir = join(PLUGIN_ROOT, "mods");
+  return existsSync(dir) ? readdirSync(dir).filter((d) => existsSync(join(dir, d, ".claude-plugin", "plugin.json"))) : [];
+}
+
+// saw doctor: each saw mod installed and enabled, and whether this host draws
+// them. Mods that render (panes, bands, buttons) only show in the terminal TUI.
+export function modsReport(listOutput: string, mods: string[], entrypoint: string | undefined): { lines: string[]; problems: string[] } {
+  const lines: string[] = [];
+  const problems: string[] = [];
+  for (const m of mods) {
+    const block = new RegExp(`(?:^|\\s)${m}@sams-agentic-workflow[^]*?(?=\\n\\s*❯|$)`).exec(listOutput)?.[0];
+    const state = !block ? "not installed" : /disabled/i.test(block) ? "disabled" : "enabled";
+    // Mods are optional: one not installed is a note, a disabled one a problem.
+    lines.push(`mod ${m.padEnd(18)} ${state}${state === "not installed" ? ` (optional: claude plugin install ${m}@sams-agentic-workflow)` : ""}`);
+    if (state === "disabled") problems.push(`mod ${m} is disabled: \`claude plugin enable ${m}@sams-agentic-workflow\``);
+  }
+  if (mods.length && entrypoint && entrypoint !== "cli") lines.push(`host ${entrypoint}: mod panes, bands and buttons draw only in the terminal \`claude\`; run it there to see them`);
+  return { lines, problems };
+}
+
 function checkPlugin(config: Table): string[] {
   if (!Bun.which("claude")) {
     console.log("  plugin: skipped (claude not on PATH)");
@@ -1171,7 +1192,10 @@ function checkPlugin(config: Table): string[] {
   const problem = proc.exitCode === 0 ? pluginProblem(out) ?? docsPluginProblem(out, config) : `\`claude plugin list\` exited ${proc.exitCode}`;
   if (problem) console.error(`problem: ${problem}`);
   else console.log("  plugin: ok");
-  return problem ? [problem] : [];
+  const mods = proc.exitCode === 0 ? modsReport(out, modNames(), process.env.CLAUDE_CODE_ENTRYPOINT) : { lines: [], problems: [] };
+  for (const l of mods.lines) console.log(`  ${l}`);
+  for (const m of mods.problems) console.error(`problem: ${m}`);
+  return [...(problem ? [problem] : []), ...mods.problems];
 }
 
 // run() returns this when a server is running: the entrypoint must not exit.
