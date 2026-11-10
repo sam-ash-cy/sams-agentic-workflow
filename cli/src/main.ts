@@ -2,11 +2,12 @@
 
 import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { isAbsolute, join, relative, resolve as resolvePath } from "node:path";
+import { dirname, isAbsolute, join, relative, resolve as resolvePath } from "node:path";
 import { baseBranch, flatten, inside, layerPaths, layerValues, loosens, parseValue, resolve, setPath, unsetPath, validate, weakenedSafety, type Layer } from "./config";
 import { DEFAULTS, type Table, type Value } from "./defaults";
 import { readIfExists } from "./fs";
 import { syncAgents, syncSession } from "./agents";
+import { syncCompact } from "./autocompact";
 import { AGENTS, checkAdapters, installAdapters } from "./adapters";
 import { syncVault, vaultPath } from "./vault";
 import { budgetHook, contextHook, routerNudge } from "./context";
@@ -52,7 +53,7 @@ const USAGE = `usage: saw <command>
   uninstall [--dry-run]              remove template files you haven't edited
   agents check                       smoke test: will each agent in agents.enabled read AGENTS.md?
   vault sync [--dry-run]             index this project (and its learnings) in the central vault
-  sync [--plugin-dir <dir>] [--dry-run]   write .saw/resolved.json; set agent models from [models]; deny skills of disabled features
+  sync [--plugin-dir <dir>] [--scope global] [--dry-run]   write .saw/resolved.json; set agent models from [models]; deny skills of disabled features; [context] autocompact (--scope global: the global layer into ~/.claude/settings.json)
   deps list | verify [--strict]      pinned third-party skills (deps.lock.toml)
   deps diff <name> <sha>             compare URL to review before updating a pin
   deps pin <name> <sha> --reviewed-by <who>
@@ -453,6 +454,21 @@ export function run(argv: string[], cwd = process.cwd()): number {
       const s = syncSession(cwd, resolved.config, dryRun);
       const keys = Object.entries(s.set).map(([k, v]) => `${k}=${v}`).join(" ");
       console.log(`  session ${keys || "(no plan-phase model/effort to set)"}${s.changed ? (dryRun ? " (would write .claude/settings.local.json)" : " (wrote .claude/settings.local.json; restart to apply)") : ""}`);
+    }
+    try {
+      // --scope global: only the global layer, into Claude Code's user settings.
+      const global = args.scoped && args.scope === "global";
+      const paths = layerPaths(cwd);
+      const none = join(cwd, ".saw", "no-layer.toml");
+      const config = global ? resolve(cwd, args.overrides, { global: paths.global, project: none, local: none }).config : resolved.config;
+      const target = global ? join(process.env.CLAUDE_CONFIG_DIR ?? join(homedir(), ".claude"), "settings.json") : join(cwd, ".claude", "settings.local.json");
+      const track = global ? join(dirname(paths.global), "autocompact.json") : join(cwd, ".saw", "autocompact.json");
+      const c = syncCompact(target, track, config, dryRun);
+      for (const w of c.warnings) console.log(`  warn ${w}`);
+      const keys = [...Object.entries(c.set).map(([k, v]) => `${k}=${v}`), ...c.removed.map((k) => `${k} removed`)];
+      if (keys.length) console.log(`  autocompact ${keys.join(" ")}${c.changed ? (dryRun ? ` (would write ${target})` : ` (wrote ${target})`) : ""}`);
+    } catch (e) {
+      return fail((e as Error).message);
     }
     const models = resolved.config.models as { mode?: string; strong?: string };
     if (models.mode === "single") console.log(`  single-model mode: agents inherit; to pin one model for all subagents set CLAUDE_CODE_SUBAGENT_MODEL=${models.strong}`);

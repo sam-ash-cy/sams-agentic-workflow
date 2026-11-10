@@ -121,6 +121,12 @@ export const DEFAULTS: Table = {
     window_tokens: 200000,
     suggest_compact_at: [0.5, 0.7],
     handoff_at: 0.85,
+    // Claude Code's own auto-compact, written by saw sync: "inherit" leaves
+    // autoCompactEnabled alone, "on"/"off" set it. autocompact_window (tokens,
+    // 100000-1000000) sets autoCompactWindow; 0 leaves it alone. Global layer:
+    // saw sync --global writes ~/.claude/settings.json; else .claude/settings.local.json.
+    autocompact: "inherit",
+    autocompact_window: 0,
   },
   // rewrite_commands: saw guard runs a Bash call that is exactly a [checks]
   // command as `saw run <check>` instead.
@@ -222,4 +228,5 @@ export const ENUMS: Record<string, string[]> = {
   "knowledge.store": ["repo", "vault", "both"],
   "safety.push": ["never", "ask", "allow"],
   "logging.level": ["debug", "info", "warn"],
+  "context.autocompact": ["inherit", "on", "off"],
 };

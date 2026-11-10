@@ -498,6 +498,19 @@
         "handoff_at": {
           "type": "number",
           "default": 0.85
+        },
+        "autocompact": {
+          "type": "string",
+          "default": "inherit",
+          "enum": [
+            "inherit",
+            "on",
+            "off"
+          ]
+        },
+        "autocompact_window": {
+          "type": "number",
+          "default": 0
         }
       }
     },
