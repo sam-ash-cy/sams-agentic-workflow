@@ -82,3 +82,13 @@ test("guard catches quoted commits and edits on base while a worktree holds the 
   rmSync(join(wt, ".saw", "task.json"));
   expect(baseBranchGuard(c, "Edit", "", dir, onMain, join(dir, "a.ts"))).toBeUndefined();
 });
+
+test("a branch.base that is a git option is refused before git runs", () => {
+  const calls: string[][] = [];
+  const fake: Git = (args) => (calls.push(args), { ok: true, out: "" });
+  const s = { ...branchSettings({ features: { branch_guard: true } }), base: "--upload-pack=touch pwned" };
+  const r = applyBranch({ action: "branch", name: "feat/x" }, s, "/r", fake);
+  expect(r.ok).toBe(false);
+  expect(r.message).toContain("not a branch name");
+  expect(calls).toEqual([]);
+});

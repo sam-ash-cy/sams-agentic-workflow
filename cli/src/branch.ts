@@ -12,6 +12,9 @@ export const BRANCH_TYPES = ["feat", "fix", "docs", "refactor", "test", "chore",
 export const GOOD_BRANCH = new RegExp(`^(${BRANCH_TYPES.join("|")})/[a-z0-9]+(-[a-z0-9]+)*$`);
 // Names a tool picked (Claude Code, the desktop app's worktrees).
 export const AUTO_BRANCH = /^(claude\/|worktree-)/;
+// A branch name safe to hand git: never an option (a committed workflow.toml
+// could set branch.base = "--upload-pack=<cmd>"), never a range.
+export const SAFE_REF = /^(?!.*\.\.)[A-Za-z0-9][A-Za-z0-9._/-]*$/;
 
 export interface BranchSettings {
   enabled: boolean;
@@ -67,6 +70,7 @@ export function applyBranch(plan: BranchPlan, s: BranchSettings, cwd: string, ru
     const r = run(["branch", "-m", plan.name], cwd);
     return r.ok ? { ok: true, message: `renamed ${plan.from} to ${plan.name}` } : { ok: false, message: `could not rename ${plan.from} to ${plan.name}: ${r.out}` };
   }
+  if (!SAFE_REF.test(s.base)) return { ok: false, message: `branch.base "${s.base}" is not a branch name; nothing run` };
   run(["fetch", "--quiet", "origin", s.base], cwd);
   const from = run(["rev-parse", "--verify", "--quiet", `origin/${s.base}`], cwd).ok ? `origin/${s.base}` : s.base;
   const args = plan.action === "branch"
