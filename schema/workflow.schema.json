@@ -341,6 +341,29 @@
         }
       }
     },
+    "tdd": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "mode": {
+          "type": "string",
+          "default": "hard",
+          "enum": [
+            "soft",
+            "hard"
+          ]
+        },
+        "playbooks": {
+          "type": "array",
+          "default": [
+            "feature",
+            "foundation",
+            "integration",
+            "debug"
+          ]
+        }
+      }
+    },
     "tokens": {
       "type": "object",
       "additionalProperties": false,
@@ -595,6 +618,19 @@
         "handoff_at": {
           "type": "number",
           "default": 0.85
+        },
+        "autocompact": {
+          "type": "string",
+          "default": "inherit",
+          "enum": [
+            "inherit",
+            "on",
+            "off"
+          ]
+        },
+        "autocompact_window": {
+          "type": "number",
+          "default": 0
         }
       }
     },

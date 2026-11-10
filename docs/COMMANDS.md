@@ -62,6 +62,7 @@ The `router` skill runs most of these for the agent.
 | `saw task status` | Which required checks passed, failed or are missing. |
 | `saw task record <check> pass\|fail [--note "..."] [--report <file>]` | Records a judgement check (`code_review`, `security_review`, `docs`, `threat_model`, ...). `--report` names a reviewer's report under `.saw/reviews/` (see `verify.require_review_evidence`). |
 | `saw task report [--post [--pr <n>] [--yes]]` | The Markdown verification section for a PR; `--post` comments it with `gh`, as `autonomy.actions.open_pr` allows. |
+| `saw task pr-body [--base <ref>]` | A whole PR description: the commits since `<ref>` (default `origin/<branch.base>`, else `origin/main`) and the verification section. Pipe it to `gh pr create --body-file -`. |
 | `saw task end [--tokens <n>]` | Closes the task and appends its metrics to `.saw/metrics.jsonl`. |
 | `saw run <check> [--changed]` | Runs `checks.<check>` quietly, keeps the full log in `output.full_logs`, records the result. `--changed`: only tests for changed files. |
 | `saw outline <file>` | Signatures with line numbers (when Trail isn't used). |
@@ -204,7 +205,7 @@ Later layers win; `--set` beats all of them for one call. From `workflow.toml`, 
 | Key | Default | Purpose |
 |---|---|---|
 | `features.grilling` | `true` | Clarifying questions before complex work. |
-| `features.tdd` | `true` | Test-first step in task steps. |
+| `features.tdd` | `true` | Test-first step in task steps. With `tdd.mode = "hard"` (default) and a `[checks].test` command, saw guard denies code edits (test files excepted) on standard-or-higher tasks in `tdd.playbooks` (default feature, foundation, integration, debug) until `saw run test` has failed since the task started. `"soft"`: the step only. |
 | `features.code_review` | `true` | `code_review` in `[verify]`; off drops it. |
 | `features.security_review` | `true` | `security_review` in `[verify]`; off drops it. |
 | `features.verify_hook` | `true` | The gate and the no-task router reminder. |
