@@ -1,0 +1,5 @@
+# Vendored third-party bundles (Prism grammars, beautiful-mermaid), pinned in
+# deps.lock.toml and rebuilt by mods/render/scripts/build-vendor.mjs: alerts there
+# are upstream code, not ours, and edits would be lost on the next rebuild.
+paths-ignore:
+  - mods/render/hooks/vendor

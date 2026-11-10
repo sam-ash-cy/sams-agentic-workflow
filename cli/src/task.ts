@@ -6,6 +6,7 @@
 import { appendFileSync, closeSync, existsSync, fstatSync, mkdirSync, openSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { isAbsolute, join, relative, resolve } from "node:path";
 import type { Table } from "./defaults";
+import { advisorModel } from "./skills";
 import { branchSettings } from "./branch";
 import { readReviews, reportVerdict, reviewBudget, signatureValid, type ReviewSettings } from "./review-session";
 
@@ -135,7 +136,7 @@ export function requiredChecks(config: Table, tier: string, seen = new Set<strin
   return [...new Set([...parent, ...(entry.run ?? [])])].filter((c) => !(c in REVIEW_FEATURES) || features[REVIEW_FEATURES[c]!] !== false);
 }
 
-const REVIEW_FEATURES: Record<string, string> = { code_review: "code_review", security_review: "security_review", docs: "docs_step" };
+const REVIEW_FEATURES: Record<string, string> = { code_review: "code_review", security_review: "security_review", docs: "docs_step", advisor: "advisor" };
 
 // Playbooks that ship something users read about; only these owe the docs check.
 const DELIVERS = ["feature", "foundation"];
@@ -162,6 +163,13 @@ export function pickTier(config: Table, flag: string | undefined): string {
   throw new Error("--tier is required (routing.default_tier is auto)");
 }
 
+// [tdd] mode hard: saw guard holds code edits until a test run fails (tests-first.ts).
+export function tddSettings(config: Table): { hard: boolean; playbooks: string[] } {
+  const on = ((config.features ?? {}) as Record<string, boolean>).tdd;
+  const t = (config.tdd ?? {}) as { mode?: string; playbooks?: string[] };
+  return { hard: !!on && t.mode === "hard", playbooks: t.playbooks ?? [] };
+}
+
 // Lifecycle steps `saw task start` prints for the agent, from [features] and [routing].
 // [task_skills]: the playbook's skills, plus "plan" for complex and critical tasks.
 export function taskSkills(config: Table, tier: string, playbook: string): string[] {
@@ -176,7 +184,11 @@ export function taskSteps(config: Table, tier: string, playbook = "feature"): st
   const steps: string[] = [];
   if (features.grilling && grill.includes(tier)) steps.push("grilling first");
   if (features.trail) steps.push("trail ask/skeleton before reading code");
-  if (features.tdd && tier !== "trivial") steps.push("tdd (failing test first)");
+  if (features.tdd && tier !== "trivial") {
+    const tdd = tddSettings(config);
+    const enforced = tdd.hard && tdd.playbooks.includes(playbook) && !!((config.checks ?? {}) as Record<string, unknown>).test;
+    steps.push(enforced ? "tests first: write the failing tests from the plan, run `saw run test` and see it fail, then write the code (saw guard holds code edits until then)" : "tdd (failing test first)");
+  }
   const big = tier === "complex" || tier === "critical";
   if (features.branch_guard && tier !== "trivial") steps.push(`own branch off ${branchSettings(config).base} (saw task start --branch <type>/<kebab>)`);
   if (features.worktrees && big) steps.push("one worktree per task");
@@ -189,6 +201,10 @@ export function taskSteps(config: Table, tier: string, playbook = "feature"): st
     (taskChecks(config, tier, playbook).includes("docs") ? "; then saw task record docs pass --note \"<files>\" (or --note \"none needed: <why>\")" : ""));
   if (features.ecc && delivers) steps.push("before the PR: ecc:verification-loop (build, types, lint, tests, diff review)");
   if (features.brag && delivers) steps.push("optional after the PR merges: a launch video with the brag skill");
+  if (taskChecks(config, tier, playbook).includes("advisor")) {
+    const model = advisorModel(config);
+    steps.push(`advisor: after the plan and before reporting done, call the advisor tool (${model}); then saw task record advisor pass --note "<its advice, and what you did>"`);
+  }
   if (features.task_skills && tier !== "trivial") {
     const fit = taskSkills(config, tier, playbook);
     if (fit.length) steps.push(`skills that fit (run each where it helps): ${fit.join(", ")}`);
@@ -210,7 +226,7 @@ export function taskSteps(config: Table, tier: string, playbook = "feature"): st
 
 // Checks judged by the agent and recorded with `saw task record`; every other
 // check needs a command in [checks] and only counts when `saw run` ran it.
-export const JUDGEMENT_CHECKS = ["code_review", "security_review", "threat_model", "rollback_plan", "docs"];
+export const JUDGEMENT_CHECKS = ["code_review", "security_review", "threat_model", "rollback_plan", "docs", "advisor"];
 
 export interface Status {
   label: Label;

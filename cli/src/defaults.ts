@@ -61,6 +61,9 @@ export const DEFAULTS: Table = {
     recommend: true,
     // saw task end suggests up to 3 catalog skills that fit the finished task.
     skill_finder: true,
+    // Claude Code's built-in advisor (advisorModel, written by saw sync) is on,
+    // and standard-or-higher tasks owe an advisor check before the PR.
+    advisor: true,
     // saw task start names the skills that fit the task's playbook ([task_skills]),
     // to run where they help, and how to install the ones missing.
     task_skills: true,
@@ -78,6 +81,8 @@ export const DEFAULTS: Table = {
     hardening: ["appsec-review", "engineering:tech-debt"],
     audit: ["engineering:code-review", "appsec-review"],
   },
+  // features.advisor: the model the advisor tool asks (global or project layer).
+  advisor: { model: "claude-opus-5-5" },
   // auto: the agent offers to run `saw recommend add <id>` once the user agrees;
   // manual: it only shows the install command.
   recommend: { mode: "auto", mcp: true, skills: true },
@@ -101,6 +106,10 @@ export const DEFAULTS: Table = {
   // mode auto: a worktree for complex and critical tasks (features.worktrees), a branch otherwise.
   branch: { base: "main", mode: "auto" },
   routing: { default_tier: "auto", always_grill: ["complex", "critical"] },
+  // features.tdd: mode hard = on standard-or-higher tasks in these playbooks, saw
+  // guard denies code edits (tests excepted) until `saw run test` has failed since
+  // the task started. Needs [checks].test. soft = the step only.
+  tdd: { mode: "hard", playbooks: ["feature", "foundation", "integration", "debug"] },
   tokens: {
     mode: "soft",
     warn_at: 0.8,
@@ -132,7 +141,7 @@ export const DEFAULTS: Table = {
     // A guardrail: workflow.toml can raise it, only your own layers can lower it.
     require_review_evidence: "off",
     trivial: { run: ["test"] },
-    standard: { run: ["format", "lint", "typecheck", "test", "code_review", "security_review", "docs"] },
+    standard: { run: ["format", "lint", "typecheck", "test", "code_review", "security_review", "advisor", "docs"] },
     complex: { extends: "standard", run: [] },
     critical: { extends: "complex", run: ["e2e", "dep_audit", "threat_model", "rollback_plan"] },
   },
@@ -144,6 +153,12 @@ export const DEFAULTS: Table = {
     window_tokens: 200000,
     suggest_compact_at: [0.5, 0.7],
     handoff_at: 0.85,
+    // Claude Code's own auto-compact, written by saw sync: "inherit" leaves
+    // autoCompactEnabled alone, "on"/"off" set it. autocompact_window (tokens,
+    // 100000-1000000) sets autoCompactWindow; 0 leaves it alone. Global layer:
+    // saw sync --global writes ~/.claude/settings.json; else .claude/settings.local.json.
+    autocompact: "inherit",
+    autocompact_window: 0,
   },
   // rewrite_commands: saw guard runs a Bash call that is exactly a [checks]
   // command as `saw run <check>` instead.
@@ -237,6 +252,7 @@ export const ENUMS: Record<string, string[]> = {
   "branch.mode": ["branch", "worktree", "auto"],
   "routing.default_tier": ["auto", "trivial", "standard", "complex", "critical"],
   "tokens.mode": ["soft", "hard"],
+  "tdd.mode": ["soft", "hard"],
   "verify.require_review_evidence": ["off", "agent", "review_session"],
   "style.tone": ["normal", "structured", "detailed", "verbose"],
   "style.mode": ["soft", "hard"],
@@ -246,4 +262,5 @@ export const ENUMS: Record<string, string[]> = {
   "knowledge.store": ["repo", "vault", "both"],
   "safety.push": ["never", "ask", "allow"],
   "logging.level": ["debug", "info", "warn"],
+  "context.autocompact": ["inherit", "on", "off"],
 };
