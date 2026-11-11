@@ -22,6 +22,7 @@ saw eval --save-baseline        # before a change: record each case's score and 
 saw eval                        # after: exit 1 if any case scores lower, or costs >10% more tokens at the same score
 saw eval --case router-*        # just some cases
 saw eval compare a.json b.json  # compare two saved runs
+saw eval --ab                   # saw on vs saw off (SAW_DISABLE_HOOKS=1): pass rate, tokens, cost per case -> .saw/evals-ab.json
 ```
 Each run is a real agent session per case (3 runs each by default, `evals.runs`), billed to your account. The first run asks you to trust the plugin.
 

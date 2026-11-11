@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { adoption, formatAdoption } from "../src/adoption";
+import { adoption, featureUsage, formatAdoption, formatFeatureUsage } from "../src/adoption";
 import { renderHtml } from "../src/dashboard";
 import type { WorkflowEvent } from "../src/events";
 import type { TaskMetric } from "../src/metrics";
@@ -61,4 +61,22 @@ test("the dashboard shows the adoption card when the panel is on, escaped", () =
   expect(html).toContain("67%");
   expect(html).not.toContain("<script>");
   expect(renderHtml([], ["outcomes"], [], [], new Date(), [], false, a)).not.toContain("<h2>Adoption</h2>");
+});
+
+test("adoption --features counts triggers per feature and mod, rarest first, and splits out the unmeasurable", () => {
+  const es: WorkflowEvent[] = [
+    ev("2026-10-01T00:00:00Z", "budget", "old"),
+    ev("2026-11-09T00:00:00Z", "budget", "b"),
+    ev("2026-11-09T00:00:00Z", "gate.pass", "p"),
+    ev("2026-11-09T00:01:00Z", "gate.block", "x"),
+    ev("2026-11-09T00:02:00Z", "info", "m", { mod: "status-band" }),
+  ];
+  const ms = [{ at: "2026-11-09T00:00:00Z", tier: "standard", playbook: "feature", label: "Verified", first_pass: true, rework: 0, findings: { code_review: 1 }, duration_s: 1 }] as TaskMetric[];
+  const u = featureUsage(["verify_hook", "budgets", "format_hook", "code_review", "grilling"], ["status-band", "quiet-mod"], es, ms, 7, new Date("2026-11-11T00:00:00Z"));
+  expect(u.rows.map((r) => [r.name, r.count])).toEqual([["format_hook", 0], ["budgets", 1], ["code_review", 1], ["status-band", 1], ["verify_hook", 2]]);
+  expect(u.candidates).toEqual(["format_hook"]);
+  expect(u.not_measurable).toEqual([{ name: "grilling", type: "feature" }, { name: "quiet-mod", type: "mod" }]);
+  const text = formatFeatureUsage(u);
+  expect(text).toContain("format_hook  <- candidate to cut");
+  expect(text).toContain("not measurable (logs no event): grilling, mod:quiet-mod");
 });
