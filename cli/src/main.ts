@@ -23,9 +23,9 @@ import { renderHtml, renderMarkdown } from "./dashboard";
 import { dashboardUrl, serveDashboard } from "./dashboard-server";
 import { hookCwd } from "./hook-cwd";
 import { logEvent, readEvents } from "./events";
-import { adoption, formatAdoption } from "./adoption";
+import { adoption, featureUsage, formatAdoption, formatFeatureUsage } from "./adoption";
 import { appendMetric, buildMetric, readMetrics } from "./metrics";
-import { compare, summarise, type Comparison, type Summary } from "./evals";
+import { compare, formatAb, runAb, summarise, type Comparison, type EvalRunner, type Summary } from "./evals";
 import { failureCandidates } from "./failures";
 import { configSuggestions, readProposals, retro } from "./retro";
 import { companionWarnings, compareUrl, pin, readLock, readSyncedPluginNames, verifyLock } from "./deps";
@@ -40,7 +40,7 @@ import { sanitize, sanitizeHistory } from "./sanitize";
 import { syncAdvisor, syncSkillDenies } from "./skills";
 import { applyPlan, gh, readState, repoName, repoPlan, type Gh } from "./repo";
 import { formatHook, runCheck, TRUSTED_LAYERS } from "./run";
-import { checkMods } from "./mods";
+import { checkMods, listMods } from "./mods";
 import { addProject, inspectProject, listProjects, registerProject, removeProject } from "./projects";
 import { verifyMode } from "./verify-guard";
 import { acceptanceLine, acceptanceProblem, addAcceptance, currentTask, endTask, gate, gitStatusHash, isSawProject, markUntaskedEdit, noteUnverifiedExit, noChecksWarning, pickTier, recordCheck, recordVerifiedTree, retierTask, reviewEvidence, statusProblems, setPhase, staleMessage, staleTask, startTask, storedTreeHash, storeTreeHash, takeUnverifiedExit, taskReport, writeStatusFile, taskStatus, taskSkills, taskSteps, type Status } from "./task";
@@ -85,9 +85,9 @@ const USAGE = `usage: saw <command>
   task retier <tier>                 change the open task's tier (keeps its checks; never below what the diff needs)
   task end [--tokens <n>] [--reason "<why>"]   close the task and append its metrics (.saw/metrics.jsonl); --reason is required unless it is Verified
   dashboard [--serve [--port <n>]]   write the static metrics page (and the Obsidian note if set); --serve: live page on 127.0.0.1
-  adoption [--since <days>] [--json] is the workflow used? tasks opened vs Stops, denials, unverified exits, tiers
+  adoption [--features] [--since <days>] [--json] is the workflow used? (--features: trigger count per feature and mod) tasks opened vs Stops, denials, unverified exits, tiers
   retro [--dry-run]                  write a proposal for each check failing in repeat_threshold+ tasks
-  eval [--case <glob>] [--runs <n>] [--dry-run] [--save-baseline]   run the eval suite (claude plugin eval) and compare with the baseline
+  eval [--case <glob>] [--runs <n>] [--dry-run] [--save-baseline] [--ab]   run the eval suite (claude plugin eval) and compare with the baseline; --ab runs it with saw on and off (.saw/evals-ab.json)
   eval compare <before.json> <after.json>  compare two saved eval results
   mods check [<name>]                validate and test the mods under mods/ (needs the claude CLI)
   run <check> [--changed]            run checks.<check> quietly and record the result (--changed: only tests for changed files)
@@ -573,6 +573,11 @@ export function run(argv: string[], cwdArg?: string): number {
   if (command === "adoption") {
     const raw = args.values.since;
     if (raw !== undefined && !/^[1-9]\d*$/.test(raw)) return fail("--since must be a whole number of days");
+    if (args.flags.has("--features")) {
+      const u = featureUsage(Object.keys((DEFAULTS.features ?? {}) as Table), listMods(PLUGIN_ROOT), readEvents(cwd), readMetrics(cwd), raw === undefined ? undefined : Number(raw), new Date(), ((resolved.config.logging ?? {}) as { enabled?: boolean }).enabled === true);
+      console.log(args.flags.has("--json") ? JSON.stringify(u, null, 2) : formatFeatureUsage(u));
+      return 0;
+    }
     const a = adoption(readEvents(cwd), readMetrics(cwd), raw === undefined ? undefined : Number(raw));
     console.log(args.flags.has("--json") ? JSON.stringify(a, null, 2) : formatAdoption(a));
     return 0;
@@ -1301,13 +1306,29 @@ function evalCommand(cwd: string, config: Table, args: Args): number {
     const runs = args.values.runs ? Number(args.values.runs) : e.runs;
     if (!Number.isInteger(runs) || runs < 1) return fail("--runs must be a whole number of at least 1");
     const out = join(cwd, ".saw", "evals", `${new Date().toISOString().replace(/[:.]/g, "-")}.json`);
-    // No ablation arm: before/after compares two versions of the plugin, not plugin vs none.
-    const cmd = ["claude", "plugin", "eval", PLUGIN_ROOT, "--no-publish", "--ablation", "none", "--runs", String(runs), "--threshold", "0", "--json", out];
+    // No ablation arm: before/after compares two versions of the plugin, not plugin vs none (--ab adds it).
+    const cmd = ["claude", "plugin", "eval", PLUGIN_ROOT, "--no-publish", "--ablation", args.flags.has("--ab") ? "with-without" : "none", "--runs", String(runs), "--threshold", "0", "--json", out];
     if (args.values.case) cmd.push("--case", args.values.case);
     // A paid run: say how big it is first.
     const cases = readdirSync(join(PLUGIN_ROOT, "evals"), { withFileTypes: true }).filter((d) => d.isDirectory() && (!args.values.case || new Bun.Glob(args.values.case).match(d.name))).length;
-    console.log(`saw eval: ${cases} case(s) x ${runs} run(s) = ${cases * runs} agent sessions (paid)`);
+    const arms = args.flags.has("--ab") ? 2 : 1; // --ab adds the no-plugin arm
+    console.log(`saw eval: ${cases} case(s) x ${runs} run(s)${arms > 1 ? " x 2 arms" : ""} = ${cases * runs * arms} agent sessions (paid)`);
     console.log(`  ${cmd.join(" ")}`);
+    if (args.flags.has("--ab")) {
+      if (args.flags.has("--save-baseline")) return fail("--ab and --save-baseline don't combine: save a baseline with a plain saw eval");
+      console.log("  --ab: --ablation with-without, so each case also runs with no plugin loaded (saw off)");
+      if (args.flags.has("--dry-run")) return 0;
+      const dir = join(cwd, ".saw");
+      mkdirSync(dir, { recursive: true });
+      const runner: EvalRunner = (path) => {
+        const c = cmd.map((x) => (x === out ? path : x));
+        return Bun.spawnSync(c, { cwd, stdout: "inherit", stderr: "inherit" }).exitCode ?? 1;
+      };
+      const r = runAb(dir, runner, e.max_token_increase, (p) => JSON.parse(readFileSync(p, "utf8")), (p, v) => writeFileSync(p, JSON.stringify(v, null, 2) + "\n"));
+      console.log(formatAb(r));
+      console.log(`  -> ${join(dir, "evals-ab.json")}`);
+      return 0;
+    }
     if (args.flags.has("--dry-run")) return 0;
     mkdirSync(join(out, ".."), { recursive: true });
     const run = Bun.spawnSync(cmd, { cwd, stdout: "inherit", stderr: "inherit" });

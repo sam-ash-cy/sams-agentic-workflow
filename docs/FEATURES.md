@@ -43,6 +43,8 @@ Defaults are what a fresh `saw init` gives you. "Key" is the setting that contro
 | | Auto-routing by rules (no model call): with no task open, the router nudge proposes `saw task start --tier <t> --playbook <p>` (`suggest`), or saw opens a provisional task that holds commits until `saw task retier` or `saw task start` confirms it (`open`) | suggest | `routing.auto` | |
 | | Subagent coverage: subagent edits and commands pass the same routing, verify and tier-floor guards; SubagentStop logs their edits against the open task, or arms the untasked-edit Stop check | on | `features.verify_hook` | |
 | | Adoption report: tasks opened against Stops, Stops and prompts with no task, routing and verify denials, unverified exits, retiers, tier spread (`saw adoption`, and a dashboard card) | on | `dashboard.panels` (`adoption`) | |
+| | Feature usage: trigger count per feature and mod, zero counts as candidates to cut, unmeasurable ones listed apart (`saw adoption --features`) | on | | |
+| | Saw on vs off: the eval suite with and without saw's hooks, per-case and total pass rate, tokens and cost (`saw eval --ab`, `.saw/evals-ab.json`) | on | `evals.runs`, `evals.max_token_increase` | |
 | Reviews | Code and security review on standard+ | on | `features.code_review`, `features.security_review` | |
 | | Advisor consult on standard+ (Claude Code's advisor, Opus 5.5 by default) | on | `features.advisor`, `advisor.model` | |
 | | PR description from commits and checks (`saw task pr-body`) | manual | | `gh` |
