@@ -633,8 +633,13 @@ export function tierFloor(cwd: string, config: Table, task: Task): Floor {
     // Reading is capped: past it a file still counts, its lines don't.
     if (read++ < MAX_UNTRACKED_READ) {
       try {
-        const abs = join(cwd, path);
-        if (statSync(abs).size <= 1_000_000) n = readFileSync(abs, "utf8").split("\n").length;
+        // One descriptor for the size check and the read, so the file can't change between them.
+        const fd = openSync(join(cwd, path), "r");
+        try {
+          if (fstatSync(fd).size <= 1_000_000) n = readFileSync(fd, "utf8").split("\n").length;
+        } finally {
+          closeSync(fd);
+        }
       } catch {
         // Unreadable (a directory, a race): the file still counts.
       }
