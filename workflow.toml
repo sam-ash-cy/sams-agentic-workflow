@@ -2,3 +2,6 @@
 [release]
 # Cut on release/vX.Y.Z (or hotfix/*), merge into main, then `saw release tag` on main.
 flow = "release-branch"
+
+[checks]
+test = "bun run test"
