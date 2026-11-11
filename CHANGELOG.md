@@ -4,18 +4,15 @@ All notable changes to this project. Versions follow [Semantic Versioning](https
 
 ## [1.0.2] - 2026-11-11
 
-### Breaking changes
-
-- close the paths to Verified without verifying ([#72](https://github.com/sam-ash-cy/sams-agentic-workflow/pull/72))
-- verify.mode hard holds commit, push and PR until the task is verified ([#70](https://github.com/sam-ash-cy/sams-agentic-workflow/pull/70))
-- routing.mode hard denies edits until a task is open ([#69](https://github.com/sam-ash-cy/sams-agentic-workflow/pull/69))
-
 ### Features
 
+- opt-in `verify.mode = "hard"`: holds commit, push and PR until the task is verified ([#70](https://github.com/sam-ash-cy/sams-agentic-workflow/pull/70))
+- opt-in `routing.mode = "hard"`: denies edits until a task is open ([#69](https://github.com/sam-ash-cy/sams-agentic-workflow/pull/69))
 - enforcement stage 3 (task state, adoption, preset, workspace init, subagents, auto-routing) ([#71](https://github.com/sam-ash-cy/sams-agentic-workflow/pull/71))
 
 ### Fixes
 
+- close the paths to Verified without verifying; a required check with no command now shows as Not verified ([#72](https://github.com/sam-ash-cy/sams-agentic-workflow/pull/72))
 - make hard routing and verify modes opt-in ([#73](https://github.com/sam-ash-cy/sams-agentic-workflow/pull/73))
 
 ## [1.0.1] - 2026-11-10
