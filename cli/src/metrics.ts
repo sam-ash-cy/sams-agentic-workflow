@@ -6,7 +6,7 @@ import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Table } from "./defaults";
 import { readReviews } from "./review-session";
-import { checkResults, taskStatus, type Label, type Task } from "./task";
+import { checkResults, taskStatus, type Label, type Status, type Task } from "./task";
 
 export interface TaskMetric {
   at: string;
@@ -44,8 +44,7 @@ export function transcriptTokens(path: string, since: string): number | undefine
   return seen ? total : undefined;
 }
 
-export function buildMetric(cwd: string, config: Table, task: Task, tokens?: number, now = new Date()): TaskMetric {
-  const status = taskStatus(cwd, config, task);
+export function buildMetric(cwd: string, config: Table, task: Task, tokens?: number, now = new Date(), status: Status = taskStatus(cwd, config, task)): TaskMetric {
   const results = checkResults(cwd, task.from);
   const fails = results.filter((r) => r.status === "fail");
   const findings: Record<string, number> = {};

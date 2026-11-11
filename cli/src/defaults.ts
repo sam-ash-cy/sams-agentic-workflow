@@ -163,6 +163,9 @@ export const DEFAULTS: Table = {
     // while the open task isn't Verified, or its tier is below the diff's floor (routing.trivial_max_*,
     // routing.critical_paths). soft = the Stop gate only. A guardrail: workflow.toml can raise it, only your own layers can lower it.
     mode: "hard",
+    // Required mechanical checks that may have no [checks] command without blocking
+    // Verified. Any other required check with no command makes a task "Not verified".
+    allow_unconfigured: [],
     trivial: { run: ["test"] },
     standard: { run: ["format", "lint", "typecheck", "test", "code_review", "security_review", "advisor", "docs"] },
     complex: { extends: "standard", run: [] },

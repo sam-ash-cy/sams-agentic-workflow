@@ -5,7 +5,7 @@
 
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { appendFileSync, closeSync, existsSync, fstatSync, mkdirSync, openSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { appendFileSync, closeSync, existsSync, fstatSync, mkdirSync, openSync, readFileSync, readlinkSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import type { Table } from "./defaults";
 import { statePath as sessionFile } from "./session-state";
@@ -307,18 +307,29 @@ export interface Status {
   passed: string[];
   failed: string[];
   missing: string[];
-  // Required mechanical checks with no command configured: reported, not blocking.
+  // Required mechanical checks with no command configured: Not verified ("not configured").
   unconfigured: string[];
+  // Required mechanical checks with no command, waived by verify.allow_unconfigured.
+  waived: string[];
+  // Set when the task's tier is below the diff's floor: the task can't be Verified.
+  floor?: string;
 }
+
+// verify.allow_unconfigured: checks that may have no command without blocking Verified.
+const allowUnconfigured = (config: Table): string[] => {
+  const v = ((config.verify ?? {}) as { allow_unconfigured?: unknown }).allow_unconfigured;
+  return Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : [];
+};
 
 export function taskStatus(cwd: string, config: Table, task: Task): Status {
   const results = checksSince(cwd, task.from);
   const commands = (config.checks ?? {}) as Record<string, string>;
-  const status: Status = { label: "Verified", passed: [], failed: [], missing: [], unconfigured: [] };
+  const allowed = allowUnconfigured(config);
+  const status: Status = { label: "Verified", passed: [], failed: [], missing: [], unconfigured: [], waived: [] };
   for (const name of taskChecks(config, task.tier, task.playbook)) {
     const mechanical = !JUDGEMENT_CHECKS.includes(name) && !name.startsWith("skill:");
     if (mechanical && !commands[name]) {
-      status.unconfigured.push(name);
+      (allowed.includes(name) ? status.waived : status.unconfigured).push(name);
       continue;
     }
     const r = results.get(name);
@@ -326,15 +337,39 @@ export function taskStatus(cwd: string, config: Table, task: Task): Status {
     else if (r.status === "pass") status.passed.push(name);
     else status.failed.push(name);
   }
+  const low = belowFloor(cwd, config, task);
+  if (low) status.floor = low;
   if (status.failed.length) status.label = "Blocked";
+  else if (status.floor || status.unconfigured.length) status.label = "Not verified";
   else if (status.missing.length) status.label = status.passed.length ? "Partially verified" : "Not verified";
   return status;
+}
+
+// The trivial tier's mechanical checks (what every task owes) with no command and
+// not waived by verify.allow_unconfigured: no task can be Verified until they're set.
+export function noChecksWarning(config: Table): string | undefined {
+  const commands = (config.checks ?? {}) as Record<string, unknown>;
+  const allowed = allowUnconfigured(config);
+  const missing = requiredChecks(config, "trivial").filter((n) => !JUDGEMENT_CHECKS.includes(n) && !(typeof commands[n] === "string" && (commands[n] as string).trim()) && !allowed.includes(n));
+  if (!missing.length) return undefined;
+  return `no command is set for ${missing.map((n) => `checks.${n}`).join(", ")}, so no task can be Verified. Ask the user to add one, e.g. \`saw config set checks.${missing[0]} "bun test"\` (any command that runs it), or to list checks that need none in verify.allow_unconfigured`;
+}
+
+// Why a task isn't Verified, for the Stop gate, the verify guard and saw task end.
+export function statusProblems(s: Status): string {
+  return [
+    s.floor ? `tier too low: ${s.floor}` : "",
+    s.failed.length ? `failed: ${s.failed.join(", ")}` : "",
+    s.missing.length ? `not run: ${s.missing.join(", ")}` : "",
+    s.unconfigured.length ? `not configured: ${s.unconfigured.join(", ")} (set checks.<name> in workflow.toml, or list it in verify.allow_unconfigured)` : "",
+  ].filter(Boolean).join("; ");
 }
 
 // .saw/status.json: the open task's tier, playbook and verification label, for the
 // mods (prompt band, workflow pane), which can read files but not run taskStatus.
 // `started` ties it to one task, so a stale file is ignored. Removed with no task open.
-export function writeStatusFile(cwd: string, config: Table): void {
+// `known`: a status the caller already computed for the open task, so it isn't computed twice.
+export function writeStatusFile(cwd: string, config: Table, known?: Status): void {
   const path = join(dir(cwd), "status.json");
   const task = currentTask(cwd);
   if (!task) {
@@ -342,7 +377,7 @@ export function writeStatusFile(cwd: string, config: Table): void {
     return;
   }
   try {
-    const s = taskStatus(cwd, config, task);
+    const s = known ?? taskStatus(cwd, config, task);
     writeFileSync(path, JSON.stringify({ started: task.started, tier: task.tier, playbook: task.playbook, label: s.label, ...(task.provisional ? { provisional: true } : {}) }) + "\n");
   } catch {
     // Display only: a failed write never blocks a command or hook.
@@ -418,7 +453,9 @@ export function taskReport(cwd: string, config: Table, task: Task): string {
     ...s.passed.map((n) => line(n, "Verified")),
     ...s.failed.map((n) => line(n, "Failed")),
     ...s.missing.map((n) => line(n, "Not verified")),
-    ...s.unconfigured.map((n) => `- Not verified: \`${n}\` (no command configured)`),
+    ...(s.floor ? [`- Not verified: tier too low: ${s.floor}`] : []),
+    ...s.unconfigured.map((n) => `- Not verified: \`${n}\` (not configured)`),
+    ...s.waived.map((n) => `- Skipped: \`${n}\` (no command; verify.allow_unconfigured)`),
   ].join("\n");
 }
 
@@ -460,7 +497,7 @@ const TREE_CHANGED = "The working tree changed since the session started (a shel
 const UNTASKED = "Files were edited but no saw task is open, so nothing was verified. Use the router skill to classify the work, run `saw task start --tier <t> --playbook <p>` (or `saw task adhoc` for a one-off edit), then run its checks.";
 
 function git(cwd: string, args: string[]): string | undefined {
-  const p = spawnSync("git", args, { cwd, encoding: "utf8", windowsHide: true });
+  const p = spawnSync("git", args, { cwd, encoding: "utf8", windowsHide: true, timeout: 15000 });
   return p.status === 0 ? p.stdout.trim() : undefined;
 }
 
@@ -474,25 +511,97 @@ function insideRepo(cwd: string): boolean {
 
 const MAX_UNTRACKED_READ = 200;
 
-// path -> blob hash for files that exist (a deleted file has none). undefined: git failed.
-function hashFiles(cwd: string, paths: string[]): Record<string, string> | undefined {
-  const existing = paths.filter((p) => existsSync(join(cwd, p)));
-  if (!existing.length) return {};
-  const out = git(cwd, ["hash-object", "--", ...existing]);
-  const hashes = out?.split("\n");
-  if (!hashes || hashes.length !== existing.length) return undefined;
-  return Object.fromEntries(existing.map((p, i) => [p, hashes[i]!]));
+// A file's content hash: SHA-1 of the bytes up to 1 MB, size and mtime past it
+// (a rewrite then reads as changed: the guard fails closed, not open).
+// No stat-then-read on the path (a file-system race): readlink answers only for a
+// symlink, and the rest is checked and read through one file descriptor.
+function contentHash(abs: string): string {
+  try {
+    return `link:${readlinkSync(abs)}`;
+  } catch {
+    // not a symlink (or gone): fall through
+  }
+  let fd: number;
+  try {
+    fd = openSync(abs, "r");
+  } catch (e) {
+    // a submodule: its own commits are its own repo's business (Windows can't open a dir)
+    return (e as NodeJS.ErrnoException).code === "EISDIR" || (e as NodeJS.ErrnoException).code === "EPERM" ? "dir" : "deleted";
+  }
+  try {
+    const st = fstatSync(fd);
+    if (st.isDirectory()) return "dir";
+    if (st.size > 1_000_000) return `big:${st.size}:${st.mtimeMs}`;
+    return createHash("sha1").update(readFileSync(fd)).digest("hex");
+  } catch {
+    return "deleted";
+  } finally {
+    closeSync(fd);
+  }
 }
+
+// The repository's top folder; undefined outside git.
+const repoTop = (cwd: string): string | undefined => (insideRepo(cwd) ? git(cwd, ["rev-parse", "--show-toplevel"]) : undefined);
 
 // The working tree's changes vs HEAD when a task starts, so the floor measures only what the task adds.
 function dirtyBaseline(cwd: string): Record<string, string> | undefined {
-  if (!insideRepo(cwd)) return undefined;
-  const tracked = git(cwd, ["-c", "core.quotepath=off", "diff", "--name-only", "--no-renames", "HEAD"]);
-  const untracked = git(cwd, ["-c", "core.quotepath=off", "ls-files", "--others", "--exclude-standard"]);
-  if (tracked === undefined || untracked === undefined) return undefined;
-  const paths = [...new Set([...tracked.split("\n"), ...untracked.split("\n")].filter((p) => p && !p.startsWith(".saw/")))].slice(0, 200);
-  const hashes = hashFiles(cwd, paths);
-  return hashes && Object.keys(hashes).length ? hashes : undefined;
+  const fp = treeFingerprint(cwd);
+  const entries = Object.entries(fp ?? {}).filter(([, h]) => h !== "deleted").slice(0, 200);
+  return entries.length ? Object.fromEntries(entries) : undefined;
+}
+
+// path (from the repository's top) -> content hash ("deleted" for a removed file)
+// of every change against HEAD, staged or not, plus untracked files, across the
+// whole repository (git commit -a from a sub-project commits all of it); saw's own
+// .saw state excluded. Staging doesn't change it, so a `git add` between saw task
+// end and git commit keeps a Verified tree verified. Paths come NUL-separated (-z),
+// so no file name (quotes, tabs, newlines) can dodge the comparison.
+// undefined: not a git repo, or git failed.
+export function treeFingerprint(cwd: string): Record<string, string> | undefined {
+  const top = repoTop(cwd);
+  if (!top) return undefined;
+  const list = (args: string[]): string[] | undefined => {
+    const p = spawnSync("git", args, { cwd: top, encoding: "utf8", windowsHide: true, maxBuffer: 64 * 1024 * 1024, timeout: 15000 });
+    return p.status === 0 ? p.stdout.split("\0").filter(Boolean) : undefined;
+  };
+  const head = git(cwd, ["rev-parse", "--verify", "-q", "HEAD"]);
+  // No commit yet: everything in the index is new.
+  const tracked = head ? list(["diff", "--name-only", "-z", "--no-renames", "HEAD"]) : list(["ls-files", "-z"]);
+  const untracked = list(["ls-files", "-z", "--others", "--exclude-standard"]);
+  if (!tracked || !untracked) return undefined;
+  const out: Record<string, string> = {};
+  for (const path of new Set([...tracked, ...untracked])) {
+    if (/(^|\/)\.saw\//.test(path)) continue;
+    out[path] = contentHash(join(top, path));
+  }
+  return out;
+}
+
+// .saw/verified-tree.json: the working tree as it was when the last task closed Verified.
+const verifiedTreePath = (cwd: string): string => join(dir(cwd), "verified-tree.json");
+
+export function recordVerifiedTree(cwd: string): void {
+  const files = treeFingerprint(cwd);
+  if (!files) return;
+  mkdirSync(dir(cwd), { recursive: true });
+  writeFileSync(verifiedTreePath(cwd), JSON.stringify({ at: new Date().toISOString(), files }, null, 2) + "\n");
+}
+
+// Changed files no Verified task covers: new since the last Verified close, or
+// different from what it verified. Empty for a clean tree, or outside git; when
+// git can't list the tree inside a repository, that is reported (fails closed).
+export function unverifiedChanges(cwd: string): string[] {
+  if (!insideRepo(cwd)) return [];
+  const now = treeFingerprint(cwd);
+  if (!now) return ["(git could not list the working tree)"];
+  let verified: Record<string, string> = {};
+  try {
+    const v = JSON.parse(readFileSync(verifiedTreePath(cwd), "utf8")) as { files?: Record<string, string> };
+    if (v?.files && typeof v.files === "object") verified = v.files;
+  } catch {
+    // No Verified task closed here yet: every change is unverified.
+  }
+  return Object.entries(now).filter(([path, hash]) => verified[path] !== hash).map(([path]) => path);
 }
 
 export interface Floor {
@@ -535,8 +644,8 @@ export function tierFloor(cwd: string, config: Table, task: Task): Floor {
   // Files already dirty when the task started, and unchanged since, aren't this task's work.
   const before = Object.entries(task.baseDirty ?? {}).filter(([path]) => changed.has(path));
   if (before.length) {
-    const now = hashFiles(cwd, before.map(([path]) => path));
-    for (const [path, hash] of before) if (now?.[path] === hash) changed.delete(path);
+    const top = repoTop(cwd) ?? cwd;
+    for (const [path, hash] of before) if (contentHash(join(top, path)) === hash) changed.delete(path);
   }
   const files = new Set(changed.keys());
   let lines = 0;
@@ -581,6 +690,8 @@ export function gate(
   cwd: string,
   config: Table,
   hookInput: { stop_hook_active?: boolean; transcript_path?: string; session_id?: string },
+  // Filled with the status the gate computed, for writeStatusFile.
+  out?: { status?: Status },
 ): { decision: "block"; reason: string } | undefined {
   const task = currentTask(cwd);
   if (task && typeof hookInput.transcript_path === "string") saveTranscript(cwd, task, hookInput.transcript_path);
@@ -606,14 +717,10 @@ export function gate(
     if (sid && now) storeTreeHash(cwd, sid, now); // this change is reported: don't block it again as a shell write
     return { decision: "block", reason: UNTASKED };
   }
-  const low = belowFloor(cwd, config, task);
-  if (low) return { decision: "block", reason: `Tier too low: ${low}.` };
   const s = taskStatus(cwd, config, task);
+  if (out) out.status = s;
+  if (s.floor) return { decision: "block", reason: `Tier too low: ${s.floor}.` };
   if (s.label === "Verified") return undefined;
-  const parts = [
-    s.failed.length ? `failed: ${s.failed.join(", ")}` : "",
-    s.missing.length ? `not run: ${s.missing.join(", ")}` : "",
-  ].filter(Boolean);
   // Debugging is phased in when needed: a check failing twice means guessing has stopped working.
   const repeated = repeatedFailures(cwd, task);
   const debug = repeated.length && task.playbook !== "debug"
@@ -621,7 +728,7 @@ export function gate(
     : "";
   return {
     decision: "block",
-    reason: `${task.tier} task is ${s.label} (${parts.join("; ")}).${debug} Run each with \`saw run <check>\`, or \`saw task record <check> pass|fail --note "..."\` for reviews. If a check can't run here, report it as Not verified and run \`saw task end --reason "<why>"\`.`,
+    reason: `${task.tier} task is ${s.label} (${statusProblems(s)}).${debug} Run each with \`saw run <check>\`, or \`saw task record <check> pass|fail --note "..."\` for reviews. If a check can't run here, report it as Not verified and run \`saw task end --reason "<why>"\`.`,
   };
 }
 
