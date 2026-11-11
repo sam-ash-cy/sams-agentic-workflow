@@ -12,6 +12,7 @@ const contextPct = atom({ plugin: 'prompt-band', key: 'contextPct' } as const, 0
 const isTurnRunning = atom({ plugin: 'prompt-band', key: 'isTurnRunning' } as const, false)
 const sessionUsd = atom({ plugin: 'prompt-band', key: 'sessionUsd' } as const, 0)
 const taskCost = atom({ plugin: 'prompt-band', key: 'taskCost' } as const, null as TaskCost)
+const taskState = atom({ plugin: 'prompt-band', key: 'taskState' } as const, null as string | null)
 
 const WARN_AT = 0.8
 const usd = (n: number): string => `$${n.toFixed(2)}`
@@ -24,6 +25,35 @@ async function taskStarted($: EngineInterface): Promise<string | undefined> {
   } catch {
     return undefined
   }
+}
+
+// The line the band shows for saw: "no task open" in a saw project (workflow.toml),
+// else the open task's tier, playbook and verification label. .saw/status.json is
+// written by the saw CLI; its label only counts when it belongs to the same task.
+// null outside a saw project.
+export async function taskLine($: EngineInterface): Promise<string | null> {
+  const json = async (path: string): Promise<Record<string, unknown> | null> => {
+    try {
+      const v = JSON.parse(String(await $.fs.read(path)))
+      return v && typeof v === 'object' ? (v as Record<string, unknown>) : null
+    } catch {
+      return null
+    }
+  }
+  const task = await json('.saw/task.json')
+  if (!task) {
+    try {
+      await $.fs.read('workflow.toml')
+      return 'saw: no task open'
+    } catch {
+      return null
+    }
+  }
+  const s = await json('.saw/status.json')
+  const same = s !== null && s.started === task.started
+  const label = same && typeof s.label === 'string' ? ` · ${s.label}` : ''
+  const provisional = same && s.provisional === true ? ' (provisional)' : ''
+  return `saw: ${String(task.tier)} · ${String(task.playbook)}${label}${provisional}`
 }
 
 // Moves the task baseline when a task starts or ends, and toasts once at
@@ -230,6 +260,8 @@ export const register: Register = (on, options) => {
     const pct = e.context.percent
     if (pct !== undefined) await update($, contextPct, () => pct)
     if (e.cost) await measureCost($, opts, e.cost.usd)
+    const line = await taskLine($)
+    await update($, taskState, () => line)
     return next(e)
   })
 
@@ -241,6 +273,7 @@ export const register: Register = (on, options) => {
     const pct = await read($, contextPct)
     const press = (id: string) => () => void pressButton($, opts, id)
     const cost = costLabel(await read($, sessionUsd), await read($, taskCost), opts.budgetUsd ?? 0)
+    const state = await read($, taskState)
 
     return (
       <Box flexDirection="column" marginBottom={1} paddingX={1}>
@@ -256,6 +289,7 @@ export const register: Register = (on, options) => {
         <Button key="handoff" label="Write handoff note" dimColor={off} onPress={press('handoff')} />
         </Box>
         <Text dimColor={!cost.color} color={cost.color}>{cost.text}</Text>
+        {state && <Text dimColor={!state.includes('no task')} color={state.includes('no task') ? 'yellow' : undefined}>{state}</Text>}
       </Box>
     )
   })

@@ -84,7 +84,9 @@ test("memory lint finds stale paths and duplicate learnings", () => {
 });
 
 test("critical tasks need a rollback plan, and the report labels each check", () => {
-  const { dir, config } = setup();
+  const { dir, config: base } = setup();
+  // Mechanical checks with no command would make it Not verified; waive them to see the review labels.
+  const config = { ...base, verify: { ...(base.verify as Record<string, unknown>), allow_unconfigured: ["format", "lint", "typecheck", "test", "e2e", "dep_audit"] } };
   const task = startTask(dir, "critical", "integration");
   recordCheck(dir, { name: "code_review", status: "pass", how: "recorded", note: "clean" });
   const report = taskReport(dir, config, task);

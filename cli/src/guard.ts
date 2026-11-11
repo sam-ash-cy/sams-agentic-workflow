@@ -9,6 +9,8 @@ import type { Table } from "./defaults";
 import { currentTask } from "./task";
 import { guardAgent, implementerEdit } from "./model-guard";
 import { testsFirstEdit } from "./tests-first";
+import { routingEdit } from "./routing-guard";
+import { verifyBlock } from "./verify-guard";
 import { REVIEW_KEY } from "./review-session";
 
 type Decision = "deny" | "ask";
@@ -29,6 +31,9 @@ const ACTIONS: Record<string, RegExp> = {
   spawn_review: /\b(saw|main\.ts)\s+review-session\s+run\b(?!.*--dry-run)/,
 };
 
+// verify.mode hard holds these until the open task is Verified (verify-guard.ts).
+const VERIFIED_ONLY = ["commit", "push", "open_pr"];
+
 // safety.destructive_approval / deploy_approval: always ask, whatever the autonomy level.
 const DESTRUCTIVE = /\bgit\s+(reset\s+--hard|clean\s+-[a-z]*f|checkout\s+--\s)|\bgit\s+branch\s+-D\b|\b(drop|truncate)\s+(table|database)\b|\bmigrate:fresh\b|\bdb:wipe\b/i;
 const DEPLOY = /\b(terraform|tofu)\s+(apply|destroy)\b|\bkubectl\s+(apply|delete)\b|\bhelm\s+(install|upgrade|uninstall)\b|\b(fly|flyctl)\s+deploy\b|\bvercel\b.*--prod\b|\bgh\s+release\s+create\b|\bnpm\s+publish\b|\bbun\s+publish\b|\bsaw\s+repo\s+apply\b|main\.ts\s+repo\s+apply\b/;
@@ -40,7 +45,7 @@ const EXISTS_ONLY = /^(ls|test|\[)( [^;|&<>`$]*)?$/;
 
 // The agent editing its own guardrails: saw config set|unset of a guard key,
 // or a shell write to a settings layer. Always the user's call.
-const CONFIG_EDIT = /\b(saw|main\.ts)\s+config\s+(set|unset)\s+(\S+\s+)*["']?(safety|autonomy|features)\./;
+const CONFIG_EDIT = /\b(saw|main\.ts)\s+config\s+(set|unset)\s+(\S+\s+)*["']?((safety|autonomy|features|routing\.mode)\b|verify\.)/;
 const SETTINGS_FILE = /(^|[\\/])workflow(\.local)?\.toml$/;
 const SETTINGS_WRITE = /(>>?|\btee\b|\bsed\s+-i|\bSet-Content\b|\bAdd-Content\b|\bOut-File\b|\b(cp|mv|Copy-Item|Move-Item)\b)[^;|&]*\bworkflow(\.local)?\.toml\b/;
 
@@ -142,6 +147,11 @@ export function guardCommand(config: Table, command: string, cwd = process.cwd()
   const autonomy = (config.autonomy ?? {}) as { level?: string; actions?: Record<string, string> };
   const actions = autonomy.actions ?? {};
   const levels: Record<string, string | undefined> = { ...actions, push: strictest(safety.push, actions.push), spawn_review: actions.spawn_sessions };
+  // verify.mode hard: nothing leaves the machine (or lands in history) from an unverified task.
+  if (VERIFIED_ONLY.some((a) => ACTIONS[a]!.test(cmd))) {
+    const block = verifyBlock(config, cwd);
+    if (block) return block;
+  }
   for (const [action, re] of Object.entries(ACTIONS)) {
     if (!re.test(cmd)) continue;
     // suggest: the agent only suggests, so it never takes these actions itself.
@@ -233,7 +243,7 @@ export function unreadableSettingsGuard(input: { tool_name?: string; tool_input?
   return { systemMessage: `saw guard: ${problem}`, hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "ask", permissionDecisionReason: `saw guard: ${problem}; approve this call, or fix the file first` } };
 }
 
-export function guardHook(config: Table, input: { tool_name?: string; agent_id?: unknown; tool_input?: { command?: unknown; file_path?: unknown; notebook_path?: unknown; subagent_type?: unknown; model?: unknown } }, cwd = process.cwd()): Record<string, unknown> | undefined {
+export function guardHook(config: Table, input: { tool_name?: string; session_id?: string; agent_id?: unknown; tool_input?: { command?: unknown; file_path?: unknown; notebook_path?: unknown; subagent_type?: unknown; model?: unknown } }, cwd = process.cwd()): Record<string, unknown> | undefined {
   const t = input.tool_input;
   if (reviewKeyAccess(t)) {
     return { hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: "saw guard: ~/.saw/review-key signs saw's review records; no tool may read, list or change it" } };
@@ -245,7 +255,7 @@ export function guardHook(config: Table, input: { tool_name?: string; agent_id?:
     : wrongModel
       ? { decision: "deny", reason: wrongModel }
       : edit
-        ? strictestVerdict(strictestVerdict(typeof t?.file_path === "string" ? guardEdit(config, t.file_path, homedir(), cwd) : undefined, implementerEdit(config, input, cwd)), testsFirstEdit(config, editTarget(t), cwd))
+        ? strictestVerdict(strictestVerdict(strictestVerdict(typeof t?.file_path === "string" ? guardEdit(config, t.file_path, homedir(), cwd) : undefined, implementerEdit(config, input, cwd)), testsFirstEdit(config, editTarget(t), cwd)), routingEdit(config, editTarget(t), cwd, input.session_id))
         : undefined;
   const target = typeof t?.file_path === "string" ? t.file_path : typeof t?.notebook_path === "string" ? t.notebook_path : undefined;
   const g2 = g ?? baseBranchGuard(config, input.tool_name ?? "", typeof t?.command === "string" ? t.command : "", cwd, undefined, target);

@@ -127,13 +127,15 @@ test("format_hook off, or a format command from the committed layer, runs nothin
 test("obsidian, dashboard, audit, metrics and retro toggles change the CLI", async () => {
   const { run } = await import("../src/main");
   const dir = mkdtempSync(join(tmpdir(), "saw-set-cli-"));
-  writeFileSync(join(dir, "workflow.toml"), "");
+  writeFileSync(join(dir, "workflow.toml"), '[verify]\nmode = "hard"\nallow_unconfigured = ["test"]\n');
   expect(run(["dashboard"], dir)).toBe(0);
   expect(run(["dashboard", "--set", "features.dashboard=false"], dir)).toBe(1);
   expect(run(["vault", "sync", "--dry-run", "--set", "features.obsidian=false"], dir)).toBe(1);
   expect(run(["task", "start", "--tier", "standard", "--playbook", "audit", "--set", "features.audit=false"], dir)).toBe(1);
   expect(run(["task", "start", "--tier", "standard", "--playbook", "audit"], dir)).toBe(0);
-  expect(run(["task", "end", "--set", "features.metrics=false"], dir)).toBe(0);
+  // A standard audit task has checks that never ran: ending it needs a reason.
+  expect(run(["task", "end", "--set", "features.metrics=false"], dir)).toBe(1);
+  expect(run(["task", "end", "--reason", "settings test", "--set", "features.metrics=false"], dir)).toBe(0);
   expect(readdirSync(join(dir, ".saw"))).not.toContain("metrics.jsonl");
   expect(run(["task", "start", "--tier", "trivial", "--playbook", "feature"], dir)).toBe(0);
   expect(run(["task", "end"], dir)).toBe(0);

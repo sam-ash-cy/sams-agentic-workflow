@@ -15,6 +15,9 @@
       { "hooks": [{ "type": "command", "command": "bun --no-install \"${CLAUDE_PLUGIN_ROOT}/hooks/run/gate.ts\"" }] },
       { "hooks": [{ "type": "command", "command": "bun --no-install \"${CLAUDE_PLUGIN_ROOT}/hooks/run/style-check.ts\"" }] }
     ],
+    "SubagentStop": [
+      { "hooks": [{ "type": "command", "command": "bun --no-install \"${CLAUDE_PLUGIN_ROOT}/hooks/run/subagent-hook.ts\"" }] }
+    ],
     "SessionStart": [
       { "hooks": [{ "type": "command", "command": "bun --no-install \"${CLAUDE_PLUGIN_ROOT}/hooks/run/session-start.ts\"" }] }
     ],

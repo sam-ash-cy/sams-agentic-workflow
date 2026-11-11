@@ -1,11 +1,12 @@
 import { expect, test } from "bun:test";
-import { existsSync, mkdtempSync, writeFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { resolve } from "../src/config";
 import { lintContext } from "../src/lint";
 import { runCheck, tail } from "../src/run";
-import { endTask, gate, markUntaskedEdit, recordCheck, requiredChecks, startTask, taskStatus } from "../src/task";
+import { endTask, gate, gitStatusHash, markUntaskedEdit, storeTreeHash, recordCheck, requiredChecks, startTask, taskStatus, writeStatusFile } from "../src/task";
 import { routerNudge } from "../src/context";
 import { pluginProblem } from "../src/main";
 
@@ -26,7 +27,7 @@ test("required checks follow extends", () => {
 });
 
 test("gate blocks until required checks pass in this task", () => {
-  const dir = project('[checks]\ntest = "echo ok"\n[verify.standard]\nrun = ["test", "code_review", "lint"]');
+  const dir = project('[checks]\ntest = "echo ok"\n[verify]\nallow_unconfigured = ["lint"]\n[verify.standard]\nrun = ["test", "code_review", "lint"]');
   const c = config(dir);
   expect(gate(dir, c, {})).toBeUndefined(); // no task open
 
@@ -42,8 +43,8 @@ test("gate blocks until required checks pass in this task", () => {
   recordCheck(dir, { name: "test", status: "pass", how: "ran" });
   expect(gate(dir, c, {})?.reason).toContain("Partially verified");
   recordCheck(dir, { name: "code_review", status: "pass", how: "recorded" });
-  expect(gate(dir, c, {})).toBeUndefined(); // lint has no command: reported, not blocking
-  expect(taskStatus(dir, c, { tier: "standard", playbook: "feature", started: "", from: 1 }).unconfigured).toEqual(["lint"]);
+  expect(gate(dir, c, {})).toBeUndefined(); // lint has no command, but verify.allow_unconfigured waives it
+  expect(taskStatus(dir, c, { tier: "standard", playbook: "feature", started: "", from: 1 }).waived).toEqual(["lint"]);
 });
 
 test("a recorded result cannot stand in for a mechanical check", () => {
@@ -128,4 +129,74 @@ test("doctor reads the plugin list", () => {
   expect(pluginProblem(ok)).toBeUndefined();
   expect(pluginProblem("Installed plugins:\n\n  ❯ ecc@ecc\n    Status: ✔ enabled\n")).toContain("not installed");
   expect(pluginProblem("  ❯ sams-agentic-workflow@sams-agentic-workflow\n    Status: ✘ disabled\n\n  ❯ ecc@ecc\n    Status: ✔ enabled\n")).toContain("disabled");
+});
+
+function gitProject(): string {
+  const dir = project();
+  spawnSync("git", ["init", "-q"], { cwd: dir });
+  return dir;
+}
+
+test("gate blocks once for a shell write that changed the working tree", () => {
+  const dir = gitProject();
+  const c = config(dir);
+  storeTreeHash(dir, "s1", gitStatusHash(dir)!);
+  expect(gate(dir, c, { session_id: "s1" })).toBeUndefined(); // nothing changed
+  writeFileSync(join(dir, "made-by-sed.txt"), "x");
+  expect(gate(dir, c, { session_id: "s1" })?.reason).toContain("saw task adhoc");
+  expect(gate(dir, c, { session_id: "s1" })).toBeUndefined(); // once per change
+  writeFileSync(join(dir, "again.txt"), "y");
+  expect(gate(dir, c, { session_id: "s1" })?.decision).toBe("block");
+});
+
+test("the shell-write check stays quiet without a baseline, session, git repo or saw project", () => {
+  const dir = gitProject();
+  const c = config(dir);
+  writeFileSync(join(dir, "a.txt"), "x");
+  expect(gate(dir, c, { session_id: "no-baseline" })).toBeUndefined();
+  expect(gate(dir, c, {})).toBeUndefined();
+  storeTreeHash(dir, "s2", "stale");
+  const plain = mkdtempSync(join(tmpdir(), "saw-task-"));
+  writeFileSync(join(plain, "workflow.toml"), "");
+  storeTreeHash(plain, "s2", "stale");
+  expect(gate(plain, config(plain), { session_id: "s2" })).toBeUndefined(); // not a git repo
+  const noSaw = mkdtempSync(join(tmpdir(), "saw-task-"));
+  spawnSync("git", ["init", "-q"], { cwd: noSaw });
+  storeTreeHash(noSaw, "s2", "stale");
+  writeFileSync(join(noSaw, "a.txt"), "x");
+  expect(gate(noSaw, c, { session_id: "s2" })).toBeUndefined(); // not a saw project
+});
+
+test("an open task or an edit-hook marker keeps the old behaviour; a reported marker is not reported again", () => {
+  const dir = gitProject();
+  const c = config(dir);
+  storeTreeHash(dir, "s3", gitStatusHash(dir)!);
+  writeFileSync(join(dir, "a.txt"), "x");
+  markUntaskedEdit(dir, join(dir, "a.txt"));
+  expect(gate(dir, c, { session_id: "s3" })?.decision).toBe("block");
+  expect(gate(dir, c, { session_id: "s3" })).toBeUndefined();
+  startTask(dir, "trivial", "feature");
+  writeFileSync(join(dir, "b.txt"), "y");
+  expect(gate(dir, c, { session_id: "s3" })?.reason ?? "").not.toContain("no saw task is open");
+});
+
+test("router nudge needs verify_hook, a saw project and no open task", () => {
+  const dir = project();
+  expect(JSON.stringify(routerNudge(dir, config(dir)))).toContain("router skill");
+  expect(routerNudge(dir, config(project("[features]\nverify_hook = false\n")))).toBeUndefined();
+  startTask(dir, "trivial", "feature");
+  expect(routerNudge(dir, config(dir))).toBeUndefined();
+});
+
+test("status.json carries the open task's tier, playbook and label for the mods, and goes with the task", () => {
+  const dir = project('[checks]\ntest = "echo ok"');
+  const c = config(dir);
+  const task = startTask(dir, "trivial", "debug");
+  writeStatusFile(dir, c);
+  const s = JSON.parse(readFileSync(join(dir, ".saw", "status.json"), "utf8"));
+  expect(s).toEqual({ started: task.started, tier: "trivial", playbook: "debug", label: "Not verified" });
+  endTask(dir);
+  expect(existsSync(join(dir, ".saw", "status.json"))).toBe(false);
+  writeStatusFile(dir, c);
+  expect(existsSync(join(dir, ".saw", "status.json"))).toBe(false);
 });

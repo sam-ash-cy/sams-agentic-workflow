@@ -3,9 +3,12 @@
 // Tasks are anchored to a position in checks.jsonl, not a timestamp, so a
 // result written in the same millisecond as the start can't leak in.
 
-import { appendFileSync, closeSync, existsSync, fstatSync, mkdirSync, openSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
-import { isAbsolute, join, relative, resolve } from "node:path";
+import { spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
+import { appendFileSync, closeSync, existsSync, fstatSync, mkdirSync, openSync, readFileSync, readlinkSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import type { Table } from "./defaults";
+import { statePath as sessionFile } from "./session-state";
 import { advisorModel } from "./skills";
 import { branchSettings } from "./branch";
 import { readReviews, reportVerdict, reviewBudget, signatureValid, type ReviewSettings } from "./review-session";
@@ -26,6 +29,15 @@ export interface Task {
   style?: { tone?: string; max_words?: number };
   // Where the task is (saw task phase): implement makes the implementer edit guard deny.
   phase?: (typeof PHASES)[number];
+  // HEAD when the task started: the tier floor measures the diff from here.
+  base?: string;
+  // Blob hashes of files already changed when the task started: the floor ignores them until they change again.
+  baseDirty?: Record<string, string>;
+  // The session that owns the task, stamped by a hook (see staleTask).
+  session?: string;
+  // Opened by routing.auto = "open" from the prompt alone: the agent confirms it with
+  // saw task retier or saw task start before the verify guard lets a commit through.
+  provisional?: boolean;
 }
 
 export interface CheckResult {
@@ -46,10 +58,22 @@ export function startTask(cwd: string, tier: string, playbook: string, style?: T
   if (!(TIERS as readonly string[]).includes(tier)) throw new Error(`tier must be one of ${TIERS.join(" | ")}`);
   if (!(PLAYBOOKS as readonly string[]).includes(playbook)) throw new Error(`playbook must be one of ${PLAYBOOKS.join(" | ")}`);
   const task: Task = { tier, playbook, started: new Date().toISOString(), from: checkLines(cwd).length };
+  const head = git(cwd, ["rev-parse", "HEAD"]);
+  if (head) task.base = head;
+  const dirty = head ? dirtyBaseline(cwd) : undefined;
+  if (dirty) task.baseDirty = dirty;
   if (style && (style.tone || style.max_words)) task.style = style;
   mkdirSync(dir(cwd), { recursive: true });
   writeFileSync(join(dir(cwd), "task.json"), JSON.stringify(task, null, 2) + "\n");
   rmSync(join(dir(cwd), "untasked-edits"), { force: true });
+  return task;
+}
+
+// routing.auto = "open": a task opened from the prompt alone, flagged provisional until
+// the agent confirms it (saw task retier, or saw task start with its own choice).
+export function openProvisional(cwd: string, tier: string, playbook: string): Task {
+  const task: Task = { ...startTask(cwd, tier, playbook), provisional: true };
+  writeTask(cwd, task);
   return task;
 }
 
@@ -85,15 +109,65 @@ export function setPhase(cwd: string, phase: string): Task {
 }
 
 // Puts a saved task back as the open one (saw resume).
+// The resuming session adopts it: the next saw task hook stamps its session id.
 export function restoreTask(cwd: string, task: Task): void {
   mkdirSync(dir(cwd), { recursive: true });
-  writeFileSync(join(dir(cwd), "task.json"), JSON.stringify(task, null, 2) + "\n");
+  const { session: _previous, ...rest } = task;
+  writeFileSync(join(dir(cwd), "task.json"), JSON.stringify(rest, null, 2) + "\n");
+}
+
+const writeTask = (cwd: string, task: Task): void => writeFileSync(join(dir(cwd), "task.json"), JSON.stringify(task, null, 2) + "\n");
+
+// Records which session owns the open task (from a hook: the CLI never sees the session id).
+// An owned task keeps its owner unless `force` (saw resume adopting it).
+export function setTaskSession(cwd: string, sessionId: string, force = false): void {
+  const task = currentTask(cwd);
+  if (!task || (task.session && !force) || task.session === sessionId) return;
+  writeTask(cwd, { ...task, session: sessionId });
+}
+
+// An open task that another session started and nobody has resumed. A task with
+// no recorded session (started outside a hook, or by an older saw) counts as current.
+export function staleTask(cwd: string, sessionId: string | undefined): Task | undefined {
+  const task = currentTask(cwd);
+  return task?.session && sessionId && task.session !== sessionId ? task : undefined;
+}
+
+export const staleMessage = (task: Task): string =>
+  `an open ${task.tier}/${task.playbook} task (started ${task.started.slice(0, 16).replace("T", " ")}) belongs to another session: run \`saw resume\` to pick it up, or \`saw task end --reason "<why>"\` to close it`;
+
+export interface UnverifiedExit {
+  label: string;
+  reason: string;
+  tier: string;
+  playbook: string;
+  at: string;
+}
+
+// `saw task end` on a task that isn't Verified leaves this for the next session-start to show once.
+// A file, not an event: [logging] may be off.
+const unverifiedPath = (cwd: string): string => join(dir(cwd), "unverified-exit.json");
+
+export function noteUnverifiedExit(cwd: string, entry: UnverifiedExit): void {
+  mkdirSync(dir(cwd), { recursive: true });
+  writeFileSync(unverifiedPath(cwd), JSON.stringify(entry, null, 2) + "\n");
+}
+
+export function takeUnverifiedExit(cwd: string): UnverifiedExit | undefined {
+  try {
+    const entry = JSON.parse(readFileSync(unverifiedPath(cwd), "utf8")) as UnverifiedExit;
+    rmSync(unverifiedPath(cwd), { force: true });
+    return typeof entry?.label === "string" && typeof entry?.reason === "string" ? entry : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 export function endTask(cwd: string): void {
   rmSync(join(dir(cwd), "task.json"), { force: true });
   // A closed task has nothing to resume.
   rmSync(join(dir(cwd), "handoff.json"), { force: true });
+  rmSync(join(dir(cwd), "status.json"), { force: true });
 }
 
 export function recordCheck(cwd: string, result: Omit<CheckResult, "at">): void {
@@ -233,18 +307,29 @@ export interface Status {
   passed: string[];
   failed: string[];
   missing: string[];
-  // Required mechanical checks with no command configured: reported, not blocking.
+  // Required mechanical checks with no command configured: Not verified ("not configured").
   unconfigured: string[];
+  // Required mechanical checks with no command, waived by verify.allow_unconfigured.
+  waived: string[];
+  // Set when the task's tier is below the diff's floor: the task can't be Verified.
+  floor?: string;
 }
+
+// verify.allow_unconfigured: checks that may have no command without blocking Verified.
+const allowUnconfigured = (config: Table): string[] => {
+  const v = ((config.verify ?? {}) as { allow_unconfigured?: unknown }).allow_unconfigured;
+  return Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : [];
+};
 
 export function taskStatus(cwd: string, config: Table, task: Task): Status {
   const results = checksSince(cwd, task.from);
   const commands = (config.checks ?? {}) as Record<string, string>;
-  const status: Status = { label: "Verified", passed: [], failed: [], missing: [], unconfigured: [] };
+  const allowed = allowUnconfigured(config);
+  const status: Status = { label: "Verified", passed: [], failed: [], missing: [], unconfigured: [], waived: [] };
   for (const name of taskChecks(config, task.tier, task.playbook)) {
     const mechanical = !JUDGEMENT_CHECKS.includes(name) && !name.startsWith("skill:");
     if (mechanical && !commands[name]) {
-      status.unconfigured.push(name);
+      (allowed.includes(name) ? status.waived : status.unconfigured).push(name);
       continue;
     }
     const r = results.get(name);
@@ -252,9 +337,51 @@ export function taskStatus(cwd: string, config: Table, task: Task): Status {
     else if (r.status === "pass") status.passed.push(name);
     else status.failed.push(name);
   }
+  const low = belowFloor(cwd, config, task);
+  if (low) status.floor = low;
   if (status.failed.length) status.label = "Blocked";
+  else if (status.floor || status.unconfigured.length) status.label = "Not verified";
   else if (status.missing.length) status.label = status.passed.length ? "Partially verified" : "Not verified";
   return status;
+}
+
+// The trivial tier's mechanical checks (what every task owes) with no command and
+// not waived by verify.allow_unconfigured: no task can be Verified until they're set.
+export function noChecksWarning(config: Table): string | undefined {
+  const commands = (config.checks ?? {}) as Record<string, unknown>;
+  const allowed = allowUnconfigured(config);
+  const missing = requiredChecks(config, "trivial").filter((n) => !JUDGEMENT_CHECKS.includes(n) && !(typeof commands[n] === "string" && (commands[n] as string).trim()) && !allowed.includes(n));
+  if (!missing.length) return undefined;
+  return `no command is set for ${missing.map((n) => `checks.${n}`).join(", ")}, so no task can be Verified. Ask the user to add one, e.g. \`saw config set checks.${missing[0]} "bun test"\` (any command that runs it), or to list checks that need none in verify.allow_unconfigured`;
+}
+
+// Why a task isn't Verified, for the Stop gate, the verify guard and saw task end.
+export function statusProblems(s: Status): string {
+  return [
+    s.floor ? `tier too low: ${s.floor}` : "",
+    s.failed.length ? `failed: ${s.failed.join(", ")}` : "",
+    s.missing.length ? `not run: ${s.missing.join(", ")}` : "",
+    s.unconfigured.length ? `not configured: ${s.unconfigured.join(", ")} (set checks.<name> in workflow.toml, or list it in verify.allow_unconfigured)` : "",
+  ].filter(Boolean).join("; ");
+}
+
+// .saw/status.json: the open task's tier, playbook and verification label, for the
+// mods (prompt band, workflow pane), which can read files but not run taskStatus.
+// `started` ties it to one task, so a stale file is ignored. Removed with no task open.
+// `known`: a status the caller already computed for the open task, so it isn't computed twice.
+export function writeStatusFile(cwd: string, config: Table, known?: Status): void {
+  const path = join(dir(cwd), "status.json");
+  const task = currentTask(cwd);
+  if (!task) {
+    rmSync(path, { force: true });
+    return;
+  }
+  try {
+    const s = known ?? taskStatus(cwd, config, task);
+    writeFileSync(path, JSON.stringify({ started: task.started, tier: task.tier, playbook: task.playbook, label: s.label, ...(task.provisional ? { provisional: true } : {}) }) + "\n");
+  } catch {
+    // Display only: a failed write never blocks a command or hook.
+  }
 }
 
 export const EVIDENCE_CHECKS = ["code_review", "security_review"];
@@ -326,15 +453,250 @@ export function taskReport(cwd: string, config: Table, task: Task): string {
     ...s.passed.map((n) => line(n, "Verified")),
     ...s.failed.map((n) => line(n, "Failed")),
     ...s.missing.map((n) => line(n, "Not verified")),
-    ...s.unconfigured.map((n) => `- Not verified: \`${n}\` (no command configured)`),
+    ...(s.floor ? [`- Not verified: tier too low: ${s.floor}`] : []),
+    ...s.unconfigured.map((n) => `- Not verified: \`${n}\` (not configured)`),
+    ...s.waived.map((n) => `- Skipped: \`${n}\` (no command; verify.allow_unconfigured)`),
   ].join("\n");
+}
+
+// Shell writes (sed -i, redirects) never fire the edit hook. A hash of `git status
+// --porcelain` (saw's own .saw state excluded), kept in the session's state file, shows whether the working tree
+// changed since session start. undefined: not a git repo, or git failed.
+export function gitStatusHash(cwd: string): string | undefined {
+  try {
+    const r = spawnSync("git", ["status", "--porcelain", "--", ".", ":(exclude).saw"], { cwd, encoding: "utf8", timeout: 5000 });
+    return r.status === 0 ? createHash("sha1").update(r.stdout).digest("hex") : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+export function storedTreeHash(cwd: string, sessionId: string): string | undefined {
+  try {
+    const s = JSON.parse(readFileSync(sessionFile(cwd, sessionId), "utf8")) as { session_id?: string; tree?: string };
+    return s.session_id === sessionId ? s.tree : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+// Merges into the session's state file, keeping the fields sessions.ts keeps there.
+export function storeTreeHash(cwd: string, sessionId: string, tree: string): void {
+  let state: Record<string, unknown> = { session_id: sessionId };
+  try {
+    const s = JSON.parse(readFileSync(sessionFile(cwd, sessionId), "utf8")) as Record<string, unknown>;
+    if (s.session_id === sessionId) state = s;
+  } catch {
+    // No state yet: start clean.
+  }
+  mkdirSync(dirname(sessionFile(cwd, sessionId)), { recursive: true });
+  writeFileSync(sessionFile(cwd, sessionId), JSON.stringify({ ...state, tree }, null, 2) + "\n");
+}
+
+const TREE_CHANGED = "The working tree changed since the session started (a shell write, build output or an edit made outside the agent), but no saw task is open. ";
+const UNTASKED = "Files were edited but no saw task is open, so nothing was verified. Use the router skill to classify the work, run `saw task start --tier <t> --playbook <p>` (or `saw task adhoc` for a one-off edit), then run its checks.";
+
+function git(cwd: string, args: string[]): string | undefined {
+  const p = spawnSync("git", args, { cwd, encoding: "utf8", windowsHide: true, timeout: 15000 });
+  return p.status === 0 ? p.stdout.trim() : undefined;
+}
+
+// A .git entry in cwd or an ancestor: cheaper than letting git fail on every gate call.
+function insideRepo(cwd: string): boolean {
+  for (let d = resolve(cwd); ; d = dirname(d)) {
+    if (existsSync(join(d, ".git"))) return true;
+    if (dirname(d) === d) return false;
+  }
+}
+
+const MAX_UNTRACKED_READ = 200;
+
+// A file's content hash: SHA-1 of the bytes up to 1 MB, size and mtime past it
+// (a rewrite then reads as changed: the guard fails closed, not open).
+// No stat-then-read on the path (a file-system race): readlink answers only for a
+// symlink, and the rest is checked and read through one file descriptor.
+function contentHash(abs: string): string {
+  try {
+    return `link:${readlinkSync(abs)}`;
+  } catch {
+    // not a symlink (or gone): fall through
+  }
+  let fd: number;
+  try {
+    fd = openSync(abs, "r");
+  } catch (e) {
+    // a submodule: its own commits are its own repo's business (Windows can't open a dir)
+    return (e as NodeJS.ErrnoException).code === "EISDIR" || (e as NodeJS.ErrnoException).code === "EPERM" ? "dir" : "deleted";
+  }
+  try {
+    const st = fstatSync(fd);
+    if (st.isDirectory()) return "dir";
+    if (st.size > 1_000_000) return `big:${st.size}:${st.mtimeMs}`;
+    return createHash("sha1").update(readFileSync(fd)).digest("hex");
+  } catch {
+    return "deleted";
+  } finally {
+    closeSync(fd);
+  }
+}
+
+// The repository's top folder; undefined outside git.
+const repoTop = (cwd: string): string | undefined => (insideRepo(cwd) ? git(cwd, ["rev-parse", "--show-toplevel"]) : undefined);
+
+// The working tree's changes vs HEAD when a task starts, so the floor measures only what the task adds.
+function dirtyBaseline(cwd: string): Record<string, string> | undefined {
+  const fp = treeFingerprint(cwd);
+  const entries = Object.entries(fp ?? {}).filter(([, h]) => h !== "deleted").slice(0, 200);
+  return entries.length ? Object.fromEntries(entries) : undefined;
+}
+
+// path (from the repository's top) -> content hash ("deleted" for a removed file)
+// of every change against HEAD, staged or not, plus untracked files, across the
+// whole repository (git commit -a from a sub-project commits all of it); saw's own
+// .saw state excluded. Staging doesn't change it, so a `git add` between saw task
+// end and git commit keeps a Verified tree verified. Paths come NUL-separated (-z),
+// so no file name (quotes, tabs, newlines) can dodge the comparison.
+// undefined: not a git repo, or git failed.
+export function treeFingerprint(cwd: string): Record<string, string> | undefined {
+  const top = repoTop(cwd);
+  if (!top) return undefined;
+  const list = (args: string[]): string[] | undefined => {
+    const p = spawnSync("git", args, { cwd: top, encoding: "utf8", windowsHide: true, maxBuffer: 64 * 1024 * 1024, timeout: 15000 });
+    return p.status === 0 ? p.stdout.split("\0").filter(Boolean) : undefined;
+  };
+  const head = git(cwd, ["rev-parse", "--verify", "-q", "HEAD"]);
+  // No commit yet: everything in the index is new.
+  const tracked = head ? list(["diff", "--name-only", "-z", "--no-renames", "HEAD"]) : list(["ls-files", "-z"]);
+  const untracked = list(["ls-files", "-z", "--others", "--exclude-standard"]);
+  if (!tracked || !untracked) return undefined;
+  const out: Record<string, string> = {};
+  for (const path of new Set([...tracked, ...untracked])) {
+    if (/(^|\/)\.saw\//.test(path)) continue;
+    out[path] = contentHash(join(top, path));
+  }
+  return out;
+}
+
+// .saw/verified-tree.json: the working tree as it was when the last task closed Verified.
+const verifiedTreePath = (cwd: string): string => join(dir(cwd), "verified-tree.json");
+
+export function recordVerifiedTree(cwd: string): void {
+  const files = treeFingerprint(cwd);
+  if (!files) return;
+  mkdirSync(dir(cwd), { recursive: true });
+  writeFileSync(verifiedTreePath(cwd), JSON.stringify({ at: new Date().toISOString(), files }, null, 2) + "\n");
+}
+
+// Changed files no Verified task covers: new since the last Verified close, or
+// different from what it verified. Empty for a clean tree, or outside git; when
+// git can't list the tree inside a repository, that is reported (fails closed).
+export function unverifiedChanges(cwd: string): string[] {
+  if (!insideRepo(cwd)) return [];
+  const now = treeFingerprint(cwd);
+  if (!now) return ["(git could not list the working tree)"];
+  let verified: Record<string, string> = {};
+  try {
+    const v = JSON.parse(readFileSync(verifiedTreePath(cwd), "utf8")) as { files?: Record<string, string> };
+    if (v?.files && typeof v.files === "object") verified = v.files;
+  } catch {
+    // No Verified task closed here yet: every change is unverified.
+  }
+  return Object.entries(now).filter(([path, hash]) => verified[path] !== hash).map(([path]) => path);
+}
+
+export interface Floor {
+  floor: (typeof TIERS)[number];
+  why: string;
+}
+
+// The least tier the work since the task started allows: standard once it passes
+// routing.trivial_max_files / trivial_max_lines, critical when a changed path
+// matches routing.critical_paths. Fails open (trivial) outside git or when git fails.
+export function tierFloor(cwd: string, config: Table, task: Task): Floor {
+  const routing = (config.routing ?? {}) as { trivial_max_files?: number; trivial_max_lines?: number; critical_paths?: string[] };
+  const base = task.base && /^[0-9a-f]{7,64}$/.test(task.base) ? task.base : "HEAD";
+  if (!insideRepo(cwd)) return { floor: "trivial", why: "" };
+  const numstat = git(cwd, ["-c", "core.quotepath=off", "diff", "--numstat", "--no-renames", base]);
+  if (numstat === undefined) return { floor: "trivial", why: "" };
+  const untracked = git(cwd, ["ls-files", "--others", "--exclude-standard"]);
+  if (untracked === undefined) return { floor: "trivial", why: "" };
+  const changed = new Map<string, number>();
+  for (const row of numstat.split("\n").filter(Boolean)) {
+    const [add, del, ...rest] = row.split("	");
+    const path = rest.join("	");
+    if (!path.startsWith(".saw/")) changed.set(path, (Number(add) || 0) + (Number(del) || 0));
+  }
+  let read = 0;
+  for (const path of untracked.split("\n").filter(Boolean)) {
+    if (path.startsWith(".saw/") || changed.has(path)) continue;
+    let n = 1;
+    // Reading is capped: past it a file still counts, its lines don't.
+    if (read++ < MAX_UNTRACKED_READ) {
+      try {
+        // One descriptor for the size check and the read, so the file can't change between them.
+        const fd = openSync(join(cwd, path), "r");
+        try {
+          if (fstatSync(fd).size <= 1_000_000) n = readFileSync(fd, "utf8").split("\n").length;
+        } finally {
+          closeSync(fd);
+        }
+      } catch {
+        // Unreadable (a directory, a race): the file still counts.
+      }
+    }
+    changed.set(path, n);
+  }
+  // Files already dirty when the task started, and unchanged since, aren't this task's work.
+  const before = Object.entries(task.baseDirty ?? {}).filter(([path]) => changed.has(path));
+  if (before.length) {
+    const top = repoTop(cwd) ?? cwd;
+    for (const [path, hash] of before) if (contentHash(join(top, path)) === hash) changed.delete(path);
+  }
+  const files = new Set(changed.keys());
+  let lines = 0;
+  for (const n of changed.values()) lines += n;
+  const critical = (routing.critical_paths ?? []).map((g) => new Bun.Glob(g));
+  const hit = [...files].find((f) => critical.some((g) => g.match(f)));
+  if (hit) return { floor: "critical", why: `${hit} matches routing.critical_paths` };
+  const maxFiles = routing.trivial_max_files ?? 3;
+  const maxLines = routing.trivial_max_lines ?? 60;
+  if (files.size > maxFiles || lines > maxLines) return { floor: "standard", why: `${files.size} files, ${lines} lines changed; trivial allows ${maxFiles} files and ${maxLines} lines` };
+  return { floor: "trivial", why: "" };
+}
+
+const tierRank = (t: string): number => (TIERS as readonly string[]).indexOf(t);
+
+// Set when the open task's tier is below the floor.
+export function belowFloor(cwd: string, config: Table, task: Task): string | undefined {
+  // Nothing is above critical: skip the git calls.
+  if (task.tier === "critical") return undefined;
+  const f = tierFloor(cwd, config, task);
+  return tierRank(task.tier) < tierRank(f.floor)
+    ? `the diff needs at least ${f.floor} (${f.why}) but this task is ${task.tier}; run \`saw task retier ${f.floor}\``
+    : undefined;
+}
+
+// saw task retier: keeps the task's check history; never below the floor.
+export function retierTask(cwd: string, config: Table, tier: string): Task {
+  if (!(TIERS as readonly string[]).includes(tier)) throw new Error(`tier must be one of ${TIERS.join(" | ")}`);
+  const task = currentTask(cwd);
+  if (!task) throw new Error("no open task; start one with saw task start --tier <t> --playbook <p>");
+  const f = tierFloor(cwd, config, task);
+  if (tierRank(tier) < tierRank(f.floor)) throw new Error(`can't lower to ${tier}: the diff needs at least ${f.floor} (${f.why})`);
+  // Retiering confirms a provisional task (routing.auto = "open"), at the same tier or another.
+  const { provisional: _confirmed, ...rest } = task;
+  const next = { ...rest, tier };
+  writeTask(cwd, next);
+  return next;
 }
 
 // Stop hook: returns the JSON to print, or undefined to allow the stop.
 export function gate(
   cwd: string,
   config: Table,
-  hookInput: { stop_hook_active?: boolean; transcript_path?: string },
+  hookInput: { stop_hook_active?: boolean; transcript_path?: string; session_id?: string },
+  // Filled with the status the gate computed, for writeStatusFile.
+  out?: { status?: Status },
 ): { decision: "block"; reason: string } | undefined {
   const task = currentTask(cwd);
   if (task && typeof hookInput.transcript_path === "string") saveTranscript(cwd, task, hookInput.transcript_path);
@@ -343,20 +705,27 @@ export function gate(
   if (!task) {
     // Files changed but routing never ran, so there is nothing to verify against.
     const marker = join(dir(cwd), "untasked-edits");
-    if (!existsSync(marker)) return undefined;
+    if (!existsSync(marker)) {
+      // No edit hook fired: a shell write shows only as a changed working tree.
+      const sid = hookInput.session_id;
+      if (!sid || !isSawProject(cwd)) return undefined;
+      const before = storedTreeHash(cwd, sid);
+      const now = before ? gitStatusHash(cwd) : undefined;
+      if (!now || now === before) return undefined;
+      storeTreeHash(cwd, sid, now);
+      return { decision: "block", reason: TREE_CHANGED + UNTASKED };
+    }
     // Block once per batch of edits; the next edit sets the marker again.
     rmSync(marker, { force: true });
-    return {
-      decision: "block",
-      reason: "Files were edited but no saw task is open, so nothing was verified. Use the router skill to classify the work, run `saw task start --tier <t> --playbook <p>` (or `saw task adhoc` for a one-off edit), then run its checks.",
-    };
+    const sid = hookInput.session_id;
+    const now = sid && storedTreeHash(cwd, sid) ? gitStatusHash(cwd) : undefined;
+    if (sid && now) storeTreeHash(cwd, sid, now); // this change is reported: don't block it again as a shell write
+    return { decision: "block", reason: UNTASKED };
   }
   const s = taskStatus(cwd, config, task);
+  if (out) out.status = s;
+  if (s.floor) return { decision: "block", reason: `Tier too low: ${s.floor}.` };
   if (s.label === "Verified") return undefined;
-  const parts = [
-    s.failed.length ? `failed: ${s.failed.join(", ")}` : "",
-    s.missing.length ? `not run: ${s.missing.join(", ")}` : "",
-  ].filter(Boolean);
   // Debugging is phased in when needed: a check failing twice means guessing has stopped working.
   const repeated = repeatedFailures(cwd, task);
   const debug = repeated.length && task.playbook !== "debug"
@@ -364,7 +733,7 @@ export function gate(
     : "";
   return {
     decision: "block",
-    reason: `${task.tier} task is ${s.label} (${parts.join("; ")}).${debug} Run each with \`saw run <check>\`, or \`saw task record <check> pass|fail --note "..."\` for reviews. If a check can't run here, report it as Not verified and run \`saw task end\`.`,
+    reason: `${task.tier} task is ${s.label} (${statusProblems(s)}).${debug} Run each with \`saw run <check>\`, or \`saw task record <check> pass|fail --note "..."\` for reviews. If a check can't run here, report it as Not verified and run \`saw task end --reason "<why>"\`.`,
   };
 }
 

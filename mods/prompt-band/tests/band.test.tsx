@@ -78,3 +78,44 @@ test('cost band warns once at the budget share and once past it', { options: { b
   expect(await ui.find({ type: 'Text', text: '$1.30 task of $1.00 · $1.30 session' })).toBeDefined()
   await ui.unmount()
 })
+
+// fs.read answers by path: the mock sees the request, whatever its field is called.
+const files = (map: Record<string, string>) => (_: unknown, e: unknown) => {
+  const hit = Object.keys(map).find(p => JSON.stringify(e).includes(p))
+  if (hit === undefined) throw new Error('ENOENT')
+  return { value: map[hit]! }
+}
+
+test('task line says no task open in a saw project', async ($, on) => {
+  on('session.measure', (_, e) => ({ changed: e.changed }))
+  on('fs.read', files({ 'workflow.toml': '[project]\n' }))
+  await $.session.measure(measure(1))
+  const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
+  expect(await ui.find({ type: 'Text', text: 'saw: no task open' })).toBeDefined()
+  await ui.unmount()
+})
+
+test('task line shows tier, playbook and the label of the same task', async ($, on) => {
+  on('session.measure', (_, e) => ({ changed: e.changed }))
+  on('fs.read', files({
+    'workflow.toml': '',
+    'task.json': task('2026-11-10T10:00:00Z'),
+    'status.json': JSON.stringify({ started: '2026-11-10T10:00:00Z', label: 'Partially verified', provisional: true }),
+  }))
+  await $.session.measure(measure(1))
+  const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
+  expect(await ui.find({ type: 'Text', text: 'saw: standard · feature · Partially verified (provisional)' })).toBeDefined()
+  await ui.unmount()
+})
+
+test('task line ignores a status file left by another task', async ($, on) => {
+  on('session.measure', (_, e) => ({ changed: e.changed }))
+  on('fs.read', files({
+    'task.json': task('2026-11-10T10:00:00Z'),
+    'status.json': JSON.stringify({ started: '2026-11-09T09:00:00Z', label: 'Verified' }),
+  }))
+  await $.session.measure(measure(1))
+  const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
+  expect(await ui.find({ type: 'Text', text: 'saw: standard · feature' })).toBeDefined()
+  await ui.unmount()
+})

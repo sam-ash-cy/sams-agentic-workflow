@@ -23,6 +23,7 @@ Defaults are what a fresh `saw init` gives you. "Key" is the setting that contro
 | Category | Feature | Default | Key | Needs |
 |---|---|---|---|---|
 | Routing | Tier + playbook per task, `saw task start` steps | on | `[routing]` | plugin |
+| | Routing enforced (hard: edits wait for an open task; shell writes still hit the Stop gate; session start says when a repo has no `workflow.toml`) | off (`routing.mode = "hard"` or `enforcement = "strict"`) | `features.verify_hook`, `routing.mode` | |
 | | Grilling (clarifying questions) on complex and critical | on | `features.grilling`, `routing.always_grill` | |
 | | Branch guard: tasks branch (or worktree) off `main`; no commits on it | on | `features.branch_guard`, `[branch]` | |
 | | Skills named per playbook at task start | on | `features.task_skills`, `[task_skills]` | the named plugins |
@@ -34,6 +35,13 @@ Defaults are what a fresh `saw init` gives you. "Key" is the setting that contro
 | | Docs step on feature and foundation tasks | on | `features.docs_step` | `engineering` plugin (installed by bootstrap) |
 | | Living docs: flag blank docs and reference drift at task end; docs step on debug/integration/hardening | on | `features.living_docs` | |
 | | Review reports required for a review pass | off | `verify.require_review_evidence` | |
+| | Verification enforced (hard: no commit, push or PR while the open task isn't Verified or is below its tier floor, or, with no task open, while the tree has changes no Verified task covers; `saw task retier` raises the tier) | off (`verify.mode = "hard"` or `enforcement = "strict"`) | `features.verify_hook`, `verify.mode`, `routing.trivial_max_files`, `routing.trivial_max_lines`, `routing.critical_paths` | |
+| | Unconfigured checks: a required check with no `checks.<name>` command makes the task Not verified ("not configured"), unless listed in `verify.allow_unconfigured`; session start and `saw doctor` warn when no `checks.*` command is set | on | `checks.<name>`, `verify.allow_unconfigured` | |
+| | Stale tasks (a task another session left open denies edits until `saw resume` or `saw task end`) and unverified exits (`saw task end --reason`, shown at the next session start) | on | `routing.mode` | |
+| | Enforcement preset: `strict` sets the routing, verify, tdd, tokens, style and sessions modes hard, `relaxed` sets them soft, `custom` leaves each to its key (`saw config show --resolved` names the preset as the source) | custom | `enforcement` | |
+| | Auto-routing by rules (no model call): with no task open, the router nudge proposes `saw task start --tier <t> --playbook <p>` (`suggest`), or saw opens a provisional task that holds commits until `saw task retier` or `saw task start` confirms it (`open`) | suggest | `routing.auto` | |
+| | Subagent coverage: subagent edits and commands pass the same routing, verify and tier-floor guards; SubagentStop logs their edits against the open task, or arms the untasked-edit Stop check | on | `features.verify_hook` | |
+| | Adoption report: tasks opened against Stops, Stops and prompts with no task, routing and verify denials, unverified exits, retiers, tier spread (`saw adoption`, and a dashboard card) | on | `dashboard.panels` (`adoption`) | |
 | Reviews | Code and security review on standard+ | on | `features.code_review`, `features.security_review` | |
 | | Advisor consult on standard+ (Claude Code's advisor, Opus 5.5 by default) | on | `features.advisor`, `advisor.model` | |
 | | PR description from commits and checks (`saw task pr-body`) | manual | | `gh` |
@@ -45,7 +53,7 @@ Defaults are what a fresh `saw init` gives you. "Key" is the setting that contro
 | Context and tokens | Token budget per tier (`soft` warns, `hard` stops) | soft | `features.budgets`, `[tokens]` | |
 | | `/compact` and handoff nudges | on | `features.compact_nudge`, `[context]` | |
 | | Claude Code auto-compact set from settings | inherit | `context.autocompact`, `context.autocompact_window` | |
-| | Task and session cost above the prompt, budget warnings | on | prompt-band `budgetUsd` | prompt-band mod |
+| | Task and session cost above the prompt, budget warnings, and the task state: "no task open" in a saw project, else tier, playbook and verification label (terminal `claude` only: mod bands and panes don't draw in the desktop app) | on | prompt-band `budgetUsd` | prompt-band mod |
 | | Handoff card on stop, `saw resume` in the next session | on | | plugin |
 | | Model per agent role | routed | `[models]` | |
 | | Reply tone and word cap, checked on Stop | on | `features.style_hook`, `[style]` | |
@@ -80,7 +88,7 @@ Optional add-ons, each its own plugin in this marketplace: `claude plugin instal
 | Mod | What it does |
 |---|---|
 | `prompt-band` | buttons above the prompt (Improve, Plan first, Review, Ship check, Compact, Handoff) with usage limits |
-| `workflow-pane` | a pane beside the chat: current tier, playbook, and which checks passed or are missing |
+| `workflow-pane` | a pane beside the chat: current tier, playbook, verification label and which checks passed or are missing; "no task open" in a saw project with none |
 | `render` | themed rendering of replies: tables, headings, code, mermaid, charts (based on prismantis, MIT) |
 | `secrets-redactor` | hides secrets, emails and IPs in tool output behind placeholders; blocks hardcoded secrets in edits |
 | `context-guard` | warns as context fills; past a limit, holds new prompts until you hand off |

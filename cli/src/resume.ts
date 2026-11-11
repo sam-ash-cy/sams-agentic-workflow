@@ -74,7 +74,7 @@ export function resume(cwd: string, git: Git = realGit): { lines: string[]; ok: 
   if (!c) return { ok: false, lines: ["saw resume: no handoff card (.saw/handoff.json); start a task with saw task start"] };
   const lines: string[] = [];
   const open = currentTask(cwd);
-  if (open && open.started !== c.task.started) return { ok: false, lines: [`saw resume: a different task (${open.tier}/${open.playbook}) is open; end it first with saw task end`] };
+  if (open && open.started !== c.task.started) return { ok: false, lines: [`saw resume: a different task (${open.tier}/${open.playbook}) is open; end it first with saw task end (--reason "<why>" if it isn't Verified)`] };
   if (!open) restoreTask(cwd, c.task);
   lines.push(`task: ${c.task.tier} / ${c.task.playbook}${c.task.phase ? ` · phase: ${c.task.phase}` : ""}${open ? "" : " (restored)"}`);
   // The card is a file in .saw/, which a repo could commit: never hand git an option.

@@ -103,9 +103,28 @@ export const DEFAULTS: Table = {
     },
   },
   // features.branch_guard: the branch to branch off (global or project layer).
+  // One switch for the six enforcement modes: strict sets routing, verify, tdd, tokens, style and
+  // sessions .mode to hard, relaxed sets them to soft, custom (the default) leaves each to its own key.
+  // A guardrail: workflow.toml can raise it to strict, only your own layers can relax it.
+  enforcement: "custom",
   // mode auto: a worktree for complex and critical tasks (features.worktrees), a branch otherwise.
   branch: { base: "main", mode: "auto" },
-  routing: { default_tier: "auto", always_grill: ["complex", "critical"] },
+  // routing.mode hard (opt-in; features.verify_hook): saw guard denies edits to files in a saw project
+  // until a task is open (router skill, then `saw task start` or `saw task adhoc`). soft = nudges only.
+  // The tier floor: a task is at least standard past trivial_max_files files or trivial_max_lines changed lines
+  // since it started, and critical when a changed path matches a critical_paths glob.
+  routing: {
+    default_tier: "auto",
+    always_grill: ["complex", "critical"],
+    mode: "soft",
+    // With no task open, the UserPromptSubmit hook classifies the prompt by fixed rules (cli/src/auto-route.ts,
+    // no model call). suggest: the router nudge proposes the saw task start line. open: it opens a provisional
+    // task the agent confirms with saw task retier or saw task start before verify lets a commit through. off: neither.
+    auto: "suggest",
+    trivial_max_files: 3,
+    trivial_max_lines: 60,
+    critical_paths: ["**/auth/**", "**/*secret*", "**/migrations/**", "infra/**", "**/*.tf", ".github/workflows/**"],
+  },
   // features.tdd: mode hard = on standard-or-higher tasks in these playbooks, saw
   // guard denies code edits (tests excepted) until `saw run test` has failed since
   // the task started. Needs [checks].test. soft = the step only.
@@ -140,6 +159,13 @@ export const DEFAULTS: Table = {
     // and passed with --report); "review_session" a saw review-session only.
     // A guardrail: workflow.toml can raise it, only your own layers can lower it.
     require_review_evidence: "off",
+    // mode hard (opt-in; features.verify_hook): saw guard denies git commit, git push and gh pr create
+    // while the open task isn't Verified, or its tier is below the diff's floor (routing.trivial_max_*,
+    // routing.critical_paths). soft = the Stop gate only. A guardrail: workflow.toml can raise it, only your own layers can lower it.
+    mode: "soft",
+    // Required mechanical checks that may have no [checks] command without blocking
+    // Verified. Any other required check with no command makes a task "Not verified".
+    allow_unconfigured: [],
     trivial: { run: ["test"] },
     standard: { run: ["format", "lint", "typecheck", "test", "code_review", "security_review", "advisor", "docs"] },
     complex: { extends: "standard", run: [] },
@@ -208,7 +234,7 @@ export const DEFAULTS: Table = {
   // timeline, "warn" keeps only blocks, denies, failures and budget warnings.
   logging: { enabled: true, level: "info" },
   dashboard: {
-    panels: ["outcomes", "first_pass_rate", "findings_by_category", "rework", "cost_per_task", "promotion_effect", "events", "autopilot"],
+    panels: ["outcomes", "first_pass_rate", "findings_by_category", "rework", "cost_per_task", "promotion_effect", "adoption", "events", "autopilot"],
     // saw dashboard --serve: port on 127.0.0.1, and how many recent events the timeline shows.
     port: 4173,
     events_limit: 50,
@@ -248,12 +274,16 @@ export const DEFAULTS: Table = {
 
 // Allowed values for enum keys; checked by `saw doctor` and `saw config set`.
 export const ENUMS: Record<string, string[]> = {
+  enforcement: ["custom", "strict", "relaxed"],
   "recommend.mode": ["auto", "manual"],
   "project.type": ["web", "api", "cli", "lib", "infra"],
   "autonomy.level": ["suggest", "propose", "act"],
   "branch.mode": ["branch", "worktree", "auto"],
   "routing.default_tier": ["auto", "trivial", "standard", "complex", "critical"],
   "tokens.mode": ["soft", "hard"],
+  "routing.mode": ["soft", "hard"],
+  "routing.auto": ["off", "suggest", "open"],
+  "verify.mode": ["soft", "hard"],
   "tdd.mode": ["soft", "hard"],
   "verify.require_review_evidence": ["off", "agent", "review_session"],
   "style.tone": ["normal", "structured", "detailed", "verbose"],

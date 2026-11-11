@@ -11,6 +11,7 @@ import type { TaskMetric } from "./metrics";
 import type { RunRecord } from "./autopilot";
 import type { Proposal } from "./retro";
 import { TIERS } from "./task";
+import { adoptionHtml, type Adoption } from "./adoption";
 
 interface Bar {
   label: string;
@@ -163,7 +164,7 @@ export function dataVersion(cwd: string): string {
     .join("|");
 }
 
-export function renderHtml(metrics: TaskMetric[], names: string[], proposals: Proposal[] = [], runs: RunRecord[] = [], generated = new Date(), events: WorkflowEvent[] = [], live = false): string {
+export function renderHtml(metrics: TaskMetric[], names: string[], proposals: Proposal[] = [], runs: RunRecord[] = [], generated = new Date(), events: WorkflowEvent[] = [], live = false, adoptionReport?: Adoption): string {
   const verified = metrics.filter((m) => m.label === "Verified").length;
   const kpis = [
     ["Tasks", String(metrics.length)],
@@ -193,7 +194,7 @@ h2{font-size:15px;margin:0}.hint{color:var(--muted);font-size:13px;margin:2px 0 
 </style></head><body><main>
 <h1>Workflow metrics</h1><p class="sub">${metrics.length} tasks · generated ${esc(generated.toISOString().slice(0, 16).replace("T", " "))} UTC</p>
 <div class="kpis">${kpis.map(([k, v]) => `<div class="kpi"><b>${esc(v!)}</b><span>${esc(k!)}</span></div>`).join("")}</div>
-<div class="grid">${buildPanels(metrics, names, proposals, runs).map(panelHtml).join("")}${names.includes("events") ? eventsHtml(events) : ""}</div>
+<div class="grid">${buildPanels(metrics, names, proposals, runs).map(panelHtml).join("")}${names.includes("adoption") && adoptionReport ? adoptionHtml(adoptionReport, esc) : ""}${names.includes("events") ? eventsHtml(events) : ""}</div>
 </main>${live ? LIVE_SCRIPT : ""}</body></html>
 `;
 }

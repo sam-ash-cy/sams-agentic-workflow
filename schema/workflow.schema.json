@@ -312,6 +312,15 @@
         }
       }
     },
+    "enforcement": {
+      "type": "string",
+      "default": "custom",
+      "enum": [
+        "custom",
+        "strict",
+        "relaxed"
+      ]
+    },
     "branch": {
       "type": "object",
       "additionalProperties": false,
@@ -351,6 +360,42 @@
           "default": [
             "complex",
             "critical"
+          ]
+        },
+        "mode": {
+          "type": "string",
+          "default": "soft",
+          "enum": [
+            "soft",
+            "hard"
+          ]
+        },
+        "auto": {
+          "type": "string",
+          "default": "suggest",
+          "enum": [
+            "off",
+            "suggest",
+            "open"
+          ]
+        },
+        "trivial_max_files": {
+          "type": "number",
+          "default": 3
+        },
+        "trivial_max_lines": {
+          "type": "number",
+          "default": 60
+        },
+        "critical_paths": {
+          "type": "array",
+          "default": [
+            "**/auth/**",
+            "**/*secret*",
+            "**/migrations/**",
+            "infra/**",
+            "**/*.tf",
+            ".github/workflows/**"
           ]
         }
       }
@@ -603,6 +648,21 @@
             "agent",
             "review_session"
           ]
+        },
+        "mode": {
+          "type": "string",
+          "default": "soft",
+          "enum": [
+            "soft",
+            "hard"
+          ]
+        },
+        "allow_unconfigured": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": []
         }
       }
     },
@@ -906,6 +966,7 @@
             "rework",
             "cost_per_task",
             "promotion_effect",
+            "adoption",
             "events",
             "autopilot"
           ]

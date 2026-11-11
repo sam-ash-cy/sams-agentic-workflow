@@ -14,16 +14,30 @@ export function parseStatus(out: string): Status {
     const l = lines.find(x => x.trim().startsWith(label))
     return l ? l.trim().slice(label.length).split(',').map(s => s.trim()).filter(Boolean) : []
   }
-  return { header: (lines[0] ?? '').trim(), passed: list('passed'), failed: list('failed'), missing: list('not run') }
+  // "not configured test, lint (set checks.<name> ...)": the names before the hint.
+  const unconfigured = list('not configured').join(', ').replace(/\s*\(.*$/, '').split(',').map(s => s.trim()).filter(Boolean)
+  const floor = lines.find(x => x.trim().startsWith('tier too low:'))?.trim().slice('tier too low:'.length).trim()
+  return { header: (lines[0] ?? '').trim(), passed: list('passed'), failed: list('failed'), missing: list('not run'), unconfigured, ...(floor ? { floor } : {}) }
+}
+
+// In a saw project (workflow.toml) a missing task is the thing to fix, so say it plainly.
+async function noTaskMessage($: EngineInterface): Promise<string> {
+  try {
+    await $.fs.read('workflow.toml')
+    return 'saw: no task open. Start one with saw task start --tier <t> --playbook <p>.'
+  } catch {
+    return 'Not a saw project (no workflow.toml).'
+  }
 }
 
 async function refresh($: EngineInterface, opts: Options): Promise<void> {
   const argv = (opts.sawCommand ?? 'saw').split(' ').filter(Boolean)
   const r = await $.process.run([...argv, 'task', 'status'], { cwd: await $.session.cwd(), timeoutMs: 15000 })
+  const out = (r.stderr || r.stdout).trim()
   const next: Status =
     r.exitCode === 0
       ? parseStatus(r.stdout)
-      : { header: '', passed: [], failed: [], missing: [], error: (r.stderr || r.stdout).trim().split('\n')[0] || 'No open task.' }
+      : { header: '', passed: [], failed: [], missing: [], error: /no open task/.test(out) ? await noTaskMessage($) : out.split('\n')[0] || 'No open task.' }
   await update($, status, () => next)
 }
 
@@ -63,9 +77,11 @@ export const register: Register = (on, options) => {
     return (
       <Box flexDirection="column">
         <Text bold>{s.header}</Text>
+        {s.floor && <Text color="yellow">! tier too low: {s.floor}</Text>}
         {s.passed.filter(x => !x.startsWith('skill:')).map(x => <Text color="green">✓ {x}</Text>)}
         {s.failed.filter(x => !x.startsWith('skill:')).map(x => <Text color="red">✗ {x}</Text>)}
         {s.missing.filter(x => !x.startsWith('skill:')).map(x => <Text dimColor>○ {x}</Text>)}
+        {(s.unconfigured ?? []).map(x => <Text color="yellow">! {x} (not configured)</Text>)}
         {skills.length > 0 && <Text bold>Pre-PR skills</Text>}
         {skills.map(x => (
           <Text color={s.passed.includes(x) ? 'green' : s.failed.includes(x) ? 'red' : undefined} dimColor={s.missing.includes(x)}>
