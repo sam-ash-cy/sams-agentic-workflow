@@ -1,6 +1,6 @@
 {
   "name": "trail-nudge",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "When Grep, Glob or Read runs on source code, reminds the model of the matching trail command (never blocks)",
   "types": "./types/index.d.ts"
 }
