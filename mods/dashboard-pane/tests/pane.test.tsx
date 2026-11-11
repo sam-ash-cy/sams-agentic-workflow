@@ -15,16 +15,16 @@ type Seen = { url: string; method: string; headers: Record<string, string>; body
 const reply = (status: number, body: unknown) => ({ value: { status, ok: status < 300, headers: {}, text: JSON.stringify(body) } })
 
 // A fake dashboard server behind http.fetch, and a fake `saw dashboard --serve` child behind process.spawn.
-function fake($: any, on: any, over: { noSaw?: boolean; fetchFails?: boolean; output?: string; projects?: unknown; post?: (e: Seen) => ReturnType<typeof reply> } = {}) {
+function fake($: any, on: any, over: { cwd?: string; whereEmpty?: boolean; noSaw?: boolean; fetchFails?: boolean; output?: string; projects?: unknown; post?: (e: Seen) => ReturnType<typeof reply> } = {}) {
   const clock = mock.clock(on)
   const seen: Seen[] = []
   const spawned: { argv: string[]; ended: boolean }[] = []
   // `where saw` finds the checkout, as on Windows.
   on('process.run', (_: unknown, e: { argv: string[] }) => {
-    const out = e.argv[0] === 'where' ? 'C:\\tools\\saw\\bin\\saw\r\nC:\\tools\\saw\\bin\\saw.cmd\r\n' : ''
+    const out = e.argv[0] === 'where' && !over.whereEmpty ? 'C:\\tools\\saw\\bin\\saw\r\nC:\\tools\\saw\\bin\\saw.cmd\r\n' : ''
     return { value: { exitCode: 0, stdout: out, stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
   })
-  on('session.cwd', () => ({ value: '/repo/demo' }))
+  on('session.cwd', () => ({ value: over.cwd ?? '/repo/demo' }))
   on('ui.open', () => ({ value: { isPlaced: true } }))
   on('ui.close', () => ({ value: undefined }))
   on('session.end', (_: unknown, e: { sessionId: string }) => ({ sessionId: e.sessionId }))
@@ -180,8 +180,35 @@ test('a server that stops answering shows an error with a way to try again, not 
   await ui.unmount()
 })
 
-test('when saw cannot be spawned (a shell shim), the pane retries through the checkout it lives in with bun', async ($, on) => {
-  const { spawned } = fake($, on, { noSaw: true })
+// The app that hosts the mod can lack `saw` on its PATH (only a terminal has it), so a spawn of
+// plain saw fails to start; the pane then runs a saw checkout that has the pane route, with bun.
+const ROUTE = { value: 'export const x = "GET /pane-session"' }
+
+test('when saw cannot be spawned, the pane runs the checkout of the session folder with bun', async ($, on) => {
+  const { spawned } = fake($, on, { noSaw: true, cwd: 'C:\\work\\saw\\.claude\\worktrees\\x' })
+  on('env.get', () => ({ value: undefined }))
+  on('fs.read', (_: unknown, e: { path: string }) => (/work.saw.cli.src.dashboard-server\.ts$/.test(e.path) ? ROUTE : { deny: 'ENOENT' }))
   await $.command.run({ command: 'dashboard-pane' })
-  expect(spawned[0]!.argv).toEqual(['bun', 'C:\\tools\\saw/cli/src/main.ts', 'dashboard', '--serve', '--port', '0'])
+  expect(spawned[0]!.argv).toEqual(['bun', 'C:\\work\\saw/cli/src/main.ts', 'dashboard', '--serve', '--port', '0'])
+})
+
+test('a checkout without the pane route is not used; the installed plugin is the next place to look', async ($, on) => {
+  const { spawned } = fake($, on, { noSaw: true, cwd: 'C:\\work\\old' })
+  on('env.get', (_: unknown, e: { name: string }) => ({ value: e.name === 'USERPROFILE' ? 'C:\\Users\\me' : undefined }))
+  on('fs.list', () => ({ value: [{ name: '1.0.2', kind: 'dir', size: 0, mtimeMs: 0, isLink: false }, { name: '1.0.4', kind: 'dir', size: 0, mtimeMs: 0, isLink: false }] }))
+  on('fs.read', (_: unknown, e: { path: string }) => (/1\.0\.4.cli.src.dashboard-server\.ts$/.test(e.path) ? ROUTE : /old.cli.src.dashboard-server\.ts$/.test(e.path) ? { value: 'no route here' } : { deny: 'ENOENT' }))
+  await $.command.run({ command: 'dashboard-pane' })
+  expect(spawned[0]!.argv[0]).toBe('bun')
+  expect(spawned[0]!.argv[1]).toMatch(/1\.0\.4.cli.src.main\.ts$/)
+})
+
+test('when no checkout is found, the error says where it looked', async ($, on) => {
+  fake($, on, { noSaw: true })
+  on('env.get', () => ({ value: undefined }))
+  on('fs.read', () => ({ deny: 'ENOENT' }))
+  on('fs.list', () => ({ deny: 'ENOENT' }))
+  await $.command.run({ command: 'dashboard-pane' })
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect(await ui.find({ type: 'Text', text: /no fallback: no saw checkout with the pane route found/ })).toBeDefined()
+  await ui.unmount()
 })
