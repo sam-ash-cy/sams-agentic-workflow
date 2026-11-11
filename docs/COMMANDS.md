@@ -199,7 +199,14 @@ The queue is a Markdown list you own; only `approved` items run:
 ```markdown
 - [approved] csv-export: CSV export on the reports page
 - [proposed] audit-log: waits for you
+- [approved] csv-import: CSV import, after the export
+  - tier: standard
+  - needs: csv-export
+  - accept: a 10k-row file imports in under 5s
+  - adr: docs/decisions/0007-csv.md
 ```
+
+Optional indented sub-lines: `tier`, `needs` (comma list), `accept` (repeatable) and `adr`. An item runs only after every `needs` item finished with a PR; one whose dependency was parked, is missing or isn't approved is skipped (not a failure), and a dependency cycle stops the run. When a dependency's `autopilot/<slug>` branch isn't merged into the base branch yet, the item is cut from that branch (the most recent one if several) and its PR targets it; the chosen base is saved in `.saw/autopilot.json` so a resume uses the same one. `status` and `--dry-run` print the order, each item's base branch and why any item is skipped.
 
 The runner never approves items, edits the queue, merges, pushes to the base branch or deploys. It pushes an item's branch and opens its PR only when `autonomy.actions.open_pr`, `autonomy.actions.push` and `safety.push` are all `allow`. It stops on an empty queue, `max_total_usd` spent, `max_failures` in a row, a weakened `[safety]` setting (other than `safety.push`), or a `.saw/STOP` file. On a usage limit it saves state to `.saw/autopilot.json`, waits (up to `max_wait`) and resumes. Check your Claude plan's terms before running it unattended; API billing with the USD caps is the predictable option.
 
@@ -377,6 +384,7 @@ effort = "high"
 | `autopilot.max_failures` | `2` | Consecutive failures before it stops. |
 | `autopilot.max_wait` | `"6h"` | Longest wait on a usage limit. |
 | `autopilot.resume_on_limit` | `true` | Resume the same session after a limit. |
+| `autopilot.auto_approve_tiers` | `[]` | `[proposed]` items whose `tier:` is listed run as approved. Allowed: `trivial`, `standard`; `complex` and `critical` are ignored with a warning. An item without a tier is never auto-approved. |
 
 ### `[knowledge]`, `[release]`, `[agents]`, `[logging]`, `[dashboard]`
 
@@ -750,6 +758,7 @@ max_total_usd = 30
 max_failures = 2
 max_wait = "6h"
 resume_on_limit = true
+auto_approve_tiers = ["trivial", "standard"]   # [proposed] items with these tiers run unapproved
 
 [autonomy.actions]
 commit = "allow"         # headless sessions can't answer an "ask"

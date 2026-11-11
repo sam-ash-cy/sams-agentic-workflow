@@ -18,7 +18,7 @@ import { guardHook, readOnlyGuard, unreadableSettingsGuard } from "./guard";
 import { sessionHook, UNITS } from "./sessions";
 import { recordReview, reviewApplies, reviewArgv, reviewBrief, writeChange, type ReviewSettings } from "./review-session";
 import { effectiveStyle, styleCheck, styleLine, TONES } from "./style";
-import { autopilot, eligible, parseQueue, readRuns, readState as autopilotState, scheduleCommand, settings as autopilotSettings, spawnClaude, stopReasons } from "./autopilot";
+import { autoApproveTiers, autopilot, parseQueue, planQueue, readRuns, readState as autopilotState, scheduleCommand, settings as autopilotSettings, spawnClaude, stopReasons } from "./autopilot";
 import { renderHtml, renderMarkdown } from "./dashboard";
 import { dashboardUrl, serveDashboard } from "./dashboard-server";
 import { hookCwd } from "./hook-cwd";
@@ -931,11 +931,23 @@ function autopilotCommand(cwd: string, config: Table, weakened: string[], args: 
     return 0;
   }
   const state = autopilotState(cwd);
-  const items = existsSync(queue) ? eligible(parseQueue(readFileSync(queue, "utf8")), state) : [];
   if (args.positional[1] === "status" || args.flags.has("--dry-run")) {
-    console.log(`saw autopilot: ${items.length} approved item(s) left in ${s.queue}; spent $${state.spent_usd.toFixed(2)} of $${s.max_total_usd}`);
-    for (const i of items) console.log(`  next  ${i.slug}${i.text ? `: ${i.text}` : ""}`);
-    if (state.current) console.log(`  current ${state.current.slug} (${state.current.branch}, session ${state.current.session_id}${state.current.until ? `, waiting until ${state.current.until}` : ""})`);
+    const items = existsSync(queue) ? parseQueue(readFileSync(queue, "utf8")) : [];
+    const git = (a: string[]): { code: number; out: string } => {
+      try {
+        const p = Bun.spawnSync(["git", ...a], { cwd, stdout: "pipe", stderr: "pipe" });
+        return { code: p.exitCode ?? 1, out: p.stdout.toString() };
+      } catch {
+        return { code: 1, out: "" };
+      }
+    };
+    const plan = planQueue(items, state, config, { git });
+    console.log(`saw autopilot: ${plan.order.length} approved item(s) left in ${s.queue}; spent $${state.spent_usd.toFixed(2)} of $${s.max_total_usd}`);
+    for (const w of autoApproveTiers(config).warnings) console.log(`  warning: ${w}`);
+    if (plan.cycle) console.log(`  would stop: dependency cycle: ${plan.cycle.join(" -> ")}`);
+    plan.order.forEach((p, n) => console.log(`  ${String(n + 1).padStart(2)}. ${p.item.slug} from ${p.base}${p.item.status === "proposed" ? ` (auto-approved: ${p.item.tier})` : ""}${p.item.text ? `: ${p.item.text}` : ""}`));
+    for (const k of plan.skipped) console.log(`  skip  ${k.slug}: ${k.reason}`);
+    if (state.current) console.log(`  current ${state.current.slug} (${state.current.branch}${state.current.base ? ` from ${state.current.base}` : ""}, session ${state.current.session_id}${state.current.until ? `, waiting until ${state.current.until}` : ""})`);
     for (const [slug, o] of Object.entries(state.done)) console.log(`  ${o.padEnd(6)} ${slug}`);
     for (const r of stopReasons(cwd, config, state, weakened)) console.log(`  would stop: ${r}`);
     return 0;

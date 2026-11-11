@@ -16,12 +16,18 @@ export interface AutopilotSettings {
   max_failures: number;
   max_wait: string;
   resume_on_limit: boolean;
+  auto_approve_tiers: string[];
 }
 
 export interface QueueItem {
   status: string;
   slug: string;
   text: string;
+  // Optional indented sub-lines; absent when the item has none.
+  tier?: string;
+  needs?: string[];
+  accept?: string[];
+  adr?: string;
 }
 
 export type Outcome = "pr" | "parked" | "waiting";
@@ -30,7 +36,8 @@ export interface AutopilotState {
   spent_usd: number;
   failures: number;
   done: Record<string, Exclude<Outcome, "waiting">>;
-  current?: { slug: string; branch: string; session_id: string; waits: number; until?: string };
+  // base: the branch it was cut from (the base branch, or a dependency's branch when stacked).
+  current?: { slug: string; branch: string; session_id: string; waits: number; until?: string; base?: string };
 }
 
 export interface RunRecord {
@@ -65,16 +72,139 @@ export const settings = (config: Table): AutopilotSettings => config.autopilot a
 // `- [approved] slug: what to build`. Anything else in the file is prose.
 const ITEM = /^\s*[-*]\s+\[(\w+)\]\s+([\w.-]+):?\s*(.*)$/;
 
+// `  - tier: standard`, `  - needs: a, b`, `  - accept: ...` (repeatable), `  - adr: path`.
+const SUB = /^\s+[-*]\s+(tier|needs|accept|adr):\s*(.*)$/i;
+
 export function parseQueue(text: string): QueueItem[] {
-  return text.split("\n").flatMap((l) => {
+  const items: QueueItem[] = [];
+  for (const l of text.split(/\r?\n/)) {
     const m = ITEM.exec(l);
-    return m ? [{ status: m[1]!.toLowerCase(), slug: m[2]!, text: m[3]!.trim() }] : [];
-  });
+    if (m) {
+      items.push({ status: m[1]!.toLowerCase(), slug: m[2]!, text: m[3]!.trim() });
+      continue;
+    }
+    const sub = SUB.exec(l);
+    const last = items.at(-1);
+    if (!sub || !last) continue;
+    const key = sub[1]!.toLowerCase();
+    const v = sub[2]!.trim();
+    if (key === "tier") last.tier = v.toLowerCase();
+    else if (key === "adr") last.adr = v;
+    else if (key === "needs") last.needs = [...(last.needs ?? []), ...v.split(",").map((x) => x.trim()).filter(Boolean)];
+    else if (v) last.accept = [...(last.accept ?? []), v];
+  }
+  return items;
 }
 
-// Only the owner's `approved` marks count; items this runner finished are skipped.
-export const eligible = (items: QueueItem[], state: AutopilotState): QueueItem[] =>
-  items.filter((i) => i.status === "approved" && !state.done[i.slug]);
+const NEVER_AUTO = ["complex", "critical"];
+
+// autopilot.auto_approve_tiers without complex/critical (those always need the owner).
+export function autoApproveTiers(config: Table): { tiers: string[]; warnings: string[] } {
+  const raw = settings(config).auto_approve_tiers ?? [];
+  const listed = Array.isArray(raw) ? raw.map((t) => String(t).toLowerCase()) : [];
+  const ignored = listed.filter((t) => NEVER_AUTO.includes(t));
+  return {
+    tiers: listed.filter((t) => !NEVER_AUTO.includes(t)),
+    warnings: ignored.length ? [`autopilot.auto_approve_tiers lists ${ignored.join(", ")}; ignored (complex and critical items always need the owner's approval)`] : [],
+  };
+}
+
+// The owner's `approved`, or a `proposed` item whose tier auto-approves. No tier: never.
+export const isApproved = (i: QueueItem, tiers: string[] = []): boolean =>
+  i.status === "approved" || (i.status === "proposed" && !!i.tier && tiers.includes(i.tier));
+
+export interface PlannedItem {
+  item: QueueItem;
+  // The branch it is (or would be) cut from, and the PR's --base.
+  base: string;
+  note?: string;
+}
+
+export interface QueuePlan {
+  order: PlannedItem[];
+  skipped: { slug: string; reason: string }[];
+  cycle?: string[];
+}
+
+// Is branch `b` already merged into `base`? Read-only (`merge-base --is-ancestor`).
+const merged = (deps: Pick<Deps, "git">, b: string, base: string): boolean => deps.git(["merge-base", "--is-ancestor", b, base]).code === 0;
+
+// The run order: approved items not yet done, each after its `needs`. Items
+// whose dependency is parked, missing or unapproved are skipped (not failures).
+// A dependency whose branch isn't merged into the base yet stacks the item on
+// that branch (the most recently finished one when several).
+export function planQueue(items: QueueItem[], state: AutopilotState, config: Table, deps: Pick<Deps, "git">): QueuePlan {
+  const { tiers } = autoApproveTiers(config);
+  const base = baseBranch(config);
+  const bySlug = new Map(items.map((i) => [i.slug, i]));
+  const pending = items.filter((i) => isApproved(i, tiers) && !state.done[i.slug]);
+  const pendingSet = new Set(pending.map((i) => i.slug));
+
+  // A cycle among pending items stops the whole run.
+  const color = new Map<string, number>();
+  const stack: string[] = [];
+  let cycle: string[] | undefined;
+  const visit = (s: string): void => {
+    color.set(s, 1);
+    stack.push(s);
+    for (const n of bySlug.get(s)?.needs ?? []) {
+      if (cycle) return;
+      if (!pendingSet.has(n)) continue;
+      if (color.get(n) === 1) cycle = [...stack.slice(stack.indexOf(n)), n];
+      else if (!color.get(n)) visit(n);
+    }
+    stack.pop();
+    color.set(s, 2);
+  };
+  for (const i of pending) if (!cycle && !color.get(i.slug)) visit(i.slug);
+  if (cycle) return { order: [], skipped: [], cycle };
+
+  const order: PlannedItem[] = [];
+  const skipped: QueuePlan["skipped"] = [];
+  const skippedSet = new Set<string>();
+  const placed = new Set<string>();
+  // Finished items rank first (in the order they finished), then planned ones.
+  const rank = new Map<string, number>(Object.keys(state.done).map((s, n) => [s, n]));
+  const why = (i: QueueItem): string | undefined => {
+    for (const n of i.needs ?? []) {
+      if (state.done[n] === "pr") continue;
+      const d = bySlug.get(n);
+      if (state.done[n] === "parked") return `needs ${n}, which was parked`;
+      if (!d) return `needs ${n}, which is not in the queue`;
+      if (skippedSet.has(n)) return `needs ${n}, which is skipped`;
+      if (!isApproved(d, tiers)) return `needs ${n}, which is not approved (${d.status})`;
+    }
+    return undefined;
+  };
+  for (let progress = true; progress; ) {
+    progress = false;
+    for (const i of pending) {
+      if (placed.has(i.slug) || skippedSet.has(i.slug)) continue;
+      const reason = why(i);
+      if (reason) {
+        skipped.push({ slug: i.slug, reason });
+        skippedSet.add(i.slug);
+        progress = true;
+        continue;
+      }
+      if (!(i.needs ?? []).every((n) => state.done[n] === "pr" || placed.has(n))) continue;
+      const stacks = (i.needs ?? []).filter((n) => placed.has(n) || !merged(deps, `autopilot/${n}`, base));
+      const top = [...stacks].sort((a, b) => (rank.get(a) ?? -1) - (rank.get(b) ?? -1)).at(-1);
+      const p: PlannedItem = { item: i, base: top ? `autopilot/${top}` : base };
+      if (top && stacks.length > 1) p.note = `stacked on ${p.base}, the most recent of ${stacks.map((s) => `autopilot/${s}`).join(", ")} (not merged into ${base} yet)`;
+      else if (top) p.note = `stacked on ${p.base} (not merged into ${base} yet)`;
+      order.push(p);
+      placed.add(i.slug);
+      rank.set(i.slug, rank.size);
+      progress = true;
+    }
+  }
+  return { order, skipped };
+}
+
+// What may run now, in queue order: approved, not done, every dependency done with a PR.
+export const eligible = (items: QueueItem[], state: AutopilotState, tiers: string[] = []): QueueItem[] =>
+  items.filter((i) => isApproved(i, tiers) && !state.done[i.slug] && (i.needs ?? []).every((n) => state.done[n] === "pr"));
 
 // "6h", "90m", "45s" or a bare number of seconds.
 export function durationMs(s: string): number {
@@ -185,6 +315,9 @@ export function autopilot(cwd: string, config: Table, weakened: string[], deps: 
   const s = settings(config);
   const state = readState(cwd);
   const queuePath = join(cwd, s.queue);
+  const { tiers, warnings } = autoApproveTiers(config);
+  for (const w of warnings) deps.log(`warning: ${w}`);
+  const loggedSkips = new Set<string>();
   for (;;) {
     const reasons = stopReasons(cwd, config, state, weakened);
     if (reasons.length) {
@@ -192,8 +325,23 @@ export function autopilot(cwd: string, config: Table, weakened: string[], deps: 
       return 1;
     }
     const items = existsSync(queuePath) ? parseQueue(readFileSync(queuePath, "utf8")) : [];
-    const item = state.current ? items.find((i) => i.slug === state.current!.slug) : eligible(items, state)[0];
-    if (!item || (state.current && item.status !== "approved")) {
+    let next: PlannedItem | undefined;
+    if (!state.current) {
+      const plan = planQueue(items, state, config, deps);
+      if (plan.cycle) {
+        deps.log(`stop: dependency cycle in ${s.queue}: ${plan.cycle.join(" -> ")}; fix the needs: lines`);
+        return 1;
+      }
+      for (const k of plan.skipped) {
+        if (loggedSkips.has(k.slug)) continue;
+        loggedSkips.add(k.slug);
+        deps.log(`skip ${k.slug}: ${k.reason}`);
+      }
+      // Only an item whose dependencies are all done runs now.
+      next = plan.order.find((p) => (p.item.needs ?? []).every((n) => state.done[n] === "pr"));
+    }
+    const item = state.current ? items.find((i) => i.slug === state.current!.slug) : next?.item;
+    if (!item || (state.current && !isApproved(item, tiers))) {
       if (state.current) {
         deps.log(`stop: ${state.current.slug} is no longer approved in ${s.queue}; resume it by hand or delete .saw/autopilot.json`);
         return 1;
@@ -225,13 +373,15 @@ export function autopilot(cwd: string, config: Table, weakened: string[], deps: 
         return 1;
       }
       const branch = `autopilot/${item.slug}`;
-      const sw = deps.git(["switch", "-c", branch, baseBranch(config)]);
+      const from = next!.base;
+      if (next!.note) deps.log(`${item.slug}: ${next!.note}`);
+      const sw = deps.git(["switch", "-c", branch, from]);
       // An existing branch (an earlier, parked attempt) is never reused silently.
       if (sw.code !== 0) {
-        deps.log(`stop: could not create ${branch} from ${baseBranch(config)} (delete or rename an old one first): ${sw.out.trim()}`);
+        deps.log(`stop: could not create ${branch} from ${from} (delete or rename an old one first): ${sw.out.trim()}`);
         return 1;
       }
-      state.current = { slug: item.slug, branch, session_id: deps.uuid(), waits: 0 };
+      state.current = { slug: item.slug, branch, session_id: deps.uuid(), waits: 0, base: from };
       saveState(cwd, state);
     }
 
@@ -262,7 +412,7 @@ export function autopilot(cwd: string, config: Table, weakened: string[], deps: 
       // Only the item's own branch, never the base; the owner reviews and merges.
       const push = deps.git(["push", "-u", "origin", cur.branch]);
       const pr = push.code === 0
-        ? deps.gh(["pr", "create", "--base", baseBranch(config), "--head", cur.branch, "--title", `autopilot: ${item.slug}`, "--body", `${item.text}\n\nOpened by saw autopilot. Review before merging; it never merges.`])
+        ? deps.gh(["pr", "create", "--base", cur.base ?? baseBranch(config), "--head", cur.branch, "--title", `autopilot: ${item.slug}`, "--body", `${item.text}\n\nOpened by saw autopilot. Review before merging; it never merges.`])
         : push;
       done = pr.code === 0 ? `PR opened: ${pr.out.trim().split("\n").pop()}` : `committed on ${cur.branch}, but the PR failed: ${pr.out.trim()}`;
       if (pr.code !== 0) note = "PR not opened";

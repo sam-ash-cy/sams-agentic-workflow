@@ -215,6 +215,9 @@ export const DEFAULTS: Table = {
     max_failures: 2,
     max_wait: "6h",
     resume_on_limit: true,
+    // [proposed] items whose `tier:` is listed run as approved. complex and
+    // critical are ignored here: they always need the owner.
+    auto_approve_tiers: [] as string[],
   },
   // vault_path: the central personal vault (absolute; global or local layer only).
   knowledge: { store: "repo", vault_path: "" },
@@ -422,6 +425,7 @@ export const DESCRIPTIONS: Record<string, string> = {
   "autopilot.max_failures": "Stop after this many failed items.",
   "autopilot.max_wait": "Longest wait for a usage limit to reset, such as 6h.",
   "autopilot.resume_on_limit": "Wait and carry on after a usage limit instead of stopping.",
+  "autopilot.auto_approve_tiers": "Tiers whose [proposed] queue items run without your approval: trivial, standard. complex and critical are never auto-approved.",
   "knowledge.store": "Where learnings are kept: in the repo, in your vault, or both.",
   "knowledge.vault_path": "Absolute path of your vault. Set it in the global or only-me layer.",
   "release.names": "Extra names of yours that saw sanitize flags before a repo goes public.",

@@ -79,6 +79,7 @@ Defaults are what a fresh `saw init` gives you. "Key" is the setting that contro
 | | `saw release`: version bump, CHANGELOG from Conventional Commits, annotated tag | manual | `[release]` | |
 | | Release-branch flow: cut on `release/vX.Y.Z` or `hotfix/*`, merge into `main`, then `saw release tag` | off (`main`) | `release.flow` | |
 | Automation | Autopilot: approved queue, one headless session + PR per item | off | `[autopilot]` | `claude` CLI, `gh` |
+| Automation | Autopilot chains: `needs:` dependencies stack on the previous item's branch; `auto_approve_tiers` runs trivial/standard `[proposed]` items | off (`[]`) | `autopilot.auto_approve_tiers` | autopilot |
 
 ## Mods
 
