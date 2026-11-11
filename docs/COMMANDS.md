@@ -112,7 +112,7 @@ Review agents in the plugin: `code-reviewer`, `security-reviewer`, `arch-reviewe
 | `saw retro [--dry-run]` | A proposal in `retro.proposals_dir` for each check failing in `repeat_threshold`+ tasks, plus suggested `saw config set` commands (never applied). A single test failing in `repeat_threshold`+ tasks (from `.saw/failures.jsonl`) gets a `test: <name>` proposal of its own. |
 | `saw adoption --features [--since <days>] [--json]` | Trigger count per `features.*` key and per mod in the window, rarest first; zero counts are marked as candidates to cut. A feature or mod that logs no event of its own is listed as "not measurable", not as zero. Report only: removes nothing. |
 | `saw eval [--case <glob>] [--runs <n>] [--dry-run] [--save-baseline]` | Runs `evals/` with `claude plugin eval` and compares with the baseline. Spends tokens. |
-| `saw eval --ab [--case <glob>] [--runs <n>] [--dry-run]` | Runs the suite twice, saw on and then with `SAW_DISABLE_HOOKS=1` (saw's hooks off), and prints per case and in a totals row the pass rate, tokens and cost of each arm and the difference; writes `.saw/evals-ab.json`. Refuses to run until every entry in `hooks/run/` exits 0 when `SAW_DISABLE_HOOKS=1` is set. Spends twice the tokens. |
+| `saw eval --ab [--case <glob>] [--runs <n>] [--dry-run]` | Runs the suite with `claude plugin eval --ablation with-without`, so each case also runs with no plugin loaded (saw off), and prints per case and in a totals row the pass rate, tokens and cost of each arm and the difference; writes `.saw/evals-ab.json`. Spends about twice the tokens. |
 | `saw eval compare <before.json> <after.json>` | Compares two saved results. |
 
 ### The live dashboard

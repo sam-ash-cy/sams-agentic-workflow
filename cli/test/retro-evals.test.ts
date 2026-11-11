@@ -66,20 +66,24 @@ test("saw retro and saw eval compare from the CLI", async () => {
   expect(run(["retro"], dir)).toBe(1);
 });
 
-test("saw eval --ab runs both arms with an injected runner, the off arm with SAW_DISABLE_HOOKS=1", () => {
+test("saw eval --ab splits one ablation run into saw on and saw off, with an injected runner", () => {
   const dir = mkdtempSync(join(tmpdir(), "saw-ab-"));
-  const arms: Record<string, unknown> = {
-    on: { cases: [{ name: "router", score: 1, tokens: 1000, cost_usd: 0.1 }, { name: "tdd", score: 0.5, tokens: 2000, cost_usd: 0.2 }] },
-    off: { cases: [{ name: "router", score: 0.5, tokens: 800, cost_usd: 0.08 }, { name: "tdd", score: 0.5, tokens: 1500, cost_usd: 0.15 }] },
+  const run = (score: number, costUsd: number, tokens: number) => ({ score, costUsd, tokens });
+  const result = {
+    schemaVersion: 1,
+    cases: [
+      { name: "router", arms: { with: [run(1, 0.05, 1000), run(1, 0.05, 1000)], without: [run(0, 0.04, 800), run(1, 0.04, 800)] } },
+      { name: "tdd", arms: { with: [run(0.5, 0.2, 2000)], without: [run(0.5, 0.15, 1500)] } },
+    ],
   };
-  const calls: Record<string, string>[] = [];
-  const runner = (out: string, env: Record<string, string>): number => {
-    calls.push(env);
-    writeFileSync(out, JSON.stringify(env.SAW_DISABLE_HOOKS === "1" ? arms.off : arms.on));
+  const calls: string[] = [];
+  const runner = (out: string): number => {
+    calls.push(out);
+    writeFileSync(out, JSON.stringify(result));
     return 0;
   };
   const r = runAb(dir, runner, 0.2, (p) => JSON.parse(readFileSync(p, "utf8")), (p, v) => writeFileSync(p, JSON.stringify(v)));
-  expect(calls).toEqual([{}, { SAW_DISABLE_HOOKS: "1" }]);
+  expect(calls).toEqual([join(dir, "evals-ab-run.json")]);
   expect(r.rows.find((x) => x.case === "router")?.delta).toEqual({ score: 0.5, tokens: 200, cost: expect.closeTo(0.02, 5) });
   expect(r.totals.delta.score).toBeCloseTo(0.25);
   expect(r.totals.delta.tokens).toBe(700);
@@ -87,8 +91,10 @@ test("saw eval --ab runs both arms with an injected runner, the off arm with SAW
   expect(r.comparison.regressions).toEqual(["tdd: tokens +33% at the same score"]);
   expect(JSON.parse(readFileSync(join(dir, "evals-ab.json"), "utf8")).totals.case).toBe("TOTAL");
   expect(formatAb(r)).toContain("TOTAL");
-  expect(() => runAb(dir, () => 2, 0.2, () => ({}), () => {})).toThrow("saw on arm exited 2");
-  expect(() => runAb(dir, () => 0, 0.2, () => ({}), () => {})).toThrow("saw on arm wrote no result");
+  expect(() => runAb(dir, () => 2, 0.2, () => ({}), () => {})).toThrow("claude plugin eval exited 2");
+  expect(() => runAb(dir, () => 0, 0.2, () => ({}), () => {})).toThrow("wrote no result");
+  const noOff = (out: string): number => (writeFileSync(out, JSON.stringify({ cases: [{ name: "a", arms: { with: [run(1, 0.1, 1)] } }] })), 0);
+  expect(() => runAb(dir, noOff, 0.2, (p) => JSON.parse(readFileSync(p, "utf8")), () => {})).toThrow("no saw-off");
 });
 
 test("abCompare keeps a case missing from one arm without a delta", () => {

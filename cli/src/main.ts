@@ -1285,27 +1285,23 @@ function evalCommand(cwd: string, config: Table, args: Args): number {
     const runs = args.values.runs ? Number(args.values.runs) : e.runs;
     if (!Number.isInteger(runs) || runs < 1) return fail("--runs must be a whole number of at least 1");
     const out = join(cwd, ".saw", "evals", `${new Date().toISOString().replace(/[:.]/g, "-")}.json`);
-    // No ablation arm: before/after compares two versions of the plugin, not plugin vs none.
-    const cmd = ["claude", "plugin", "eval", PLUGIN_ROOT, "--no-publish", "--ablation", "none", "--runs", String(runs), "--threshold", "0", "--json", out];
+    // No ablation arm: before/after compares two versions of the plugin, not plugin vs none (--ab adds it).
+    const cmd = ["claude", "plugin", "eval", PLUGIN_ROOT, "--no-publish", "--ablation", args.flags.has("--ab") ? "with-without" : "none", "--runs", String(runs), "--threshold", "0", "--json", out];
     if (args.values.case) cmd.push("--case", args.values.case);
     // A paid run: say how big it is first.
     const cases = readdirSync(join(PLUGIN_ROOT, "evals"), { withFileTypes: true }).filter((d) => d.isDirectory() && (!args.values.case || new Bun.Glob(args.values.case).match(d.name))).length;
-    const arms = args.flags.has("--ab") ? 2 : 1;
+    const arms = args.flags.has("--ab") ? 2 : 1; // --ab adds the no-plugin arm
     console.log(`saw eval: ${cases} case(s) x ${runs} run(s)${arms > 1 ? " x 2 arms" : ""} = ${cases * runs * arms} agent sessions (paid)`);
     console.log(`  ${cmd.join(" ")}`);
     if (args.flags.has("--ab")) {
-      console.log("  --ab: runs it twice, the second time with SAW_DISABLE_HOOKS=1 (saw's hooks off)");
-      // Without the switch in the hook entries the "off" arm would be saw on again.
-      const honoured = readdirSync(join(PLUGIN_ROOT, "hooks", "run")).every((f) => readFileSync(join(PLUGIN_ROOT, "hooks", "run", f), "utf8").includes("SAW_DISABLE_HOOKS"));
       if (args.flags.has("--save-baseline")) return fail("--ab and --save-baseline don't combine: save a baseline with a plain saw eval");
-      if (!honoured) console.log("  warning: hooks/run/* do not check SAW_DISABLE_HOOKS yet, so the saw-off arm cannot be run");
+      console.log("  --ab: --ablation with-without, so each case also runs with no plugin loaded (saw off)");
       if (args.flags.has("--dry-run")) return 0;
-      if (!honoured) return fail("saw eval --ab: hooks/run/* do not check SAW_DISABLE_HOOKS yet");
       const dir = join(cwd, ".saw");
       mkdirSync(dir, { recursive: true });
-      const runner: EvalRunner = (path, env) => {
+      const runner: EvalRunner = (path) => {
         const c = cmd.map((x) => (x === out ? path : x));
-        return Bun.spawnSync(c, { cwd, stdout: "inherit", stderr: "inherit", env: { ...process.env, ...env } }).exitCode ?? 1;
+        return Bun.spawnSync(c, { cwd, stdout: "inherit", stderr: "inherit" }).exitCode ?? 1;
       };
       const r = runAb(dir, runner, e.max_token_increase, (p) => JSON.parse(readFileSync(p, "utf8")), (p, v) => writeFileSync(p, JSON.stringify(v, null, 2) + "\n"));
       console.log(formatAb(r));

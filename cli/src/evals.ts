@@ -70,7 +70,8 @@ export function compare(before: Summary, after: Summary, maxTokenIncrease: numbe
 }
 
 // `saw eval --ab`: the same suite with saw's hooks on and off
-// (SAW_DISABLE_HOOKS=1, honoured by every entry in hooks/run). Per case: pass
+// (claude plugin eval --ablation with-without: a "without" arm runs the same
+// case with no plugin loaded). Per case: pass
 // rate (score), tokens and cost for each arm, and the difference.
 export interface AbRow {
   case: string;
@@ -122,20 +123,43 @@ export function formatAb(r: AbResult): string {
   return ["saw eval --ab: saw on vs saw off (pass rate, tokens, cost)", head, ...r.rows.map(line), line(r.totals)].join("\n");
 }
 
-// Runs one arm and writes its result JSON to `out`; returns the exit code.
-// Injected so tests never start `claude`.
-export type EvalRunner = (out: string, env: Record<string, string>) => number;
-
-// Both arms, then the table and .saw/evals-ab.json. Throws on a failed arm.
-export function runAb(dir: string, runner: EvalRunner, maxTokenIncrease: number, readJson: (p: string) => unknown, writeJson: (p: string, v: unknown) => void): AbResult {
-  const arms = { on: join(dir, "evals-ab-on.json"), off: join(dir, "evals-ab-off.json") };
-  for (const [name, path, env] of [["on", arms.on, {}], ["off", arms.off, { SAW_DISABLE_HOOKS: "1" }]] as const) {
-    rmSync(path, { force: true }); // never compare against a previous run's file
-    const code = runner(path, env);
-    if (code !== 0) throw new Error(`saw ${name} arm exited ${code}`);
-    if (!existsSync(path)) throw new Error(`saw ${name} arm wrote no result`);
+// One ablation run: cases[].arms.with / .without, each a list of runs with
+// score, costUsd and (when reported) tokens. Each arm becomes the case-list
+// shape summarise reads, averaging score and tokens and summing cost.
+export function splitArms(result: unknown): { on: unknown[]; off: unknown[] } {
+  const out = { on: [] as unknown[], off: [] as unknown[] };
+  const cases = ((result ?? {}) as { cases?: unknown }).cases;
+  if (!Array.isArray(cases)) return out;
+  const mean = (xs: (number | undefined)[]): number | undefined => (xs.length && xs.every((x) => x !== undefined) ? (xs as number[]).reduce((s, x) => s + x, 0) / xs.length : undefined);
+  for (const c of cases as { name?: unknown; arms?: Record<string, unknown> }[]) {
+    if (typeof c?.name !== "string" || !c.arms) continue;
+    for (const [key, arm] of [["with", "on"], ["without", "off"]] as const) {
+      const runs = (Array.isArray(c.arms[key]) ? c.arms[key] : []) as Record<string, unknown>[];
+      const score = mean(runs.map((r) => num(r.score)));
+      if (score === undefined) continue;
+      const tokens = mean(runs.map((r) => num(r.tokens) ?? num(((r.usage ?? {}) as Record<string, unknown>).total_tokens)));
+      const costs = runs.map((r) => num(r.costUsd));
+      const cost = costs.every((x) => x !== undefined) ? (costs as number[]).reduce((s, x) => s + x, 0) : undefined;
+      out[arm].push({ name: c.name, score, ...(tokens !== undefined ? { tokens } : {}), ...(cost !== undefined ? { cost_usd: cost } : {}) });
+    }
   }
-  const result = abCompare(readJson(arms.on), readJson(arms.off), maxTokenIncrease);
+  return out;
+}
+
+// Runs the suite once with the ablation arm and writes its result JSON to
+// `out`; returns the exit code. Injected so tests never start `claude`.
+export type EvalRunner = (out: string) => number;
+
+// The run, then the table and .saw/evals-ab.json. Throws on a failed run.
+export function runAb(dir: string, runner: EvalRunner, maxTokenIncrease: number, readJson: (p: string) => unknown, writeJson: (p: string, v: unknown) => void): AbResult {
+  const raw = join(dir, "evals-ab-run.json");
+  rmSync(raw, { force: true }); // never compare against a previous run's file
+  const code = runner(raw);
+  if (code !== 0) throw new Error(`claude plugin eval exited ${code}`);
+  if (!existsSync(raw)) throw new Error("claude plugin eval wrote no result");
+  const arms = splitArms(readJson(raw));
+  if (!arms.off.length) throw new Error("the result has no saw-off (without) arm");
+  const result = abCompare(arms.on, arms.off, maxTokenIncrease);
   writeJson(join(dir, "evals-ab.json"), result);
   return result;
 }
