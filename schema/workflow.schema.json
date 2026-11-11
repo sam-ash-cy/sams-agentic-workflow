@@ -312,6 +312,15 @@
         }
       }
     },
+    "enforcement": {
+      "type": "string",
+      "default": "custom",
+      "enum": [
+        "custom",
+        "strict",
+        "relaxed"
+      ]
+    },
     "branch": {
       "type": "object",
       "additionalProperties": false,
@@ -359,6 +368,15 @@
           "enum": [
             "soft",
             "hard"
+          ]
+        },
+        "auto": {
+          "type": "string",
+          "default": "suggest",
+          "enum": [
+            "off",
+            "suggest",
+            "open"
           ]
         },
         "trivial_max_files": {
@@ -941,6 +959,7 @@
             "rework",
             "cost_per_task",
             "promotion_effect",
+            "adoption",
             "events",
             "autopilot"
           ]

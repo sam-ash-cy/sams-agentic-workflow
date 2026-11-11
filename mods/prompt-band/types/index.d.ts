@@ -4,6 +4,6 @@ export type TaskCost = { started: string; baseUsd: number; warned: number[] } | 
 
 declare module 'claude-code' {
   interface PluginState {
-    'prompt-band': { busy: Busy; lastPressAt: number; contextPct: number; isTurnRunning: boolean; sessionUsd: number; taskCost: TaskCost }
+    'prompt-band': { busy: Busy; lastPressAt: number; contextPct: number; isTurnRunning: boolean; sessionUsd: number; taskCost: TaskCost; taskState: string | null }
   }
 }

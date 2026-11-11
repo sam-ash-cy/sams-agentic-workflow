@@ -1,12 +1,12 @@
 import { expect, test } from "bun:test";
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdtempSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { resolve } from "../src/config";
 import { lintContext } from "../src/lint";
 import { runCheck, tail } from "../src/run";
-import { endTask, gate, gitStatusHash, markUntaskedEdit, storeTreeHash, recordCheck, requiredChecks, startTask, taskStatus } from "../src/task";
+import { endTask, gate, gitStatusHash, markUntaskedEdit, storeTreeHash, recordCheck, requiredChecks, startTask, taskStatus, writeStatusFile } from "../src/task";
 import { routerNudge } from "../src/context";
 import { pluginProblem } from "../src/main";
 
@@ -186,4 +186,17 @@ test("router nudge needs verify_hook, a saw project and no open task", () => {
   expect(routerNudge(dir, config(project("[features]\nverify_hook = false\n")))).toBeUndefined();
   startTask(dir, "trivial", "feature");
   expect(routerNudge(dir, config(dir))).toBeUndefined();
+});
+
+test("status.json carries the open task's tier, playbook and label for the mods, and goes with the task", () => {
+  const dir = project('[checks]\ntest = "echo ok"');
+  const c = config(dir);
+  const task = startTask(dir, "trivial", "debug");
+  writeStatusFile(dir, c);
+  const s = JSON.parse(readFileSync(join(dir, ".saw", "status.json"), "utf8"));
+  expect(s).toEqual({ started: task.started, tier: "trivial", playbook: "debug", label: "Not verified" });
+  endTask(dir);
+  expect(existsSync(join(dir, ".saw", "status.json"))).toBe(false);
+  writeStatusFile(dir, c);
+  expect(existsSync(join(dir, ".saw", "status.json"))).toBe(false);
 });

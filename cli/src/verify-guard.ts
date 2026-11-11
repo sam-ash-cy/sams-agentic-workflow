@@ -14,6 +14,9 @@ export function verifyBlock(config: Table, cwd: string): { decision: "deny"; rea
   if (!((config.features ?? {}) as Record<string, boolean>).verify_hook || !isSawProject(cwd)) return undefined;
   const task = currentTask(cwd);
   if (!task) return undefined;
+  if (task.provisional) {
+    return { decision: "deny", reason: `verify: the ${task.tier} / ${task.playbook} task was opened provisionally from the prompt (routing.auto = "open"). Confirm it with \`saw task retier ${task.tier}\` or pick your own with \`saw task start --tier <t> --playbook <p>\`, then verify it (or set verify.mode soft)` };
+  }
   const low = belowFloor(cwd, config, task);
   if (low) return { decision: "deny", reason: `verify: ${low}, then verify it (or set verify.mode soft)` };
   const s = taskStatus(cwd, config, task);

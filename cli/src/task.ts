@@ -35,6 +35,9 @@ export interface Task {
   baseDirty?: Record<string, string>;
   // The session that owns the task, stamped by a hook (see staleTask).
   session?: string;
+  // Opened by routing.auto = "open" from the prompt alone: the agent confirms it with
+  // saw task retier or saw task start before the verify guard lets a commit through.
+  provisional?: boolean;
 }
 
 export interface CheckResult {
@@ -63,6 +66,14 @@ export function startTask(cwd: string, tier: string, playbook: string, style?: T
   mkdirSync(dir(cwd), { recursive: true });
   writeFileSync(join(dir(cwd), "task.json"), JSON.stringify(task, null, 2) + "\n");
   rmSync(join(dir(cwd), "untasked-edits"), { force: true });
+  return task;
+}
+
+// routing.auto = "open": a task opened from the prompt alone, flagged provisional until
+// the agent confirms it (saw task retier, or saw task start with its own choice).
+export function openProvisional(cwd: string, tier: string, playbook: string): Task {
+  const task: Task = { ...startTask(cwd, tier, playbook), provisional: true };
+  writeTask(cwd, task);
   return task;
 }
 
@@ -156,6 +167,7 @@ export function endTask(cwd: string): void {
   rmSync(join(dir(cwd), "task.json"), { force: true });
   // A closed task has nothing to resume.
   rmSync(join(dir(cwd), "handoff.json"), { force: true });
+  rmSync(join(dir(cwd), "status.json"), { force: true });
 }
 
 export function recordCheck(cwd: string, result: Omit<CheckResult, "at">): void {
@@ -317,6 +329,24 @@ export function taskStatus(cwd: string, config: Table, task: Task): Status {
   if (status.failed.length) status.label = "Blocked";
   else if (status.missing.length) status.label = status.passed.length ? "Partially verified" : "Not verified";
   return status;
+}
+
+// .saw/status.json: the open task's tier, playbook and verification label, for the
+// mods (prompt band, workflow pane), which can read files but not run taskStatus.
+// `started` ties it to one task, so a stale file is ignored. Removed with no task open.
+export function writeStatusFile(cwd: string, config: Table): void {
+  const path = join(dir(cwd), "status.json");
+  const task = currentTask(cwd);
+  if (!task) {
+    rmSync(path, { force: true });
+    return;
+  }
+  try {
+    const s = taskStatus(cwd, config, task);
+    writeFileSync(path, JSON.stringify({ started: task.started, tier: task.tier, playbook: task.playbook, label: s.label, ...(task.provisional ? { provisional: true } : {}) }) + "\n");
+  } catch {
+    // Display only: a failed write never blocks a command or hook.
+  }
 }
 
 export const EVIDENCE_CHECKS = ["code_review", "security_review"];
@@ -539,7 +569,9 @@ export function retierTask(cwd: string, config: Table, tier: string): Task {
   if (!task) throw new Error("no open task; start one with saw task start --tier <t> --playbook <p>");
   const f = tierFloor(cwd, config, task);
   if (tierRank(tier) < tierRank(f.floor)) throw new Error(`can't lower to ${tier}: the diff needs at least ${f.floor} (${f.why})`);
-  const next = { ...task, tier };
+  // Retiering confirms a provisional task (routing.auto = "open"), at the same tier or another.
+  const { provisional: _confirmed, ...rest } = task;
+  const next = { ...rest, tier };
   writeTask(cwd, next);
   return next;
 }

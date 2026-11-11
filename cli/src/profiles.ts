@@ -9,7 +9,7 @@ import type { Table, Value } from "./defaults";
 import { parseToml, patchToml, readToml, stringifyToml } from "./toml";
 import { readIfExists } from "./fs";
 
-export type ProfileLayer = Exclude<Layer, "default" | "override">;
+export type ProfileLayer = Exclude<Layer, "default" | "override" | `enforcement=${string}`>;
 
 export interface Profile {
   name: string;
