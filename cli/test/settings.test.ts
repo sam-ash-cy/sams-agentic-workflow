@@ -127,7 +127,7 @@ test("format_hook off, or a format command from the committed layer, runs nothin
 test("obsidian, dashboard, audit, metrics and retro toggles change the CLI", async () => {
   const { run } = await import("../src/main");
   const dir = mkdtempSync(join(tmpdir(), "saw-set-cli-"));
-  writeFileSync(join(dir, "workflow.toml"), "");
+  writeFileSync(join(dir, "workflow.toml"), '[verify]\nallow_unconfigured = ["test"]\n');
   expect(run(["dashboard"], dir)).toBe(0);
   expect(run(["dashboard", "--set", "features.dashboard=false"], dir)).toBe(1);
   expect(run(["vault", "sync", "--dry-run", "--set", "features.obsidian=false"], dir)).toBe(1);

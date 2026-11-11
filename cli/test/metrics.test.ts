@@ -92,7 +92,7 @@ test("dashboard paths must stay inside the project, and --tokens needs a number"
   const { run } = await import("../src/main");
   const { dir } = project('[dashboard]\nobsidian_note = "../escape.md"');
   expect(run(["dashboard"], dir)).toBe(1);
-  const ok = project("");
+  const ok = project('[verify]\nallow_unconfigured = ["test"]');
   expect(run(["dashboard"], ok.dir)).toBe(0);
   startTask(ok.dir, "trivial", "feature");
   expect(run(["task", "end", "--tokens", ""], ok.dir)).toBe(1);

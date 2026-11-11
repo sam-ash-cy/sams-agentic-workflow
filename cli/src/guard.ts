@@ -45,7 +45,7 @@ const EXISTS_ONLY = /^(ls|test|\[)( [^;|&<>`$]*)?$/;
 
 // The agent editing its own guardrails: saw config set|unset of a guard key,
 // or a shell write to a settings layer. Always the user's call.
-const CONFIG_EDIT = /\b(saw|main\.ts)\s+config\s+(set|unset)\s+(\S+\s+)*["']?(safety|autonomy|features|verify\.mode|routing\.mode)\b/;
+const CONFIG_EDIT = /\b(saw|main\.ts)\s+config\s+(set|unset)\s+(\S+\s+)*["']?((safety|autonomy|features|routing\.mode)\b|verify\.)/;
 const SETTINGS_FILE = /(^|[\\/])workflow(\.local)?\.toml$/;
 const SETTINGS_WRITE = /(>>?|\btee\b|\bsed\s+-i|\bSet-Content\b|\bAdd-Content\b|\bOut-File\b|\b(cp|mv|Copy-Item|Move-Item)\b)[^;|&]*\bworkflow(\.local)?\.toml\b/;
 

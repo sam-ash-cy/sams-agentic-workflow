@@ -27,7 +27,7 @@ test("required checks follow extends", () => {
 });
 
 test("gate blocks until required checks pass in this task", () => {
-  const dir = project('[checks]\ntest = "echo ok"\n[verify.standard]\nrun = ["test", "code_review", "lint"]');
+  const dir = project('[checks]\ntest = "echo ok"\n[verify]\nallow_unconfigured = ["lint"]\n[verify.standard]\nrun = ["test", "code_review", "lint"]');
   const c = config(dir);
   expect(gate(dir, c, {})).toBeUndefined(); // no task open
 
@@ -43,8 +43,8 @@ test("gate blocks until required checks pass in this task", () => {
   recordCheck(dir, { name: "test", status: "pass", how: "ran" });
   expect(gate(dir, c, {})?.reason).toContain("Partially verified");
   recordCheck(dir, { name: "code_review", status: "pass", how: "recorded" });
-  expect(gate(dir, c, {})).toBeUndefined(); // lint has no command: reported, not blocking
-  expect(taskStatus(dir, c, { tier: "standard", playbook: "feature", started: "", from: 1 }).unconfigured).toEqual(["lint"]);
+  expect(gate(dir, c, {})).toBeUndefined(); // lint has no command, but verify.allow_unconfigured waives it
+  expect(taskStatus(dir, c, { tier: "standard", playbook: "feature", started: "", from: 1 }).waived).toEqual(["lint"]);
 });
 
 test("a recorded result cannot stand in for a mechanical check", () => {

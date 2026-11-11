@@ -656,6 +656,13 @@
             "soft",
             "hard"
           ]
+        },
+        "allow_unconfigured": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": []
         }
       }
     },

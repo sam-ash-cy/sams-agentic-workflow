@@ -39,7 +39,7 @@ import { syncAdvisor, syncSkillDenies } from "./skills";
 import { applyPlan, gh, readState, repoName, repoPlan, type Gh } from "./repo";
 import { formatHook, runCheck, TRUSTED_LAYERS } from "./run";
 import { checkMods } from "./mods";
-import { currentTask, endTask, gate, gitStatusHash, isSawProject, markUntaskedEdit, noteUnverifiedExit, pickTier, recordCheck, retierTask, reviewEvidence, setPhase, staleMessage, staleTask, startTask, storedTreeHash, storeTreeHash, takeUnverifiedExit, taskReport, writeStatusFile, taskStatus, taskSkills, taskSteps } from "./task";
+import { currentTask, endTask, gate, gitStatusHash, isSawProject, markUntaskedEdit, noteUnverifiedExit, noChecksWarning, pickTier, recordCheck, recordVerifiedTree, retierTask, reviewEvidence, statusProblems, setPhase, staleMessage, staleTask, startTask, storedTreeHash, storeTreeHash, takeUnverifiedExit, taskReport, writeStatusFile, taskStatus, taskSkills, taskSteps, type Status } from "./task";
 import { routingMode } from "./routing-guard";
 import { subagentHook } from "./subagent";
 import { patchToml, readToml, stringifyToml } from "./toml";
@@ -192,6 +192,15 @@ function printChanges(head: string, doneLabel: string, keptLabel: string, r: Cha
 
 const HOOKS = ["guard", "gate", "context", "format-hook", "session-hook", "style-check", "failure-hook", "session-start", "subagent-hook"];
 
+// Hook payloads arrive on stdin. In-process callers (the test suite) set a fixed
+// payload instead: reading fd 0 there waits forever when the runner's stdin is a
+// terminal or a pipe nobody closes.
+let stdinOverride: string | undefined;
+export const useStdin = (text: string | undefined): void => {
+  stdinOverride = text;
+};
+const readStdin = (): string => stdinOverride ?? readFileSync(0, "utf8");
+
 export function run(argv: string[], cwd = process.cwd()): number {
   let args: Args;
   try {
@@ -210,7 +219,7 @@ export function run(argv: string[], cwd = process.cwd()): number {
   let guardInput: { tool_name?: string; tool_input?: unknown } = {};
   if (command === "guard") {
     try {
-      guardInput = JSON.parse(readFileSync(0, "utf8") || "{}");
+      guardInput = JSON.parse(readStdin() || "{}");
     } catch {
       // No payload: nothing to check; unreadable settings still ask below.
     }
@@ -365,6 +374,8 @@ export function run(argv: string[], cwd = process.cwd()): number {
     // A recommendation, not a failure: GateGuard works, it just duplicates saw guard.
     const gg = gateguardWarning(read(join(claudeDir, "plugins", "installed_plugins.json")), read(join(claudeDir, "settings.json")), process.env.ECC_GATEGUARD, readSyncedPluginNames(join(claudeDir, "plugins", "synced")));
     if (gg) console.error(`warning: ${gg}`);
+    const noChecks = isSawProject(cwd) ? noChecksWarning(resolved.config) : undefined;
+    if (noChecks) console.error(`warning: ${noChecks}`);
     if (args.flags.has("--hooks")) problems.push(...checkHooks(cwd));
     const drift = checkVersions(PLUGIN_ROOT);
     for (const d of drift) console.error(`problem: version drift: ${d}`);
@@ -604,7 +615,8 @@ export function run(argv: string[], cwd = process.cwd()): number {
   if (command === "mods") return modsCommand(args);
   if (command === "task") {
     const code = taskCommand(cwd, resolved.config, args);
-    writeStatusFile(cwd, resolved.config);
+    // saw task status writes the file itself from the status it printed.
+    if (args.positional[1] !== "status") writeStatusFile(cwd, resolved.config);
     return code;
   }
   if (command === "run" && sub) {
@@ -622,13 +634,14 @@ export function run(argv: string[], cwd = process.cwd()): number {
   if (command === "gate") {
     let input = {};
     try {
-      input = JSON.parse(readFileSync(0, "utf8") || "{}");
+      input = JSON.parse(readStdin() || "{}");
     } catch {
       // No hook payload (run by hand): treat as a fresh stop.
     }
-    const block = gate(cwd, resolved.config, input);
+    const computed: { status?: Status } = {};
+    const block = gate(cwd, resolved.config, input, computed);
     if (block) console.log(JSON.stringify(block));
-    writeStatusFile(cwd, resolved.config);
+    writeStatusFile(cwd, resolved.config, computed.status);
     try {
       writeCard(cwd);
     } catch {
@@ -644,7 +657,7 @@ export function run(argv: string[], cwd = process.cwd()): number {
   if (command === "context") {
     let input = {};
     try {
-      input = JSON.parse(readFileSync(0, "utf8") || "{}");
+      input = JSON.parse(readStdin() || "{}");
     } catch {
       // No hook payload: nothing to measure.
     }
@@ -676,7 +689,7 @@ export function run(argv: string[], cwd = process.cwd()): number {
   if (command === "session-start") {
     let input = {};
     try {
-      input = JSON.parse(readFileSync(0, "utf8") || "{}");
+      input = JSON.parse(readStdin() || "{}");
     } catch {
       // No hook payload: no model to check.
     }
@@ -700,9 +713,12 @@ export function run(argv: string[], cwd = process.cwd()): number {
     const stale = isSawProject(cwd) ? staleTask(cwd, sid) : undefined;
     const staleLine = stale ? `saw: ${staleMessage(stale)}${routingMode(resolved.config) === "hard" ? "; edits stay denied until then" : ""}` : undefined;
     const unverified = isSawProject(cwd) && (source === undefined || source === "startup" || source === "clear") ? takeUnverifiedExit(cwd) : undefined;
+    // No [checks] commands: no task can be Verified. Said once, at the start of a session.
+    const noChecks = isSawProject(cwd) && (source === undefined || source === "startup") ? noChecksWarning(resolved.config) : undefined;
+    const noChecksLine = noChecks ? `saw: ${noChecks}` : undefined;
     const unverifiedLine = unverified ? `saw: the last ${unverified.tier}/${unverified.playbook} task was closed ${unverified.label} (${unverified.at.slice(0, 16).replace("T", " ")}): ${unverified.reason}` : undefined;
-    const context = [(warning?.hookSpecificOutput as { additionalContext?: string } | undefined)?.additionalContext, about, hint, staleLine, unverifiedLine, ...missing, unset].filter(Boolean).join("\n\n");
-    const systemMessage = [warning?.systemMessage, staleLine, unverifiedLine, ...missing, unset].filter(Boolean).join("\n") || undefined;
+    const context = [(warning?.hookSpecificOutput as { additionalContext?: string } | undefined)?.additionalContext, about, hint, staleLine, unverifiedLine, noChecksLine, ...missing, unset].filter(Boolean).join("\n\n");
+    const systemMessage = [warning?.systemMessage, staleLine, unverifiedLine, noChecksLine, ...missing, unset].filter(Boolean).join("\n") || undefined;
     if (context || systemMessage) console.log(JSON.stringify({ systemMessage, hookSpecificOutput: { hookEventName: "SessionStart", additionalContext: context } }));
     return 0;
   }
@@ -713,7 +729,7 @@ export function run(argv: string[], cwd = process.cwd()): number {
   if (command === "subagent-hook") {
     let input = {};
     try {
-      input = JSON.parse(readFileSync(0, "utf8") || "{}");
+      input = JSON.parse(readStdin() || "{}");
     } catch {
       // No payload: nothing to record.
     }
@@ -723,7 +739,7 @@ export function run(argv: string[], cwd = process.cwd()): number {
   if (command === "failure-hook") {
     let input: { tool_name?: string; tool_input?: { command?: unknown; file_path?: unknown }; error?: unknown; is_interrupt?: boolean } = {};
     try {
-      input = JSON.parse(readFileSync(0, "utf8") || "{}");
+      input = JSON.parse(readStdin() || "{}");
     } catch {
       // No hook payload: nothing to log.
     }
@@ -738,7 +754,7 @@ export function run(argv: string[], cwd = process.cwd()): number {
     let input: object = guardInput;
     if (command !== "guard") {
       try {
-        input = JSON.parse(readFileSync(0, "utf8") || "{}");
+        input = JSON.parse(readStdin() || "{}");
       } catch {
         // No hook payload: nothing to check.
       }
@@ -858,7 +874,7 @@ export function run(argv: string[], cwd = process.cwd()): number {
   if (command === "style-check") {
     let input = {};
     try {
-      input = JSON.parse(readFileSync(0, "utf8") || "{}");
+      input = JSON.parse(readStdin() || "{}");
     } catch {
       // No hook payload: nothing to count.
     }
@@ -987,6 +1003,8 @@ function autopilotCommand(cwd: string, config: Table, weakened: string[], args: 
   }
 }
 
+const NO_TASK = "no open task; start one with saw task start --tier <t> --playbook <p>";
+
 function taskCommand(cwd: string, config: Table, args: Args): number {
   const [, sub, name, status] = args.positional;
   try {
@@ -1028,35 +1046,37 @@ function taskCommand(cwd: string, config: Table, args: Args): number {
     }
     if (sub === "end") {
       const open = currentTask(cwd);
+      if (!open) return fail(NO_TASK);
       const features = config.features as Record<string, boolean>;
+      // Validated before anything is written, so a failed end leaves no trace.
+      const raw = args.values.tokens;
+      const tokens = raw === undefined ? undefined : /^\d+$/.test(raw) ? Number(raw) : NaN;
+      if (features.metrics && tokens !== undefined && Number.isNaN(tokens)) return fail("--tokens must be a whole number");
       // Closing a task that isn't Verified is allowed, but says why and is shown to the user next session.
-      if (open) {
-        const status = taskStatus(cwd, config, open);
-        if (status.label !== "Verified") {
-          const reason = (args.values.reason ?? "").trim();
-          const parts = [status.failed.length ? `failed: ${status.failed.join(", ")}` : "", status.missing.length ? `not run: ${status.missing.join(", ")}` : ""].filter(Boolean).join("; ");
-          if (!reason) return fail(`the ${open.tier} task is ${status.label} (${parts}). Run the checks, or close it with saw task end --reason "<why>"`);
-          noteUnverifiedExit(cwd, { label: status.label, reason, tier: open.tier, playbook: open.playbook, at: new Date().toISOString() });
-          logEvent(cwd, config, "warn", "task.unverified", `${open.tier} task closed ${status.label}: ${reason}`, { label: status.label, reason, tier: open.tier, failed: status.failed, missing: status.missing });
-        }
+      const status = taskStatus(cwd, config, open);
+      const reason = (args.values.reason ?? "").trim();
+      if (status.label !== "Verified" && !reason) return fail(`the ${open.tier} task is ${status.label} (${statusProblems(status)}). Run the checks, or close it with saw task end --reason "<why>"`);
+      if (status.label !== "Verified") {
+        noteUnverifiedExit(cwd, { label: status.label, reason, tier: open.tier, playbook: open.playbook, at: new Date().toISOString() });
+        logEvent(cwd, config, "warn", "task.unverified", `${open.tier} task closed ${status.label}: ${reason}`, { label: status.label, reason, tier: open.tier, failed: status.failed, missing: status.missing, unconfigured: status.unconfigured, ...(status.floor ? { floor: status.floor } : {}) });
+      } else {
+        // verify.mode hard with no task open: commits pass only for the tree this task verified.
+        recordVerifiedTree(cwd);
       }
-      if (open && features.metrics) {
-        const raw = args.values.tokens;
-        const tokens = raw === undefined ? undefined : /^\d+$/.test(raw) ? Number(raw) : NaN;
-        if (tokens !== undefined && Number.isNaN(tokens)) return fail("--tokens must be a whole number");
-        const m = buildMetric(cwd, config, open, tokens);
+      if (features.metrics) {
+        const m = buildMetric(cwd, config, open, tokens, undefined, status);
         appendMetric(cwd, m);
         console.log(`task closed: ${m.label}${m.tokens !== undefined ? `, ${m.tokens} tokens (${m.tokens_source})` : ""}`);
       } else {
         console.log("task closed");
       }
-      if (open && features.skill_finder) printSkillSuggestions(cwd, config, open.playbook);
-      if (open && features.living_docs) for (const line of docsNudge(cwd, baseBranch(config))) console.log(line);
+      if (features.skill_finder) printSkillSuggestions(cwd, config, open.playbook);
+      if (features.living_docs) for (const line of docsNudge(cwd, baseBranch(config))) console.log(line);
       endTask(cwd);
       return 0;
     }
     const task = currentTask(cwd);
-    if (!task) return fail("no open task; start one with saw task start --tier <t> --playbook <p>");
+    if (!task) return fail(NO_TASK);
     if (sub === "retier" && name) {
       const t = retierTask(cwd, config, name);
       console.log(`task: ${t.tier} / ${t.playbook} (retiered from ${task.tier})`);
@@ -1102,11 +1122,14 @@ function taskCommand(cwd: string, config: Table, args: Args): number {
     }
     if (sub === "status") {
       const s = taskStatus(cwd, config, task);
+      writeStatusFile(cwd, config, s);
       console.log(`${task.tier} / ${task.playbook}: ${s.label}${task.provisional ? " (provisional: confirm with saw task retier)" : ""}`);
       if (s.passed.length) console.log(`  passed  ${s.passed.join(", ")}`);
       if (s.failed.length) console.log(`  failed  ${s.failed.join(", ")}`);
       if (s.missing.length) console.log(`  not run ${s.missing.join(", ")}`);
-      if (s.unconfigured.length) console.log(`  no command (set checks.<name>) ${s.unconfigured.join(", ")}`);
+      if (s.floor) console.log(`  tier too low: ${s.floor}`);
+      if (s.unconfigured.length) console.log(`  not configured ${s.unconfigured.join(", ")} (set checks.<name> in workflow.toml, or list it in verify.allow_unconfigured)`);
+      if (s.waived.length) console.log(`  skipped (verify.allow_unconfigured) ${s.waived.join(", ")}`);
       return 0;
     }
   } catch (e) {

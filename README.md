@@ -84,6 +84,7 @@ flowchart LR
 ## Docs
 
 - [STARTUP.md](docs/STARTUP.md): setup with an agent or by hand, updating, release channels, uninstalling
+- Upgrading from 1.0.1: `routing.mode` and `verify.mode` are now hard and checks with no command no longer pass; see [Upgrading to 1.0.2](docs/STARTUP.md#upgrading-to-102-enforcement-is-on-by-default) for what changes and how to opt out
 - [FEATURES.md](docs/FEATURES.md): every feature and mod, its default, and the key that controls it
 - [COMMANDS.md](docs/COMMANDS.md): every command, setting and recipe
 - [CHANGELOG.md](CHANGELOG.md)
