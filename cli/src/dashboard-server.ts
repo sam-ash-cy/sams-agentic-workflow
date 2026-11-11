@@ -7,6 +7,7 @@
 // that presents it gets a session cookie (HttpOnly, SameSite=Strict) and the code stops
 // working. Every later request, reads included, needs that cookie. On top of that, a write
 // (POST /api/*) must come from the dashboard's own origin and carry the page's csrf key.
+// The Claude Code pane (mods/dashboard-pane) uses GET /pane-session?k=<code> for the same trade.
 // dashboard-settings.ts has the routes.
 
 import { randomUUID, timingSafeEqual } from "node:crypto";
@@ -68,6 +69,14 @@ export function serveDashboard(cwd: string, config: Table, port: number, opts: {
       try {
         if (!hasSession(req)) {
           const given = url.searchParams.get("k");
+          // The Claude Code pane cannot read an HttpOnly cookie, so it trades the same one-use
+          // launch code for the session and the csrf key in the body. The code is spent either
+          // way, so only one of the pane or a browser tab gets in; the body goes to whoever held
+          // the code, who would have got the cookie and the page's csrf key anyway.
+          if (req.method === "GET" && path === "/pane-session" && launchCode && given && same(given, launchCode)) {
+            launchCode = undefined;
+            return withHeaders(Response.json({ ok: true, session: sessionId, csrf: launchKey, writable: !ctx.readOnly }));
+          }
           if (req.method === "GET" && path === "/" && launchCode && given && same(given, launchCode)) {
             launchCode = undefined;
             return new Response(null, { status: 302, headers: { ...headers, location: "/", "set-cookie": `${SESSION}=${sessionId}; HttpOnly; SameSite=Strict; Path=/` } });

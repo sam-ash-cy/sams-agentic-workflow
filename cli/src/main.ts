@@ -541,7 +541,7 @@ export function run(argv: string[], cwdArg?: string): number {
     const proposals = proposalsDir ? readProposals(proposalsDir) : [];
     if (args.flags.has("--serve")) {
       const raw = args.values.port || String(d.port);
-      if (!/^\d+$/.test(raw) || Number(raw) < 1 || Number(raw) > 65535) return fail("--port must be a number from 1 to 65535");
+      if (!/^\d+$/.test(raw) || Number(raw) > 65535) return fail("--port must be a number from 0 to 65535 (0 picks a free port)");
       // Works from any folder; inside a saw project it opens on that project.
       try {
         const server = serveDashboard(cwd, resolved.config, Number(raw));

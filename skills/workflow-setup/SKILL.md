@@ -25,7 +25,7 @@ Run `saw config show --layers --json` in the project. Present every `features.*`
 - Global: `sh bootstrap.sh --dry-run` (or `.\bootstrap.ps1 -DryRun`), then the real run.
 - Project: `saw init --dry-run`, then `saw init`. Fill `AGENTS.md` with the real commands and only non-obvious rules (under 60 lines). Set `[checks]` with `saw config set checks.<name> "<cmd>"` and confirm each with `saw run <name>`.
 - Settings: `saw profile apply <name> --dry-run` then without it (standard); the approved `saw config set <key> <value> --scope <layer>` commands (full).
-- Mods (if chosen): offer each folder under `mods/` in the plugin (prompt-band, context-guard, context-saver, pre-pr-gate, guardrail-hook, trail-nudge, workflow-pane) with its `plugin.json` description, as one multi-select. Run `saw mods check <name>` for each pick, then add its absolute folder to `CLAUDE_CODE_PLUGIN_DIRS` (global: the user's shell profile; project: `.claude/settings.local.json` `env`). Say they load in the next session, and that limits and thresholds are under `/config`.
+- Mods (if chosen): offer each folder under `mods/` in the plugin (prompt-band, context-guard, context-saver, pre-pr-gate, guardrail-hook, trail-nudge, workflow-pane, dashboard-pane) with its `plugin.json` description, as one multi-select. Run `saw mods check <name>` for each pick, then add its absolute folder to `CLAUDE_CODE_PLUGIN_DIRS` (global: the user's shell profile; project: `.claude/settings.local.json` `env`). Say they load in the next session, and that limits and thresholds are under `/config`.
 - Then `saw sync` and `saw doctor --hooks`.
 
 ## 5. Docs backfill (project only)
