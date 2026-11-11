@@ -24,10 +24,14 @@ export interface PlanItem {
 
 export interface PlanDeps {
   claude: (argv: string[], prompt: string) => Session;
+  // Paths with uncommitted changes (git status), to catch edits outside docs/.
+  changed: () => string[];
   uuid: () => string;
   log: (line: string) => void;
 }
 
+// Same item rule as autopilot's parseQueue (any indentation): whatever it would
+// run, the planner must see.
 const ITEM = /^\s*[-*]\s+\[(\w+)\]\s+([\w.-]+):?\s*(.*)$/;
 const SUB = /^\s+[-*]\s+(tier|needs|accept|adr):\s*(.*)$/;
 
@@ -35,7 +39,7 @@ export function parsePlanItems(text: string): PlanItem[] {
   const items: PlanItem[] = [];
   text.split("\n").forEach((l, i) => {
     const m = ITEM.exec(l);
-    if (m && !/^\s{2,}/.test(l)) {
+    if (m) {
       items.push({ status: m[1].toLowerCase(), slug: m[2], text: m[3].trim(), needs: [], accept: [], line: i + 1 });
       return;
     }
@@ -61,7 +65,7 @@ export function renderItem(item: Omit<PlanItem, "line">): string {
 }
 
 // Every problem with the queue, one line each. Empty means valid.
-export function validateQueue(items: PlanItem[]): string[] {
+export function validateQueue(items: PlanItem[], exists: (path: string) => boolean = () => true): string[] {
   const problems: string[] = [];
   const seen = new Set<string>();
   for (const it of items) {
@@ -73,6 +77,7 @@ export function validateQueue(items: PlanItem[]): string[] {
     if (!it.tier) problems.push(`${it.slug}: missing tier`);
     else if (!TIERS.includes(it.tier)) problems.push(`${it.slug}: unknown tier ${it.tier}`);
     if (!it.accept.length) problems.push(`${it.slug}: no accept line`);
+    if (it.adr && !exists(it.adr)) problems.push(`${it.slug}: adr not found: ${it.adr}`);
   }
   for (const it of items) for (const n of it.needs) if (!seen.has(n)) problems.push(`${it.slug}: needs unknown slug ${n}`);
   for (const c of cycles(items)) problems.push(`dependency cycle: ${c.join(" -> ")}`);
@@ -97,49 +102,102 @@ export function cycles(items: PlanItem[]): string[][] {
   return found;
 }
 
-// Puts back to `[proposed]` every item that is `[approved]` now but wasn't
-// before the run. Returns the new text and the slugs it changed.
-export function revertApprovals(before: string, after: string): { text: string; reverted: string[] } {
-  const was = new Set(parsePlanItems(before).filter((i) => i.status === "approved").map((i) => i.slug));
-  const reverted: string[] = [];
-  const text = after.split("\n").map((l) => {
+// Each item's block: its line plus the sub-lines under it, trimmed.
+function blocks(text: string): { start: number; status: string; key: string }[] {
+  const out: { start: number; status: string; key: string }[] = [];
+  text.split("\n").forEach((l, i) => {
     const m = ITEM.exec(l);
-    if (!m || /^\s{2,}/.test(l) || m[1].toLowerCase() !== "approved" || was.has(m[2])) return l;
-    reverted.push(m[2]);
-    return l.replace(/\[approved\]/i, "[proposed]");
-  }).join("\n");
-  return { text, reverted };
+    if (m) out.push({ start: i, status: m[1].toLowerCase(), key: l.trim() });
+    else if (out.length && SUB.test(l)) out[out.length - 1].key += "\n" + l.trim();
+  });
+  return out;
+}
+
+// Puts back to `[proposed]` every approved item that wasn't approved, word
+// for word with the same sub-lines, before the run: new approvals, rewritten
+// approved items and extra copies of one. Returns the new text and the slugs.
+export function revertApprovals(before: string, after: string): { text: string; reverted: string[] } {
+  const was = new Map<string, number>();
+  for (const b of blocks(before)) if (b.status === "approved") was.set(b.key, (was.get(b.key) ?? 0) + 1);
+  const lines = after.split("\n");
+  const reverted: string[] = [];
+  for (const b of blocks(after)) {
+    if (b.status !== "approved") continue;
+    const n = was.get(b.key) ?? 0;
+    if (n > 0) {
+      was.set(b.key, n - 1);
+      continue;
+    }
+    lines[b.start] = lines[b.start].replace(/\[approved\]/i, "[proposed]");
+    reverted.push(ITEM.exec(lines[b.start])![2]);
+  }
+  return { text: lines.join("\n"), reverted };
+}
+
+// Files the session may change: docs only (ADRs, roadmap, the queue).
+export function outsideDocs(before: string[], after: string[], queue: string): string[] {
+  const norm = (p: string): string => p.replaceAll("\\", "/");
+  const old = new Set(before.map(norm));
+  return after.map(norm).filter((p) => !old.has(p) && !p.startsWith("docs/") && p !== norm(queue));
 }
 
 const BRIEF = join(import.meta.dir, "..", "..", "prompts", "plan.md");
 
-export function planBrief(goal: string, queue: string, template = existsSync(BRIEF) ? readFileSync(BRIEF, "utf8") : ""): string {
-  return template.replaceAll("{{goal}}", goal).replaceAll("{{queue}}", queue);
+export function planBrief(goal: string, queue: string, template?: string): string {
+  if (template === undefined) {
+    if (!existsSync(BRIEF)) throw new Error(`planning brief not found: ${BRIEF}`);
+    template = readFileSync(BRIEF, "utf8");
+  }
+  // One pass with a function replacer: `$&` or `{{queue}}` in the goal stay literal.
+  const vars: Record<string, string> = { goal, queue };
+  return template.replace(/\{\{(goal|queue)\}\}/g, (_, k: string) => vars[k]);
 }
 
-// Planning writes docs only: no commits, pushes or PRs.
-export function planArgv(sessionId: string, maxUsd: number, base = "main"): string[] {
+// Planning writes docs only: reading tools plus edits under docs/ are
+// allowed; shell, commits, pushes and PRs are denied. After the run, changes
+// outside docs/ are caught as well (outsideDocs).
+export const PLAN_ALLOWED = ["Read", "Grep", "Glob", "Edit(docs/**)", "Write(docs/**)"];
+const PLAN_DENIED = ["Bash", "Bash(git commit:*)", "Bash(git push:*)", "Bash(gh:*)", "Bash(git merge:*)"];
+
+export function planArgv(sessionId: string, maxUsd: number, base = "main", queue = "docs/plans/queue.md"): string[] {
   const argv = claudeArgv(sessionId, maxUsd, false, base);
   const i = argv.indexOf("--disallowedTools");
-  argv[i + 1] = [argv[i + 1], "Bash(git commit:*)", "Bash(git push:*)", "Bash(gh pr create:*)"].join(",");
+  if (i < 0 || i + 1 >= argv.length) throw new Error("claudeArgv no longer passes --disallowedTools");
+  argv[i + 1] = [argv[i + 1], ...PLAN_DENIED].join(",");
+  const allowed = queue.startsWith("docs/") ? PLAN_ALLOWED : [...PLAN_ALLOWED, `Edit(${queue})`, `Write(${queue})`];
+  argv.push("--allowedTools", allowed.join(","));
   return argv;
 }
 
+export function maxUsd(config: Table): number {
+  const v = Number((config.plan as Table | undefined)?.max_usd ?? 3);
+  if (!Number.isFinite(v) || v <= 0) throw new Error("plan.max_usd must be a positive number");
+  return v;
+}
+
 export function plan(cwd: string, config: Table, goal: string, queuePath: string, deps: PlanDeps, opts: { dryRun?: boolean; base?: string } = {}): number {
-  const maxUsd = Number((config.plan as Table | undefined)?.max_usd ?? 3);
   const queue = (config.autopilot as Table).queue as string;
-  const brief = planBrief(goal, queue);
-  const id = deps.uuid();
-  const argv = planArgv(id, maxUsd, opts.base);
+  let cap: number, brief: string, argv: string[];
+  try {
+    cap = maxUsd(config);
+    brief = planBrief(goal, queue);
+    argv = planArgv(deps.uuid(), cap, opts.base, queue);
+  } catch (e) {
+    deps.log((e as Error).message);
+    return 1;
+  }
   if (opts.dryRun) {
-    deps.log(`would run: ${argv.slice(0, 7).join(" ")} … (prompt on stdin, cap $${maxUsd})`);
+    deps.log(`would run: ${argv.slice(0, 7).join(" ")} … (prompt on stdin, cap $${cap})`);
     deps.log("brief:");
     deps.log(brief);
     return 0;
   }
   const before = existsSync(queuePath) ? readFileSync(queuePath, "utf8") : "";
+  const dirtyBefore = deps.changed();
   const s = deps.claude(argv, brief);
-  deps.log(`session ${s.is_error || s.code ? "failed" : "finished"} ($${s.cost_usd.toFixed(2)})`);
+  const failed = s.is_error || s.code !== 0;
+  deps.log(`session ${failed ? "failed" : "finished"} ($${s.cost_usd.toFixed(2)})`);
+  if (failed && s.text) deps.log(`session said: ${s.text.slice(0, 500)}`);
   if (!existsSync(queuePath)) {
     deps.log(`no queue at ${queue}`);
     return 1;
@@ -149,9 +207,10 @@ export function plan(cwd: string, config: Table, goal: string, queuePath: string
     writeFileSync(queuePath, text);
     deps.log(`set back to [proposed] (only the owner approves): ${reverted.join(", ")}`);
   }
-  const problems = validateQueue(parsePlanItems(text));
+  const problems = validateQueue(parsePlanItems(text), (p) => existsSync(join(cwd, p)));
+  for (const p of outsideDocs(dirtyBefore, deps.changed(), queue)) problems.push(`changed outside docs/: ${p} (review and revert it)`);
   for (const p of problems) deps.log(`problem: ${p}`);
-  if (problems.length || s.is_error || s.code) return 1;
+  if (problems.length || failed) return 1;
   deps.log(`queue ok: review ${queue} and approve items yourself`);
   return 0;
 }

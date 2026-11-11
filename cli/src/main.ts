@@ -989,7 +989,13 @@ function planCommand(cwd: string, config: Table, args: Args): number {
   if (!goal) return fail('usage: saw plan "<goal>" [--dry-run]');
   const queue = inside(cwd, autopilotSettings(config).queue);
   if (!queue) return fail("autopilot.queue must be a path inside the project");
-  return plan(cwd, config, goal, queue, { claude: spawnClaude(cwd), uuid: () => crypto.randomUUID(), log: (l) => console.log(`saw plan: ${l}`) }, { dryRun: args.flags.has("--dry-run"), base: baseBranch(config) });
+  return plan(cwd, config, goal, queue, { claude: spawnClaude(cwd), changed: () => gitChanged(cwd), uuid: () => crypto.randomUUID(), log: (l) => console.log(`saw plan: ${l}`) }, { dryRun: args.flags.has("--dry-run"), base: baseBranch(config) });
+}
+
+// Paths with uncommitted changes, relative to the repo root.
+function gitChanged(cwd: string): string[] {
+  const p = Bun.spawnSync(["git", "status", "--porcelain", "--untracked-files=all"], { cwd, stdout: "pipe", stderr: "pipe" });
+  return p.stdout.toString().split("\n").filter(Boolean).map((l) => l.slice(3).replace(/^.* -> /, "").replace(/^"|"$/g, ""));
 }
 
 const NO_TASK = "no open task; start one with saw task start --tier <t> --playbook <p>";

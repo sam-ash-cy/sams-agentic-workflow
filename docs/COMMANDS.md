@@ -203,7 +203,7 @@ Queue items use the shared format (sub-lines optional for finished items):
   - adr: docs/decisions/0007-csv-export.md
 ```
 
-The session never approves items, edits code or commits. Afterwards `saw plan` sets any item the session marked `[approved]` back to `[proposed]`, then checks the queue for duplicate slugs, unknown slugs in `needs`, dependency cycles, a missing or unknown tier and items with no `accept` line. It prints each problem and exits non-zero if there are any. Approve items yourself, then run `saw autopilot`.
+The session may only read and edit files under `docs/` (plus the queue file): `--allowedTools` lists reading tools and `docs/**` edits, and the shell, commits, pushes and `gh` are denied. Afterwards `saw plan` sets back to `[proposed]` every `[approved]` item that wasn't approved, word for word with the same sub-lines, before the run (at any indentation, as autopilot reads them). It then checks the queue for duplicate slugs, unknown slugs in `needs`, dependency cycles, a missing or unknown tier, items with no `accept` line and `adr` files that don't exist, and flags any new uncommitted change outside `docs/`. It prints each problem and exits non-zero if there are any. Approve items yourself, then run `saw autopilot`.
 
 ## Autopilot
 

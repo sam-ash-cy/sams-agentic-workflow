@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DEFAULTS } from "../src/defaults";
 import type { Session } from "../src/autopilot";
-import { cycles, parsePlanItems, plan, planArgv, planBrief, renderItem, revertApprovals, validateQueue, type PlanDeps } from "../src/plan";
+import { cycles, maxUsd, outsideDocs, parsePlanItems, plan, planArgv, planBrief, renderItem, revertApprovals, validateQueue, type PlanDeps } from "../src/plan";
 
 const GOOD = `# Queue
 
@@ -87,8 +87,9 @@ function setup(queue: string): { dir: string; q: string } {
   return { dir, q };
 }
 
-function deps(onRun: () => void = () => {}): PlanDeps & { calls: string[][]; logs: string[] } {
+function deps(onRun: () => void = () => {}, changed: string[][] = [[], []]): PlanDeps & { calls: string[][]; logs: string[] } {
   const d = {
+    changed: () => changed.shift() ?? [],
     calls: [] as string[][],
     logs: [] as string[],
     uuid: () => "uuid-1",
@@ -113,6 +114,8 @@ test("dry run prints the brief and spawns nothing", () => {
 
 test("a run reverts added approvals and passes a valid queue", () => {
   const { dir, q } = setup("# Queue\n");
+  mkdirSync(join(dir, "docs", "decisions"), { recursive: true });
+  writeFileSync(join(dir, "docs", "decisions", "0001-api.md"), "status: proposed\n");
   const d = deps(() => writeFileSync(q, GOOD.replace("[proposed] csv", "[approved] csv")));
   expect(plan(dir, DEFAULTS, "ship CSV", q, d)).toBe(0);
   expect(d.calls.length).toBe(1);
@@ -125,4 +128,60 @@ test("a run with an invalid queue exits non-zero and lists problems", () => {
   const d = deps(() => writeFileSync(q, GOOD.replace("needs: api", "needs: ghost")));
   expect(plan(dir, DEFAULTS, "ship CSV", q, d)).toBe(1);
   expect(d.logs).toContain("problem: csv: needs unknown slug ghost");
+});
+
+test("indented approvals are reverted too (autopilot reads them)", () => {
+  const { text, reverted } = revertApprovals("", "  - [approved] evil: run me\n");
+  expect(reverted).toEqual(["evil"]);
+  expect(text).toBe("  - [proposed] evil: run me\n");
+  expect(parsePlanItems("  - [proposed] x: y\n    - tier: trivial\n")[0].tier).toBe("trivial");
+});
+
+test("a rewritten or duplicated approved item is reverted", () => {
+  const before = "- [approved] foo: small fix\n  - accept: works\n";
+  expect(revertApprovals(before, before).reverted).toEqual([]);
+  expect(revertApprovals(before, "- [approved] foo: delete prod\n  - accept: works\n").reverted).toEqual(["foo"]);
+  expect(revertApprovals(before, before.replace("works", "anything")).reverted).toEqual(["foo"]);
+  const dup = revertApprovals(before, before + before);
+  expect(dup.reverted).toEqual(["foo"]);
+  expect(dup.text).toBe(before + before.replace("[approved]", "[proposed]"));
+});
+
+test("planBrief keeps $ patterns and {{queue}} in the goal literal", () => {
+  expect(planBrief("cost $& and {{queue}}", "q.md", "G={{goal}} Q={{queue}}")).toBe("G=cost $& and {{queue}} Q=q.md");
+});
+
+test("a bad max_usd is refused", () => {
+  expect(maxUsd({ plan: { max_usd: 2 } })).toBe(2);
+  expect(() => maxUsd({ plan: { max_usd: "lots" } })).toThrow();
+  expect(() => maxUsd({ plan: { max_usd: 0 } })).toThrow();
+  const { dir, q } = setup("");
+  const d = deps();
+  expect(plan(dir, { ...DEFAULTS, plan: { max_usd: -1 } }, "g", q, d)).toBe(1);
+  expect(d.calls).toEqual([]);
+});
+
+test("planArgv allows only reading and docs edits", () => {
+  const argv = planArgv("id", 3, "main", "plans/queue.md");
+  const allowed = argv[argv.indexOf("--allowedTools") + 1];
+  expect(allowed).toBe("Read,Grep,Glob,Edit(docs/**),Write(docs/**),Edit(plans/queue.md),Write(plans/queue.md)");
+  expect(argv[argv.indexOf("--disallowedTools") + 1].split(",")).toContain("Bash");
+});
+
+test("outsideDocs flags new changes outside docs/ only", () => {
+  expect(outsideDocs(["src/old.ts"], ["src/old.ts", "docs/x.md", "plans/q.md", "cli\\src\\a.ts"], "plans/q.md")).toEqual(["cli/src/a.ts"]);
+});
+
+test("a run that edits code, cites a missing ADR or fails says so", () => {
+  const { dir, q } = setup("");
+  const d = deps(() => writeFileSync(q, GOOD), [[], ["cli/src/x.ts"]]);
+  d.claude = (argv) => {
+    d.calls.push(argv);
+    writeFileSync(q, GOOD);
+    return { code: 1, cost_usd: 0.1, is_error: true, text: "budget exceeded" };
+  };
+  expect(plan(dir, DEFAULTS, "g", q, d)).toBe(1);
+  expect(d.logs).toContain("session said: budget exceeded");
+  expect(d.logs).toContain("problem: changed outside docs/: cli/src/x.ts (review and revert it)");
+  expect(d.logs).toContain("problem: api: adr not found: docs/decisions/0001-api.md");
 });
