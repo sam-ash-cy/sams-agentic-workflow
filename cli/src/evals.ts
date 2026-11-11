@@ -4,9 +4,13 @@
 // The result JSON isn't a documented contract, so `summarise` reads it
 // tolerantly: any array of objects with a case name and a score.
 
+import { existsSync, rmSync } from "node:fs";
+import { join } from "node:path";
+
 export interface CaseSummary {
   score: number;
   tokens?: number;
+  cost?: number;
 }
 
 export type Summary = Record<string, CaseSummary>;
@@ -19,7 +23,8 @@ function caseOf(o: Record<string, unknown>): [string, CaseSummary] | undefined {
   if (!name || score === undefined) return undefined;
   const usage = (o.usage ?? {}) as Record<string, unknown>;
   const tokens = num(o.tokens) ?? num(o.mean_tokens) ?? num(o.total_tokens) ?? num(usage.total_tokens);
-  return [name, tokens === undefined ? { score } : { score, tokens }];
+  const cost = num(o.cost_usd) ?? num(o.cost) ?? num(o.total_cost_usd) ?? num(usage.cost_usd);
+  return [name, { score, ...(tokens !== undefined ? { tokens } : {}), ...(cost !== undefined ? { cost } : {}) }];
 }
 
 export function summarise(result: unknown): Summary {
@@ -69,8 +74,8 @@ export function compare(before: Summary, after: Summary, maxTokenIncrease: numbe
 // rate (score), tokens and cost for each arm, and the difference.
 export interface AbRow {
   case: string;
-  on?: CaseSummary & { cost?: number };
-  off?: CaseSummary & { cost?: number };
+  on?: CaseSummary;
+  off?: CaseSummary;
   delta: { score?: number; tokens?: number; cost?: number };
 }
 
@@ -80,50 +85,20 @@ export interface AbResult {
   comparison: Comparison; // "off" as before, "on" as after: regressions are cases saw makes worse
 }
 
-// Cost per case, read as tolerantly as summarise reads scores.
-export function costs(result: unknown): Record<string, number> {
-  const out: Record<string, number> = {};
-  const walk = (v: unknown, depth: number): void => {
-    if (depth > 4 || !v || typeof v !== "object") return;
-    if (Array.isArray(v)) {
-      for (const item of v) {
-        if (item && typeof item === "object" && !Array.isArray(item)) {
-          const o = item as Record<string, unknown>;
-          const name = [o.name, o.case, o.case_name, o.id].find((x) => typeof x === "string") as string | undefined;
-          const cost = num(o.cost_usd) ?? num(o.cost) ?? num(o.total_cost_usd) ?? num(((o.usage ?? {}) as Record<string, unknown>).cost_usd);
-          if (name && cost !== undefined && !(name in out)) {
-            out[name] = cost;
-            continue;
-          }
-        }
-        walk(item, depth + 1);
-      }
-      return;
-    }
-    for (const child of Object.values(v)) walk(child, depth + 1);
-  };
-  walk(result, 0);
-  return out;
-}
-
 const diff = (a?: number, b?: number): number | undefined => (a !== undefined && b !== undefined ? a - b : undefined);
 const sum = (xs: (number | undefined)[]): number | undefined => (xs.some((x) => x === undefined) || !xs.length ? undefined : xs.reduce<number>((s, x) => s + (x as number), 0));
 
 export function abCompare(onRaw: unknown, offRaw: unknown, maxTokenIncrease: number): AbResult {
   const on = summarise(onRaw);
   const off = summarise(offRaw);
-  const onCost = costs(onRaw);
-  const offCost = costs(offRaw);
-  const arm = (s: Summary, c: Record<string, number>, name: string): (CaseSummary & { cost?: number }) | undefined =>
-    s[name] ? { ...s[name], ...(c[name] !== undefined ? { cost: c[name] } : {}) } : undefined;
   const names = [...new Set([...Object.keys(on), ...Object.keys(off)])].sort();
   const rows: AbRow[] = names.map((name) => {
-    const a = arm(on, onCost, name);
-    const b = arm(off, offCost, name);
+    const a = on[name];
+    const b = off[name];
     return { case: name, on: a, off: b, delta: { score: diff(a?.score, b?.score), tokens: diff(a?.tokens, b?.tokens), cost: diff(a?.cost, b?.cost) } };
   });
   const both = rows.filter((r) => r.on && r.off);
-  const total = (pick: (r: AbRow) => CaseSummary & { cost?: number }): CaseSummary & { cost?: number } => {
+  const total = (pick: (r: AbRow) => CaseSummary): CaseSummary => {
     const tokens = sum(both.map((r) => pick(r).tokens));
     const cost = sum(both.map((r) => pick(r).cost));
     return { score: both.length ? both.reduce((s, r) => s + pick(r).score, 0) / both.length : 0, ...(tokens !== undefined ? { tokens } : {}), ...(cost !== undefined ? { cost } : {}) };
@@ -153,12 +128,14 @@ export type EvalRunner = (out: string, env: Record<string, string>) => number;
 
 // Both arms, then the table and .saw/evals-ab.json. Throws on a failed arm.
 export function runAb(dir: string, runner: EvalRunner, maxTokenIncrease: number, readJson: (p: string) => unknown, writeJson: (p: string, v: unknown) => void): AbResult {
-  const arms = { on: `${dir}/evals-ab-on.json`, off: `${dir}/evals-ab-off.json` };
-  const onCode = runner(arms.on, {});
-  if (onCode !== 0) throw new Error(`saw on arm exited ${onCode}`);
-  const offCode = runner(arms.off, { SAW_DISABLE_HOOKS: "1" });
-  if (offCode !== 0) throw new Error(`saw off arm exited ${offCode}`);
+  const arms = { on: join(dir, "evals-ab-on.json"), off: join(dir, "evals-ab-off.json") };
+  for (const [name, path, env] of [["on", arms.on, {}], ["off", arms.off, { SAW_DISABLE_HOOKS: "1" }]] as const) {
+    rmSync(path, { force: true }); // never compare against a previous run's file
+    const code = runner(path, env);
+    if (code !== 0) throw new Error(`saw ${name} arm exited ${code}`);
+    if (!existsSync(path)) throw new Error(`saw ${name} arm wrote no result`);
+  }
   const result = abCompare(readJson(arms.on), readJson(arms.off), maxTokenIncrease);
-  writeJson(`${dir}/evals-ab.json`, result);
+  writeJson(join(dir, "evals-ab.json"), result);
   return result;
 }

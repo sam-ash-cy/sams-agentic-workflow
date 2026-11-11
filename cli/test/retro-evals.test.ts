@@ -88,6 +88,7 @@ test("saw eval --ab runs both arms with an injected runner, the off arm with SAW
   expect(JSON.parse(readFileSync(join(dir, "evals-ab.json"), "utf8")).totals.case).toBe("TOTAL");
   expect(formatAb(r)).toContain("TOTAL");
   expect(() => runAb(dir, () => 2, 0.2, () => ({}), () => {})).toThrow("saw on arm exited 2");
+  expect(() => runAb(dir, () => 0, 0.2, () => ({}), () => {})).toThrow("saw on arm wrote no result");
 });
 
 test("abCompare keeps a case missing from one arm without a delta", () => {

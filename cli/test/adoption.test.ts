@@ -73,10 +73,13 @@ test("adoption --features counts triggers per feature and mod, rarest first, and
   ];
   const ms = [{ at: "2026-11-09T00:00:00Z", tier: "standard", playbook: "feature", label: "Verified", first_pass: true, rework: 0, findings: { code_review: 1 }, duration_s: 1 }] as TaskMetric[];
   const u = featureUsage(["verify_hook", "budgets", "format_hook", "code_review", "grilling"], ["status-band", "quiet-mod"], es, ms, 7, new Date("2026-11-11T00:00:00Z"));
-  expect(u.rows.map((r) => [r.name, r.count])).toEqual([["format_hook", 0], ["budgets", 1], ["code_review", 1], ["status-band", 1], ["verify_hook", 2]]);
+  expect(u.rows.map((r) => [r.name, r.count])).toEqual([["format_hook", 0], ["budgets", 1], ["status-band", 1], ["verify_hook", 2]]);
   expect(u.candidates).toEqual(["format_hook"]);
-  expect(u.not_measurable).toEqual([{ name: "grilling", type: "feature" }, { name: "quiet-mod", type: "mod" }]);
+  expect(u.not_measurable).toEqual([{ name: "code_review", type: "feature" }, { name: "grilling", type: "feature" }, { name: "quiet-mod", type: "mod" }]);
+  const off = featureUsage(["budgets", "metrics"], ["status-band"], es, ms, 7, new Date("2026-11-11T00:00:00Z"), false);
+  expect(off.rows.map((r) => r.name)).toEqual(["metrics"]);
+  expect(off.not_measurable.map((n) => n.name)).toEqual(["budgets", "status-band"]);
   const text = formatFeatureUsage(u);
   expect(text).toContain("format_hook  <- candidate to cut");
-  expect(text).toContain("not measurable (logs no event): grilling, mod:quiet-mod");
+  expect(text).toContain("not measurable (logs no event): code_review, grilling, mod:quiet-mod");
 });

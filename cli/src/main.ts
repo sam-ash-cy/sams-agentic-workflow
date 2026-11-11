@@ -565,7 +565,7 @@ export function run(argv: string[], cwdArg?: string): number {
     const raw = args.values.since;
     if (raw !== undefined && !/^[1-9]\d*$/.test(raw)) return fail("--since must be a whole number of days");
     if (args.flags.has("--features")) {
-      const u = featureUsage(Object.keys((DEFAULTS.features ?? {}) as Table), listMods(PLUGIN_ROOT), readEvents(cwd), readMetrics(cwd), raw === undefined ? undefined : Number(raw));
+      const u = featureUsage(Object.keys((DEFAULTS.features ?? {}) as Table), listMods(PLUGIN_ROOT), readEvents(cwd), readMetrics(cwd), raw === undefined ? undefined : Number(raw), new Date(), ((resolved.config.logging ?? {}) as { enabled?: boolean }).enabled === true);
       console.log(args.flags.has("--json") ? JSON.stringify(u, null, 2) : formatFeatureUsage(u));
       return 0;
     }
@@ -1290,14 +1290,17 @@ function evalCommand(cwd: string, config: Table, args: Args): number {
     if (args.values.case) cmd.push("--case", args.values.case);
     // A paid run: say how big it is first.
     const cases = readdirSync(join(PLUGIN_ROOT, "evals"), { withFileTypes: true }).filter((d) => d.isDirectory() && (!args.values.case || new Bun.Glob(args.values.case).match(d.name))).length;
-    console.log(`saw eval: ${cases} case(s) x ${runs} run(s) = ${cases * runs} agent sessions (paid)`);
+    const arms = args.flags.has("--ab") ? 2 : 1;
+    console.log(`saw eval: ${cases} case(s) x ${runs} run(s)${arms > 1 ? " x 2 arms" : ""} = ${cases * runs * arms} agent sessions (paid)`);
     console.log(`  ${cmd.join(" ")}`);
     if (args.flags.has("--ab")) {
       console.log("  --ab: runs it twice, the second time with SAW_DISABLE_HOOKS=1 (saw's hooks off)");
       // Without the switch in the hook entries the "off" arm would be saw on again.
       const honoured = readdirSync(join(PLUGIN_ROOT, "hooks", "run")).every((f) => readFileSync(join(PLUGIN_ROOT, "hooks", "run", f), "utf8").includes("SAW_DISABLE_HOOKS"));
-      if (!honoured) return fail("saw eval --ab: hooks/run/* do not check SAW_DISABLE_HOOKS yet, so the saw-off arm cannot be run");
+      if (args.flags.has("--save-baseline")) return fail("--ab and --save-baseline don't combine: save a baseline with a plain saw eval");
+      if (!honoured) console.log("  warning: hooks/run/* do not check SAW_DISABLE_HOOKS yet, so the saw-off arm cannot be run");
       if (args.flags.has("--dry-run")) return 0;
+      if (!honoured) return fail("saw eval --ab: hooks/run/* do not check SAW_DISABLE_HOOKS yet");
       const dir = join(cwd, ".saw");
       mkdirSync(dir, { recursive: true });
       const runner: EvalRunner = (path, env) => {

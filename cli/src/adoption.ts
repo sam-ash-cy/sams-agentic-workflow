@@ -25,8 +25,11 @@ export interface Adoption {
 // The Stop-gate reason saw gives for edits made with no task (task.ts UNTASKED).
 const UNTASKED_REASON = "no saw task is open";
 
+const windowStart = (sinceDays: number | undefined, now: Date): string | undefined =>
+  sinceDays !== undefined ? new Date(now.getTime() - sinceDays * 86_400_000).toISOString() : undefined;
+
 export function adoption(events: WorkflowEvent[], metrics: TaskMetric[], sinceDays?: number, now = new Date()): Adoption {
-  const since = sinceDays !== undefined ? new Date(now.getTime() - sinceDays * 86_400_000).toISOString() : undefined;
+  const since = windowStart(sinceDays, now);
   const es = since ? events.filter((e) => e.at >= since) : events;
   const ms = since ? metrics.filter((m) => m.at >= since) : metrics;
   const kind = (k: string): WorkflowEvent[] => es.filter((e) => e.kind === k);
@@ -100,13 +103,14 @@ export function adoptionHtml(a: Adoption, esc: (s: string) => string): string {
 // that only that feature produces; a feature or mod that logs nothing today
 // is "not measurable", never zero. Report only: it removes nothing.
 const FEATURE_SIGNALS: Record<string, { kinds?: string[]; metric?: (m: TaskMetric) => boolean }> = {
-  verify_hook: { kinds: ["gate.block", "gate.pass", "gate.untasked"] },
+  // gate.untasked is logged on every Stop with no task, so it isn't the verify hook acting.
+  verify_hook: { kinds: ["gate.block", "gate.pass"] },
   budgets: { kinds: ["budget"] },
   format_hook: { kinds: ["format"] },
   recommend: { kinds: ["recommend", "recommend.add"] },
   implementer: { kinds: ["subagent.edits"] },
-  code_review: { kinds: ["review.start", "review.result", "review.refused"], metric: (m) => "code_review" in (m.findings ?? {}) },
-  security_review: { metric: (m) => "security_review" in (m.findings ?? {}) },
+  // code_review and security_review log nothing when they pass (metrics only
+  // keep failures), so they stay "not measurable" rather than a false zero.
   metrics: { metric: () => true },
 };
 
@@ -123,15 +127,16 @@ export interface FeatureUsage {
   not_measurable: { name: string; type: "feature" | "mod" }[];
 }
 
-export function featureUsage(features: string[], mods: string[], events: WorkflowEvent[], metrics: TaskMetric[], sinceDays?: number, now = new Date()): FeatureUsage {
-  const since = sinceDays !== undefined ? new Date(now.getTime() - sinceDays * 86_400_000).toISOString() : undefined;
+// With logging off there are no events, so only metric-based counts mean anything.
+export function featureUsage(features: string[], mods: string[], events: WorkflowEvent[], metrics: TaskMetric[], sinceDays?: number, now = new Date(), logging = true): FeatureUsage {
+  const since = windowStart(sinceDays, now);
   const es = since ? events.filter((e) => e.at >= since) : events;
   const ms = since ? metrics.filter((m) => m.at >= since) : metrics;
   const rows: UsageRow[] = [];
   const notMeasurable: FeatureUsage["not_measurable"] = [];
   for (const f of features) {
     const s = FEATURE_SIGNALS[f];
-    if (!s) {
+    if (!s || (!logging && !s.metric)) {
       notMeasurable.push({ name: f, type: "feature" });
       continue;
     }
@@ -141,7 +146,7 @@ export function featureUsage(features: string[], mods: string[], events: Workflo
   // No mod logs to .saw/events.jsonl today; one that does names itself in data.mod.
   for (const m of mods) {
     const count = es.filter((e) => e.data?.mod === m).length;
-    if (count) rows.push({ name: m, type: "mod", count });
+    if (count && logging) rows.push({ name: m, type: "mod", count });
     else notMeasurable.push({ name: m, type: "mod" });
   }
   rows.sort((a, b) => a.count - b.count || a.name.localeCompare(b.name));
