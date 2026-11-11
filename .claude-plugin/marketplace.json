@@ -82,6 +82,11 @@
       "description": "saw mod: trail-nudge."
     },
     {
+      "name": "dashboard-pane",
+      "source": "./mods/dashboard-pane",
+      "description": "saw mod: the settings dashboard in a pane beside the chat."
+    },
+    {
       "name": "workflow-pane",
       "source": "./mods/workflow-pane",
       "description": "saw mod: workflow pane beside the chat."

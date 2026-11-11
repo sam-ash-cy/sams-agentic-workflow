@@ -7,6 +7,7 @@ All notable changes to this project. Versions follow [Semantic Versioning](https
 ### Features
 
 - settings dashboard: `saw dashboard --serve` lists your projects (`saw projects`, `~/.saw/projects.json`) and edits every setting at the global, shared-project and only-me layers, switches mods on or off, and shows each project's statistics. Reached through a one-use launch address and a session cookie; writes also need the dashboard's origin and csrf key, and `saw guard` denies an agent talking to its API
+- `dashboard-pane` mod: `/dashboard-pane` opens the dashboard in a pane beside the chat (native view of the dashboard's JSON API; settings, mods and projects, writes included). It starts its own server on a free port (`saw dashboard --serve --port 0`, now allowed), trades the launch code at `GET /pane-session?k=<code>`, and stops the server when the pane closes. The browser dashboard is unchanged
 - `saw projects list | add | remove`; `saw init` and `saw task start` register the folder they run in
 - `isKnownKey` rejects `__proto__`, `constructor` and `prototype` segments, so `saw config set verify.__proto__.run` can no longer reach the prototype chain
 

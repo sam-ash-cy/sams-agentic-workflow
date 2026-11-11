@@ -51,7 +51,7 @@ const CONFIG_EDIT = /\b(saw|main\.ts)\s+config\s+(set|unset)\s+(\S+\s+)*["']?((s
 // csrf header, is out; the page itself is for the user's browser. Only that: grepping the
 // source for the header name is fine. (The dashboard also needs a session cookie that only
 // the printed launch address hands out, so this rule is the second wall, not the first.)
-const DASHBOARD_API = /(127\.0\.0\.1|localhost|\[::1\])(:\d+)?\/api\/|(-H|--header)\s*["']?x-saw-csrf|["']x-saw-csrf["']\s*[:,=]/i;
+const DASHBOARD_API = /(127\.0\.0\.1|localhost|\[::1\])(:\d+)?\/(api\/|pane-session)|(-H|--header)\s*["']?x-saw-csrf|["']x-saw-csrf["']\s*[:,=]/i;
 const SETTINGS_FILE =/(^|[\\/])workflow(\.local)?\.toml$/;
 const SETTINGS_WRITE = /(>>?|\btee\b|\bsed\s+-i|\bSet-Content\b|\bAdd-Content\b|\bOut-File\b|\b(cp|mv|Copy-Item|Move-Item)\b)[^;|&]*\bworkflow(\.local)?\.toml\b/;
 

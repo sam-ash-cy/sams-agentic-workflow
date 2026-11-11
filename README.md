@@ -49,7 +49,7 @@ Coding agents treat a typo and a payment migration the same way, say "done" befo
 | **Metrics + retro** | per-task outcomes, proposals from repeated failures, and a local dashboard (`saw dashboard --serve`) that lists your projects and edits their settings and mods |
 | **Autopilot** | an approved queue worked through headlessly, one session and PR per item |
 
-**45+ features and 9 mods, every one switchable globally, per project, or just for you.** See the [full feature list](docs/FEATURES.md).
+**45+ features and 10 mods, every one switchable globally, per project, or just for you.** See the [full feature list](docs/FEATURES.md).
 
 ## Configure it your way
 
