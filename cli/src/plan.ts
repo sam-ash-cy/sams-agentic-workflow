@@ -108,7 +108,9 @@ function blocks(text: string): { start: number; status: string; key: string }[] 
   text.split("\n").forEach((l, i) => {
     const m = ITEM.exec(l);
     if (m) out.push({ start: i, status: m[1].toLowerCase(), key: l.trim() });
-    else if (out.length && SUB.test(l)) out[out.length - 1].key += "\n" + l.trim();
+    // Every indented line under an item counts, not only known sub-lines:
+    // added prose would otherwise reach the autopilot worker unreviewed.
+    else if (out.length && /^\s+\S/.test(l)) out[out.length - 1].key += "\n" + l.trim();
   });
   return out;
 }
@@ -194,6 +196,9 @@ export function plan(cwd: string, config: Table, goal: string, queuePath: string
   }
   const before = existsSync(queuePath) ? readFileSync(queuePath, "utf8") : "";
   const dirtyBefore = deps.changed();
+  // ADRs of already-approved items: the session must not change what they say.
+  const read = (p: string): string => (existsSync(join(cwd, p)) ? readFileSync(join(cwd, p), "utf8") : "");
+  const approvedAdrs = new Map(parsePlanItems(before).filter((i) => i.status === "approved" && i.adr).map((i) => [i.adr!, read(i.adr!)]));
   const s = deps.claude(argv, brief);
   const failed = s.is_error || s.code !== 0;
   deps.log(`session ${failed ? "failed" : "finished"} ($${s.cost_usd.toFixed(2)})`);
@@ -208,6 +213,7 @@ export function plan(cwd: string, config: Table, goal: string, queuePath: string
     deps.log(`set back to [proposed] (only the owner approves): ${reverted.join(", ")}`);
   }
   const problems = validateQueue(parsePlanItems(text), (p) => existsSync(join(cwd, p)));
+  for (const [p, old] of approvedAdrs) if (read(p) !== old) problems.push(`ADR of an approved item changed: ${p} (review and revert it)`);
   for (const p of outsideDocs(dirtyBefore, deps.changed(), queue)) problems.push(`changed outside docs/: ${p} (review and revert it)`);
   for (const p of problems) deps.log(`problem: ${p}`);
   if (problems.length || failed) return 1;

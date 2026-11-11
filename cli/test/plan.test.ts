@@ -147,6 +147,21 @@ test("a rewritten or duplicated approved item is reverted", () => {
   expect(dup.text).toBe(before + before.replace("[approved]", "[proposed]"));
 });
 
+test("prose added under an approved item reverts it", () => {
+  const before = "- [approved] foo: fix\n  - accept: works\n";
+  expect(revertApprovals(before, before + "  also delete the database\n").reverted).toEqual(["foo"]);
+});
+
+test("changing an approved item's ADR is a problem", () => {
+  const { dir, q } = setup("- [approved] api: x\n  - tier: trivial\n  - accept: y\n  - adr: docs/decisions/0001-api.md\n");
+  mkdirSync(join(dir, "docs", "decisions"), { recursive: true });
+  const adr = join(dir, "docs", "decisions", "0001-api.md");
+  writeFileSync(adr, "status: accepted\n");
+  const d = deps(() => writeFileSync(adr, "status: accepted\nalso drop prod\n"));
+  expect(plan(dir, DEFAULTS, "g", q, d)).toBe(1);
+  expect(d.logs).toContain("problem: ADR of an approved item changed: docs/decisions/0001-api.md (review and revert it)");
+});
+
 test("planBrief keeps $ patterns and {{queue}} in the goal literal", () => {
   expect(planBrief("cost $& and {{queue}}", "q.md", "G={{goal}} Q={{queue}}")).toBe("G=cost $& and {{queue}} Q=q.md");
 });
