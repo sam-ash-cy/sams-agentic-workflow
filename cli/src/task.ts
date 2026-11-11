@@ -6,7 +6,7 @@
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { appendFileSync, closeSync, existsSync, fstatSync, mkdirSync, openSync, readFileSync, readlinkSync, rmSync, statSync, writeFileSync } from "node:fs";
-import { dirname, isAbsolute, join, relative, resolve } from "node:path";
+import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import type { Table } from "./defaults";
 import { statePath as sessionFile } from "./session-state";
 import { advisorModel } from "./skills";
@@ -71,8 +71,15 @@ export function startTask(cwd: string, tier: string, playbook: string, style?: T
 
 // routing.auto = "open": a task opened from the prompt alone, flagged provisional until
 // the agent confirms it (saw task retier, or saw task start with its own choice).
-export function openProvisional(cwd: string, tier: string, playbook: string): Task {
+// editedPath: the edit that opened it (the post-edit hook runs after the write), so that
+// file counts as this task's work, not as dirty before it started.
+export function openProvisional(cwd: string, tier: string, playbook: string, editedPath?: string): Task {
   const task: Task = { ...startTask(cwd, tier, playbook), provisional: true };
+  if (editedPath && task.baseDirty) {
+    const key = relative(repoTop(cwd) ?? cwd, resolve(cwd, editedPath)).split(sep).join("/");
+    delete task.baseDirty[key];
+    if (!Object.keys(task.baseDirty).length) delete task.baseDirty;
+  }
   writeTask(cwd, task);
   return task;
 }
@@ -731,6 +738,9 @@ export function gate(
   }
   const s = taskStatus(cwd, config, task);
   if (out) out.status = s;
+  // Soft routing doesn't interrupt a provisional task (opened by routing.auto = "open"): its
+  // status still shows in saw task status and the status file, and verify.mode = hard still holds commits.
+  if (task.provisional && ((config.routing ?? {}) as { mode?: string }).mode !== "hard") return undefined;
   if (s.floor) return { decision: "block", reason: `Tier too low: ${s.floor}.` };
   if (s.label === "Verified") return undefined;
   // Debugging is phased in when needed: a check failing twice means guessing has stopped working.

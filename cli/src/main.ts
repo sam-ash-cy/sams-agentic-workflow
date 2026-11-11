@@ -758,7 +758,7 @@ export function run(argv: string[], cwdArg?: string): number {
       // instead of arming the Stop gate, so normal prompting isn't interrupted.
       const routing = (resolved.config.routing ?? {}) as { mode?: string; auto?: string };
       if (routing.mode !== "hard" && routing.auto === "open" && editOpensProvisional(cwd, filePath)) {
-        try { openProvisional(cwd, "standard", "feature"); } catch { markUntaskedEdit(cwd, filePath); }
+        try { openProvisional(cwd, "standard", "feature", filePath); } catch { markUntaskedEdit(cwd, filePath); }
       } else markUntaskedEdit(cwd, filePath);
     }
     if (command === "format-hook") {
@@ -1341,8 +1341,9 @@ function checkHooks(_cwd: string): string[] {
         const proc = Bun.spawnSync(["bun", "--no-install", join(PLUGIN_ROOT, "hooks", "run", `${file}.ts`)], { cwd: scratch, stdin: Buffer.from(payload), stdout: "pipe", stderr: "pipe", timeout: 15000, env: { ...process.env, CLAUDE_PLUGIN_ROOT: PLUGIN_ROOT } });
         const ms = Math.round(performance.now() - started);
         const ok = proc.exitCode === 0;
-        console.log(`  hook ${event.padEnd(18)} ${file.padEnd(14)} ${String(ms).padStart(5)} ms ${ok ? "ok" : `exit ${proc.exitCode}`}`);
-        if (!ok) problems.push(`hook ${event} (${file}) exited ${proc.exitCode}: ${proc.stderr.toString().trim().split("\n").pop()}`);
+        const why = proc.exitCode === null ? "timed out after 15 s" : `exited ${proc.exitCode}`;
+        console.log(`  hook ${event.padEnd(18)} ${file.padEnd(14)} ${String(ms).padStart(5)} ms ${ok ? "ok" : why}`);
+        if (!ok) problems.push(`hook ${event} (${file}) ${why}: ${proc.stderr.toString().trim().split("\n").pop()}`);
       }
     }
   } finally {

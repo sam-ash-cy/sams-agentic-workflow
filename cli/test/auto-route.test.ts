@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { classify } from "../src/auto-route";
 import { resolve } from "../src/config";
 import { routerNudge } from "../src/context";
-import { currentTask, retierTask, startTask } from "../src/task";
+import { currentTask, openProvisional, retierTask, startTask } from "../src/task";
 import { verifyBlock } from "../src/verify-guard";
 
 // prompt → expected tier / playbook, or "none" for questions and non-change prompts.
@@ -102,7 +102,7 @@ test("soft routing with auto = open: an untasked edit opens a provisional task a
   hook("format-hook", { tool_name: "Edit", tool_input: { file_path: join(dir, "a.ts") } });
   expect(currentTask(dir)?.provisional).toBe(true);
   expect(existsSync(join(dir, ".saw", "untasked-edits"))).toBe(false);
-  expect(hook("gate", { session_id: "s1" })).not.toContain("no saw task is open");
+  expect(hook("gate", { session_id: "s1" })).toBe("");
 });
 
 test("hard routing still marks untasked edits for the Stop gate", () => {
@@ -114,4 +114,18 @@ test("hard routing still marks untasked edits for the Stop gate", () => {
   Bun.spawnSync(["bun", main, "format-hook"], { cwd: dir, env, stdin: Buffer.from(JSON.stringify({ tool_name: "Edit", tool_input: { file_path: join(dir, "a.ts") } })), stdout: "pipe", stderr: "pipe", timeout: 20000 });
   expect(currentTask(dir)).toBeUndefined();
   expect(existsSync(join(dir, ".saw", "untasked-edits"))).toBe(true);
+});
+
+test("a provisional task opened by an edit counts that edit as its own work", () => {
+  const dir = mkdtempSync(join(tmpdir(), "saw-ar-"));
+  writeFileSync(join(dir, "workflow.toml"), "");
+  const git = (...a: string[]) => Bun.spawnSync(["git", ...a], { cwd: dir, stdout: "pipe", stderr: "pipe", timeout: 10000 });
+  git("init", "-q");
+  git("-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "--allow-empty", "-m", "init");
+  writeFileSync(join(dir, "a.ts"), "x\n");
+  writeFileSync(join(dir, "old.ts"), "y\n");
+  const t = openProvisional(dir, "standard", "feature", join(dir, "a.ts"));
+  expect(Object.keys(t.baseDirty ?? {})).not.toContain("a.ts");
+  expect(Object.keys(t.baseDirty ?? {})).toContain("old.ts");
+  expect(currentTask(dir)?.baseDirty?.["a.ts"]).toBeUndefined();
 });
