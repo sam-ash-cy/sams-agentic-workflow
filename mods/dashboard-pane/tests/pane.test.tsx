@@ -19,9 +19,8 @@ function fake($: any, on: any, over: { noSaw?: boolean; fetchFails?: boolean; ou
   const clock = mock.clock(on)
   const seen: Seen[] = []
   const spawned: { argv: string[]; ended: boolean }[] = []
-  // `saw --version` starts unless the test says saw cannot be spawned (a shell shim on Windows).
+  // `where saw` finds the checkout, as on Windows.
   on('process.run', (_: unknown, e: { argv: string[] }) => {
-    if (over.noSaw && e.argv[0] === 'saw') return { deny: 'ENOENT: saw not found' }
     const out = e.argv[0] === 'where' ? 'C:\\tools\\saw\\bin\\saw\r\nC:\\tools\\saw\\bin\\saw.cmd\r\n' : ''
     return { value: { exitCode: 0, stdout: out, stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
   })
@@ -30,6 +29,8 @@ function fake($: any, on: any, over: { noSaw?: boolean; fetchFails?: boolean; ou
   on('ui.close', () => ({ value: undefined }))
   on('session.end', (_: unknown, e: { sessionId: string }) => ({ sessionId: e.sessionId }))
   on('process.spawn', async function* (_: unknown, e: { argv: string[] }, next: { signal: AbortSignal }) {
+    // A shell shim that process.spawn cannot start: the call fails before any output.
+    if (over.noSaw && e.argv[0] === 'saw') throw new Error("ENOENT: Command 'saw' not found")
     const child = { argv: e.argv, ended: false }
     spawned.push(child)
     try {
@@ -179,7 +180,7 @@ test('a server that stops answering shows an error with a way to try again, not 
   await ui.unmount()
 })
 
-test('when saw cannot be spawned (a shell shim), the pane runs the checkout it lives in with bun', async ($, on) => {
+test('when saw cannot be spawned (a shell shim), the pane retries through the checkout it lives in with bun', async ($, on) => {
   const { spawned } = fake($, on, { noSaw: true })
   await $.command.run({ command: 'dashboard-pane' })
   expect(spawned[0]!.argv).toEqual(['bun', 'C:\\tools\\saw/cli/src/main.ts', 'dashboard', '--serve', '--port', '0'])

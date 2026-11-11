@@ -40,30 +40,19 @@ export function parseLaunch(out: string): { base: string; code: string } | undef
 
 let resolved: string[] | undefined
 
-// How to run saw. An explicit sawCommand wins. Otherwise plain `saw` if it starts; on Windows the
-// `saw` on PATH is a shell shim that cannot be spawned without a shell, so find the repo it lives
-// in (where saw) and run its CLI with bun, which is a real executable.
-async function sawArgv($: EngineInterface, opts: Options): Promise<string[]> {
-  if (opts.sawCommand && opts.sawCommand !== 'saw') return opts.sawCommand.split(' ').filter(Boolean)
-  if (resolved) return resolved
-  try {
-    await $.process.run(['saw', '--version'], { timeoutMs: 10000 })
-    resolved = ['saw']
-    return resolved
-  } catch {
-    /* not startable here: look for the checkout it lives in */
-  }
+const explicit = (opts: Options): string[] | undefined => (opts.sawCommand && opts.sawCommand !== 'saw' ? opts.sawCommand.split(' ').filter(Boolean) : undefined)
+
+// On Windows the `saw` on PATH is a shell shim that process.spawn cannot start (no shell), although
+// other ways of running it can. Find the checkout it lives in (where saw) and run its CLI with bun,
+// a real executable. Tried only after spawning plain `saw` failed to start.
+async function shimArgv($: EngineInterface): Promise<string[] | undefined> {
   try {
     const found = await $.process.run(['where', 'saw'], { timeoutMs: 10000 })
     const shim = found.stdout.split('\n').map(l => l.trim()).find(l => /[\\/]bin[\\/]saw(\.cmd)?$/i.test(l))
-    if (shim) {
-      resolved = ['bun', shim.replace(/[\\/]bin[\\/]saw(\.cmd)?$/i, '/cli/src/main.ts')]
-      return resolved
-    }
+    return shim ? ['bun', shim.replace(/[\\/]bin[\\/]saw(\.cmd)?$/i, '/cli/src/main.ts')] : undefined
   } catch {
-    /* no where.exe: fall through to the plain name and its error */
+    return undefined // no where.exe (macOS, Linux): `saw` runs directly there
   }
-  return ['saw']
 }
 
 function release(): void {
@@ -82,7 +71,25 @@ function stop(): void {
 }
 
 async function start($: EngineInterface, opts: Options): Promise<Conn> {
-  const run: Child = $.process.spawn({ argv: [...(await sawArgv($, opts)), 'dashboard', '--serve', '--port', '0'], cwd: await $.session.cwd() })
+  const given = explicit(opts)
+  const first = resolved ?? given ?? ['saw']
+  try {
+    const c = await launchWith($, first)
+    resolved = first
+    return c
+  } catch (e) {
+    // Only a spawn that could not start is retried, and only when the user did not choose a command.
+    if (given || resolved || !/could not run saw dashboard/i.test((e as Error).message)) throw e
+    const shim = await shimArgv($)
+    if (!shim) throw e
+    const c = await launchWith($, shim)
+    resolved = shim
+    return c
+  }
+}
+
+async function launchWith($: EngineInterface, argv: string[]): Promise<Conn> {
+  const run: Child = $.process.spawn({ argv: [...argv, 'dashboard', '--serve', '--port', '0'], cwd: await $.session.cwd() })
   child = run
   let found: (a: { base: string; code: string }) => void = () => {}
   let failed: (e: Error) => void = () => {}
