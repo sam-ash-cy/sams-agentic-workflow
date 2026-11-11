@@ -125,10 +125,10 @@ test("router nudge fires only in a saw project with no task", () => {
 });
 
 test("doctor reads the plugin list", () => {
-  const ok = "Installed plugins:\n\n  ❯ sams-agentic-workflow@sams-agentic-workflow\n    Version: 0.1.0\n    Status: ✔ enabled\n\n  ❯ ecc@ecc\n    Status: ✘ disabled\n";
+  const ok = "Installed plugins:\n\n  ❯ sams-agentic-workflow@sams-agentic-workflow\n    Version: 0.1.0\n    Status: ✔ enabled\n\n  ❯ other@x\n    Status: ✘ disabled\n";
   expect(pluginProblem(ok)).toBeUndefined();
-  expect(pluginProblem("Installed plugins:\n\n  ❯ ecc@ecc\n    Status: ✔ enabled\n")).toContain("not installed");
-  expect(pluginProblem("  ❯ sams-agentic-workflow@sams-agentic-workflow\n    Status: ✘ disabled\n\n  ❯ ecc@ecc\n    Status: ✔ enabled\n")).toContain("disabled");
+  expect(pluginProblem("Installed plugins:\n\n  ❯ other@x\n    Status: ✔ enabled\n")).toContain("not installed");
+  expect(pluginProblem("  ❯ sams-agentic-workflow@sams-agentic-workflow\n    Status: ✘ disabled\n\n  ❯ other@x\n    Status: ✔ enabled\n")).toContain("disabled");
 });
 
 function gitProject(): string {

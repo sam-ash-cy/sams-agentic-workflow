@@ -25,7 +25,7 @@ interface Panel {
   bars: Bar[];
 }
 
-const esc = (s: string): string => s.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
+export const esc = (s: string): string => s.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
 const pct = (n: number): string => `${Math.round(n * 100)}%`;
 const fmt = (n: number): string => (n >= 10000 ? `${Math.round(n / 1000)}k` : String(Math.round(n)));
 
@@ -164,18 +164,21 @@ export function dataVersion(cwd: string): string {
     .join("|");
 }
 
-export function renderHtml(metrics: TaskMetric[], names: string[], proposals: Proposal[] = [], runs: RunRecord[] = [], generated = new Date(), events: WorkflowEvent[] = [], live = false, adoptionReport?: Adoption): string {
+// The statistics block: the three KPIs and the panels. The static page and the live
+// dashboard's Statistics tab both render it.
+export function statsHtml(metrics: TaskMetric[], names: string[], proposals: Proposal[] = [], runs: RunRecord[] = [], events: WorkflowEvent[] = [], adoptionReport?: Adoption): string {
   const verified = metrics.filter((m) => m.label === "Verified").length;
   const kpis = [
     ["Tasks", String(metrics.length)],
     ["Verified", metrics.length ? pct(verified / metrics.length) : "–"],
     ["First pass", metrics.length ? pct(metrics.filter((m) => m.first_pass).length / metrics.length) : "–"],
   ];
-  return `<!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Workflow metrics</title>
-<style>
-:root{--bg:#f7f7f5;--card:#fff;--ink:#1d1d1b;--muted:#6b6b66;--line:#e4e4df;--bar:#2f6f62}
+  return `<div class="kpis">${kpis.map(([k, v]) => `<div class="kpi"><b>${esc(v!)}</b><span>${esc(k!)}</span></div>`).join("")}</div>
+<div class="grid">${buildPanels(metrics, names, proposals, runs).map(panelHtml).join("")}${names.includes("adoption") && adoptionReport ? adoptionHtml(adoptionReport, esc) : ""}${names.includes("events") ? eventsHtml(events) : ""}</div>`;
+}
+
+// The palette and the statistics rules, shared by every page this file produces.
+export const BASE_CSS = `:root{--bg:#f7f7f5;--card:#fff;--ink:#1d1d1b;--muted:#6b6b66;--line:#e4e4df;--bar:#2f6f62}
 @media (prefers-color-scheme:dark){:root{--bg:#161615;--card:#1f1f1d;--ink:#ecece8;--muted:#9a9a94;--line:#33332f;--bar:#5fb3a1}}
 *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.5 system-ui,sans-serif}
 main{max-width:960px;margin:0 auto;padding:24px 16px}h1{font-size:22px;margin:0 0 4px}.sub{color:var(--muted);margin:0 0 20px}
@@ -191,10 +194,16 @@ h2{font-size:15px;margin:0}.hint{color:var(--muted);font-size:13px;margin:2px 0 
 .ev{display:grid;grid-template-columns:10.5rem 9rem 1fr;gap:8px;padding:4px 0;border-top:1px solid var(--line);font-size:13px}
 .ev time,.kind{color:var(--muted);font-variant-numeric:tabular-nums}.msg{overflow-wrap:anywhere}.ev.warn .kind{color:#b4542b}
 @media (max-width:600px){.ev{grid-template-columns:1fr}}
-</style></head><body><main>
+`;
+
+export function renderHtml(metrics: TaskMetric[], names: string[], proposals: Proposal[] = [], runs: RunRecord[] = [], generated = new Date(), events: WorkflowEvent[] = [], live = false, adoptionReport?: Adoption): string {
+  return `<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Workflow metrics</title>
+<style>
+${BASE_CSS}</style></head><body><main>
 <h1>Workflow metrics</h1><p class="sub">${metrics.length} tasks · generated ${esc(generated.toISOString().slice(0, 16).replace("T", " "))} UTC</p>
-<div class="kpis">${kpis.map(([k, v]) => `<div class="kpi"><b>${esc(v!)}</b><span>${esc(k!)}</span></div>`).join("")}</div>
-<div class="grid">${buildPanels(metrics, names, proposals, runs).map(panelHtml).join("")}${names.includes("adoption") && adoptionReport ? adoptionHtml(adoptionReport, esc) : ""}${names.includes("events") ? eventsHtml(events) : ""}</div>
+${statsHtml(metrics, names, proposals, runs, events, adoptionReport)}
 </main>${live ? LIVE_SCRIPT : ""}</body></html>
 `;
 }

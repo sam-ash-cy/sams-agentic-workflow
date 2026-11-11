@@ -8,6 +8,7 @@ import { resolve } from "../src/config";
 import { eventsHtml, renderHtml } from "../src/dashboard";
 import type { Table } from "../src/defaults";
 import { eventsPath, logEvent, readEvents } from "../src/events";
+import { dashboardUrl } from "../src/dashboard-server";
 import { serveDashboard } from "../src/main";
 
 const MAIN = join(import.meta.dir, "..", "src", "main.ts");
@@ -83,16 +84,21 @@ test("saw dashboard --serve listens on 127.0.0.1, refuses other hosts, and /vers
   server = serveDashboard(dir, config, 0);
   expect(server.hostname).toBe("127.0.0.1");
   const base = `http://127.0.0.1:${server.port}`;
-  const page = await fetch(`${base}/`);
+  // Nothing is served until the printed address has been opened once.
+  expect((await fetch(`${base}/`)).status).toBe(403);
+  const login = await fetch(dashboardUrl(server), { redirect: "manual" });
+  const cookie = login.headers.get("set-cookie")!.split(";")[0]!;
+  const f = (url: string, init: RequestInit = {}): Promise<Response> => fetch(url, { ...init, headers: { ...(init.headers as Record<string, string>), cookie } });
+  const page = await f(`${base}/`);
   expect(page.status).toBe(200);
   expect(page.headers.get("content-security-policy")).toContain("default-src 'none'");
   expect(await page.text()).toContain("Workflow metrics");
-  const v1 = await (await fetch(`${base}/version`)).text();
+  const v1 = await (await f(`${base}/version`)).text();
   logEvent(dir, config, "info", "tier", "standard / feature");
-  const v2 = await (await fetch(`${base}/version`)).text();
+  const v2 = await (await f(`${base}/version`)).text();
   expect(v2).not.toBe(v1);
-  expect(await (await fetch(`${base}/`)).text()).toContain("standard / feature");
-  expect((await fetch(`${base}/`, { headers: { host: "evil.example" } })).status).toBe(403);
-  expect((await fetch(`${base}/nope`)).status).toBe(404);
-  expect((await fetch(`${base}/`, { method: "POST" })).status).toBe(405);
+  expect(await (await f(`${base}/`)).text()).toContain("standard / feature");
+  expect((await f(`${base}/`, { headers: { host: "evil.example" } })).status).toBe(403);
+  expect((await f(`${base}/nope`)).status).toBe(404);
+  expect((await f(`${base}/`, { method: "POST" })).status).toBe(405);
 });

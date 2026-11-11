@@ -39,7 +39,7 @@ Rules:
    - how much the agent may do alone: commit / open PRs / add dependencies (never, ask, allow)
    - review strictness: default, independent review sessions, or required review evidence
    - token priority: normal or save tokens (Trail, routed models, hard budgets)
-   - which optional extras, if any: Trail, unslop, brag, ECC, GitHub repo settings, autopilot
+   - which optional extras, if any: Trail, unslop, brag, GitHub repo settings, autopilot
 4. Recommend. Give me the closest profile (solo, team, strict, autopilot) and why in two lines,
    then a table: setting, value, scope (global/project/local), one-line reason. Only settings that
    differ from the default. Then stop and wait.
@@ -166,7 +166,7 @@ cd "$HOME\sams-agentic-workflow"
 .\bootstrap.ps1
 ```
 
-Set `SAW_NO_PLUGIN=1` to skip the plugin step, or `SAW_WITH_ECC=1` to also install ECC. If it prints `skip: plugin install (claude not on PATH)`, fix `claude --version` in that terminal and run it again; finished steps are skipped.
+Set `SAW_NO_PLUGIN=1` to skip the plugin step. If it prints `skip: plugin install (claude not on PATH)`, fix `claude --version` in that terminal and run it again; finished steps are skipped.
 
 It worked when `claude plugin list` shows the three plugins enabled and `saw doctor` ends with `saw doctor: ok`.
 

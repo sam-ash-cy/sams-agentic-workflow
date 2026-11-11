@@ -46,7 +46,7 @@ Coding agents treat a typo and a payment migration the same way, say "done" befo
 | **Test-first** | code edits can wait for a failing test |
 | **Token control** | per-tier budgets, cost shown above the prompt, auto-compact and handoff to a fresh session |
 | **Sessions** | branch guard, a worktree per complex task, and `saw split` to run plan stages in parallel |
-| **Metrics + retro** | per-task outcomes, a dashboard, and proposals from repeated failures |
+| **Metrics + retro** | per-task outcomes, proposals from repeated failures, and a local dashboard (`saw dashboard --serve`) that lists your projects and edits their settings and mods |
 | **Autopilot** | an approved queue worked through headlessly, one session and PR per item |
 
 **45+ features and 9 mods, every one switchable globally, per project, or just for you.** See the [full feature list](docs/FEATURES.md).
@@ -107,6 +107,5 @@ saw doesn't copy these into the repo. They are pinned by commit in `deps.lock.to
 - [mattpocock/skills](https://github.com/mattpocock/skills) (MIT), installed as a companion plugin
 - [unslop](https://github.com/heydamir/unslop) by Damir Sokolovsky (CC BY 4.0), optional UI polish (`features.unslop`)
 - [brag](https://github.com/latent-spaces/brag) by Shunit Haviv Hakimi (MIT), optional launch videos (`features.brag`). Its bundled music is CC BY 4.0 by [Sascha Ende](https://ende.app): credit him wherever you publish a video made with it.
-- [ECC](https://github.com/affaan-m/ECC) by Affaan Mustafa (MIT), optional plugin (`features.ecc`). saw recommends turning off its duplicate hooks; see [optional extras](docs/COMMANDS.md#optional-extras).
 
 Tests: `bun run test`. Licence: [MIT](LICENSE).

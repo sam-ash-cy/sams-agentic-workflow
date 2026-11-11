@@ -46,7 +46,13 @@ const EXISTS_ONLY = /^(ls|test|\[)( [^;|&<>`$]*)?$/;
 // The agent editing its own guardrails: saw config set|unset of a guard key,
 // or a shell write to a settings layer. Always the user's call.
 const CONFIG_EDIT = /\b(saw|main\.ts)\s+config\s+(set|unset)\s+(\S+\s+)*["']?((safety|autonomy|features|routing\.mode)\b|verify\.)/;
-const SETTINGS_FILE = /(^|[\\/])workflow(\.local)?\.toml$/;
+// The agent driving the settings dashboard's write API would edit its own guardrails without
+// asking. A command that sends a request to a loopback /api/ path, or sets the dashboard's
+// csrf header, is out; the page itself is for the user's browser. Only that: grepping the
+// source for the header name is fine. (The dashboard also needs a session cookie that only
+// the printed launch address hands out, so this rule is the second wall, not the first.)
+const DASHBOARD_API = /(127\.0\.0\.1|localhost|\[::1\])(:\d+)?\/api\/|(-H|--header)\s*["']?x-saw-csrf|["']x-saw-csrf["']\s*[:,=]/i;
+const SETTINGS_FILE =/(^|[\\/])workflow(\.local)?\.toml$/;
 const SETTINGS_WRITE = /(>>?|\btee\b|\bsed\s+-i|\bSet-Content\b|\bAdd-Content\b|\bOut-File\b|\b(cp|mv|Copy-Item|Move-Item)\b)[^;|&]*\bworkflow(\.local)?\.toml\b/;
 
 // Spellings folded to one form before matching, so neither the deny-list nor
@@ -140,6 +146,7 @@ export function guardCommand(config: Table, command: string, cwd = process.cwd()
   }
   // Existence checks (ls, test -f, [ -f ]) read nothing; anything chained after them still counts.
   if (safety.no_secrets && SECRETS.test(full) && !EXISTS_ONLY.test(full)) return { decision: "deny", reason: "safety.no_secrets: don't read or copy secrets files in the session" };
+  if (DASHBOARD_API.test(cmd)) return { decision: "deny", reason: "the settings dashboard's API is for your browser: ask the user to change the setting there, or use saw config set" };
   if (CONFIG_EDIT.test(full) || writesProjectSettings(full, cwd)) return { decision: "ask", reason: "changing workflow settings that guard the agent needs your approval" };
   const features = (config.features ?? {}) as Record<string, boolean>;
   if (!features.parallel_sessions && SPAWN.test(cmd)) return { decision: "deny", reason: "features.parallel_sessions is off: no new sessions" };

@@ -88,10 +88,6 @@
           "type": "boolean",
           "default": false
         },
-        "ecc": {
-          "type": "boolean",
-          "default": false
-        },
         "docs_step": {
           "type": "boolean",
           "default": true

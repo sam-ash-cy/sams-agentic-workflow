@@ -5,3 +5,6 @@ flow = "release-branch"
 
 [checks]
 test = "bun run test"
+
+[verify]
+allow_unconfigured = ["format", "lint", "typecheck"]

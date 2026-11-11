@@ -65,7 +65,6 @@ Defaults are what a fresh `saw init` gives you. "Key" is the setting that contro
 | | Implementer agent writes planned units | off | `features.implementer` | |
 | UI and launch | unslop UI polish in the design playbook | off | `features.unslop` | unslop skill |
 | | Launch video after feature PRs | off | `features.brag` | brag skill, Hyperframes |
-| | ECC context and verification skills | off | `features.ecc` | ECC plugin |
 | Knowledge | `docs/` vault (decisions, learnings, plans, features) | on | `saw init` | |
 | | Central personal vault index | on (needs `vault_path`) | `features.obsidian`, `[knowledge]` | |
 | Metrics | Per-task metrics and event log | on | `features.metrics`, `[logging]` | |

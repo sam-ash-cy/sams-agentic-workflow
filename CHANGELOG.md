@@ -2,6 +2,18 @@
 
 All notable changes to this project. Versions follow [Semantic Versioning](https://semver.org); entries are generated from Conventional Commits by `saw release`.
 
+## [Unreleased]
+
+### Features
+
+- settings dashboard: `saw dashboard --serve` lists your projects (`saw projects`, `~/.saw/projects.json`) and edits every setting at the global, shared-project and only-me layers, switches mods on or off, and shows each project's statistics. Reached through a one-use launch address and a session cookie; writes also need the dashboard's origin and csrf key, and `saw guard` denies an agent talking to its API
+- `saw projects list | add | remove`; `saw init` and `saw task start` register the folder they run in
+- `isKnownKey` rejects `__proto__`, `constructor` and `prototype` segments, so `saw config set verify.__proto__.run` can no longer reach the prototype chain
+
+### Removed
+
+- ECC support: the optional ECC plugin, `features.ecc`, `SAW_WITH_ECC` and the doctor checks for it. A leftover `features.ecc` in your settings is ignored with a warning.
+
 ## [1.0.3] - 2026-11-11
 
 ### Fixes

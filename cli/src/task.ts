@@ -273,7 +273,6 @@ export function taskSteps(config: Table, tier: string, playbook = "feature"): st
   if (features.living_docs && !delivers && SURFACE_PLAYBOOKS.includes(playbook)) steps.push("living docs: if this changes commands, settings or APIs: update docs/reference/ (and glossary.md / conventions.md / learnings/ where they're affected)");
   if (features.docs_step && delivers) steps.push("docs step: engineering:documentation in the Diataxis split (tutorial, how-to, reference, explanation); mattpocock-skills:writing-for-agents for AGENTS.md, CLAUDE.md and skill files" +
     (taskChecks(config, tier, playbook).includes("docs") ? "; then saw task record docs pass --note \"<files>\" (or --note \"none needed: <why>\")" : ""));
-  if (features.ecc && delivers) steps.push("before the PR: ecc:verification-loop (build, types, lint, tests, diff review)");
   if (features.brag && delivers) steps.push("optional after the PR merges: a launch video with the brag skill");
   if (taskChecks(config, tier, playbook).includes("advisor")) {
     const model = advisorModel(config);

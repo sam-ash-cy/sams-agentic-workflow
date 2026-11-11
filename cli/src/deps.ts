@@ -52,40 +52,6 @@ export function pin(path: string, name: string, sha: string, reviewer: string, t
   writeFileSync(path, header + stringifyToml(lock as unknown as Table));
 }
 
-// saw doctor: ECC's GateGuard (Fact-Forcing Gate) blocks first shell and edit
-// calls until the agent restates facts, which duplicates saw guard and costs a
-// round trip per file. Warn while ECC is installed and the gate is still on.
-export function gateguardWarning(installedJson: string | undefined, settingsJson: string | undefined, envValue: string | undefined, extra: string[] = []): string | undefined {
-  let installed = false;
-  let setting: unknown;
-  try {
-    installed = Object.keys((installedJson ? JSON.parse(installedJson).plugins : undefined) ?? {}).some((k) => k.startsWith("ecc@")) || extra.includes("ecc");
-    setting = settingsJson ? JSON.parse(settingsJson).env?.ECC_GATEGUARD : undefined;
-  } catch {
-    return undefined;
-  }
-  if (!installed || envValue === "off" || setting === "off") return undefined;
-  return 'ECC is installed with GateGuard on; it duplicates saw guard. Add "ECC_GATEGUARD": "off" to env in ~/.claude/settings.json (docs/COMMANDS.md, Optional extras)';
-}
-
-// saw doctor with features.ecc on: ECC is a whole Claude Code plugin, so it is
-// checked in installed_plugins.json, not as a skill folder. A different commit
-// from the pin is reported too: hooks there were not reviewed.
-export function eccProblem(installedJson: string | undefined, pinnedSha: string | undefined, extra: string[] = []): string | undefined {
-  let plugins: Record<string, { gitCommitSha?: string }[]> = {};
-  try {
-    plugins = installedJson ? (JSON.parse(installedJson).plugins ?? {}) : {};
-  } catch {
-    return "features.ecc is on but installed_plugins.json isn't valid JSON";
-  }
-  const key = Object.keys(plugins).find((k) => k.startsWith("ecc@"));
-  if (!key && extra.includes("ecc")) return undefined; // synced by the desktop app: no lock entry to compare
-  if (!key) return "features.ecc is on but the ecc plugin isn't installed: `claude plugin install ecc@sams-agentic-workflow` (docs/COMMANDS.md, Optional extras), or set features.ecc false";
-  const sha = plugins[key]?.[0]?.gitCommitSha;
-  if (pinnedSha && sha && sha !== pinnedSha) return `ecc plugin (${key}) is at ${sha.slice(0, 12)}, not the pinned ${pinnedSha.slice(0, 12)}: review with saw deps diff ecc ${sha}, or reinstall from the pin`;
-  return undefined;
-}
-
 // Companion plugins are soft dependencies on purpose. An unsatisfied plugin.json
 // "dependencies" entry makes Claude Code refuse to load saw at all (no hooks,
 // skills or agents), so a missing companion only costs the features that use
