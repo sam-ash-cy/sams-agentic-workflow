@@ -482,23 +482,20 @@ export function tierFloor(cwd: string, config: Table, task: Task): Floor {
   const untracked = git(cwd, ["ls-files", "--others", "--exclude-standard"]);
   if (untracked === undefined) return { floor: "trivial", why: "" };
   const changed = new Map<string, number>();
-  for (const row of numstat.split("
-").filter(Boolean)) {
+  for (const row of numstat.split("\n").filter(Boolean)) {
     const [add, del, ...rest] = row.split("	");
     const path = rest.join("	");
     if (!path.startsWith(".saw/")) changed.set(path, (Number(add) || 0) + (Number(del) || 0));
   }
   let read = 0;
-  for (const path of untracked.split("
-").filter(Boolean)) {
+  for (const path of untracked.split("\n").filter(Boolean)) {
     if (path.startsWith(".saw/") || changed.has(path)) continue;
     let n = 1;
     // Reading is capped: past it a file still counts, its lines don't.
     if (read++ < MAX_UNTRACKED_READ) {
       try {
         const abs = join(cwd, path);
-        if (statSync(abs).size <= 1_000_000) n = readFileSync(abs, "utf8").split("
-").length;
+        if (statSync(abs).size <= 1_000_000) n = readFileSync(abs, "utf8").split("\n").length;
       } catch {
         // Unreadable (a directory, a race): the file still counts.
       }
