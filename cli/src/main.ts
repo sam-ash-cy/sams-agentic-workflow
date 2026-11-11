@@ -19,6 +19,7 @@ import { sessionHook, UNITS } from "./sessions";
 import { recordReview, reviewApplies, reviewArgv, reviewBrief, writeChange, type ReviewSettings } from "./review-session";
 import { effectiveStyle, styleCheck, styleLine, TONES } from "./style";
 import { autopilot, eligible, parseQueue, readRuns, readState as autopilotState, scheduleCommand, settings as autopilotSettings, spawnClaude, stopReasons } from "./autopilot";
+import { plan } from "./plan";
 import { renderHtml, renderMarkdown } from "./dashboard";
 import { dashboardUrl, serveDashboard } from "./dashboard-server";
 import { hookCwd } from "./hook-cwd";
@@ -105,6 +106,7 @@ const USAGE = `usage: saw <command>
   format-hook                        PostToolUse hook: run checks.format after each edit
   review-session brief|run [--dry-run]|record <file> --unit <kind> --unit-id <name>   independent read-only review of a unit ([review_session])
   autopilot [status] [--dry-run] [--once] [--install-schedule]   work through approved queue items, one headless session + branch each ([autopilot]; never merges)
+  plan "<goal>" [--dry-run]          one headless planning session: ADR drafts, roadmap and [proposed] queue items, then validates the queue ([plan])
   style                              the effective reply style for this task (tone, word cap)
   style-check                        Stop hook: warn (soft) or ask for a rewrite (hard) when a reply is over the cap
   about-me [show] [--scope global|project|local] [--dry-run]   create the about-me profile from the template (show: the merged summary sessions get)
@@ -845,6 +847,7 @@ export function run(argv: string[], cwdArg?: string): number {
   }
   if (command === "review-session") return reviewSessionCommand(cwd, resolved.config, args);
   if (command === "autopilot") return autopilotCommand(cwd, resolved.config, weakenedSafety(resolved), args);
+  if (command === "plan") return planCommand(cwd, resolved.config, args);
   if (command === "style") {
     console.log(styleLine(effectiveStyle(resolved.config, currentTask(cwd))));
     return 0;
@@ -979,6 +982,14 @@ function autopilotCommand(cwd: string, config: Table, weakened: string[], args: 
   } finally {
     rmSync(lock, { force: true });
   }
+}
+
+function planCommand(cwd: string, config: Table, args: Args): number {
+  const goal = args.positional.slice(1).join(" ").trim();
+  if (!goal) return fail('usage: saw plan "<goal>" [--dry-run]');
+  const queue = inside(cwd, autopilotSettings(config).queue);
+  if (!queue) return fail("autopilot.queue must be a path inside the project");
+  return plan(cwd, config, goal, queue, { claude: spawnClaude(cwd), uuid: () => crypto.randomUUID(), log: (l) => console.log(`saw plan: ${l}`) }, { dryRun: args.flags.has("--dry-run"), base: baseBranch(config) });
 }
 
 const NO_TASK = "no open task; start one with saw task start --tier <t> --playbook <p>";

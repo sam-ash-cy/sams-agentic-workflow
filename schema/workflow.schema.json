@@ -881,6 +881,16 @@
         }
       }
     },
+    "plan": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "max_usd": {
+          "type": "number",
+          "default": 3
+        }
+      }
+    },
     "knowledge": {
       "type": "object",
       "additionalProperties": false,
