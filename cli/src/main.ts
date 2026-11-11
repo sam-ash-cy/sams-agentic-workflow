@@ -38,7 +38,8 @@ import { syncAdvisor, syncSkillDenies } from "./skills";
 import { applyPlan, gh, readState, repoName, repoPlan, type Gh } from "./repo";
 import { formatHook, runCheck, TRUSTED_LAYERS } from "./run";
 import { checkMods } from "./mods";
-import { currentTask, endTask, gate, gitStatusHash, isSawProject, markUntaskedEdit, pickTier, recordCheck, reviewEvidence, setPhase, startTask, storedTreeHash, storeTreeHash, taskReport, taskStatus, taskSkills, taskSteps } from "./task";
+import { currentTask, endTask, gate, gitStatusHash, isSawProject, markUntaskedEdit, noteUnverifiedExit, pickTier, recordCheck, retierTask, reviewEvidence, setPhase, staleMessage, staleTask, startTask, storedTreeHash, storeTreeHash, takeUnverifiedExit, taskReport, taskStatus, taskSkills, taskSteps } from "./task";
+import { routingMode } from "./routing-guard";
 import { patchToml, readToml, stringifyToml } from "./toml";
 import { applyProfile, parseProfiles } from "./profiles";
 import { aboutHook, aboutPaths, createAbout, type AboutScope } from "./about-me";
@@ -71,7 +72,8 @@ const USAGE = `usage: saw <command>
   task pr-body [--base <ref>]   PR description: commits since <ref> (default origin/<branch.base>) and the verification section
   repo plan|apply [--repo o/n] [--yes]   GitHub settings from [repo]: diff, then apply only with --yes and re-verify
   outline <file>                     signatures with line numbers (when Trail is off)
-  task end [--tokens <n>]            close the task and append its metrics (.saw/metrics.jsonl)
+  task retier <tier>                 change the open task's tier (keeps its checks; never below what the diff needs)
+  task end [--tokens <n>] [--reason "<why>"]   close the task and append its metrics (.saw/metrics.jsonl); --reason is required unless it is Verified
   dashboard [--serve [--port <n>]]   write the static metrics page (and the Obsidian note if set); --serve: live page on 127.0.0.1
   retro [--dry-run]                  write a proposal for each check failing in repeat_threshold+ tasks
   eval [--case <glob>] [--runs <n>] [--dry-run] [--save-baseline]   run the eval suite (claude plugin eval) and compare with the baseline
@@ -111,7 +113,7 @@ interface Args {
   values: Record<string, string>;
 }
 
-const VALUE_FLAGS = ["--runs", "--repo", "--pr", "--tier", "--playbook", "--note", "--plugin-dir", "--reviewed-by", "--type", "--tokens", "--case", "--agents", "--tone", "--max-words", "--unit", "--unit-id", "--port", "--report", "--pre", "--base"];
+const VALUE_FLAGS = ["--runs", "--repo", "--pr", "--tier", "--playbook", "--note", "--plugin-dir", "--reviewed-by", "--type", "--tokens", "--case", "--agents", "--tone", "--max-words", "--unit", "--unit-id", "--port", "--report", "--pre", "--base", "--reason"];
 const PLUGIN_ROOT = join(import.meta.dir, "..", "..");
 
 function parseArgs(argv: string[]): Args {
@@ -656,8 +658,13 @@ export function run(argv: string[], cwd = process.cwd()): number {
     if (sid && tree && !storedTreeHash(cwd, sid)) storeTreeHash(cwd, sid, tree); // resume and compact keep the first baseline
     // A repo the workflow isn't set up in gets no routing at all: say so, once per session.
     const unset = existsSync(join(cwd, ".git")) && !isSawProject(cwd) && (source === undefined || source === "startup") ? "saw is not set up here: run `saw init` or /workflow-setup" : undefined;
-    const context = [(warning?.hookSpecificOutput as { additionalContext?: string } | undefined)?.additionalContext, about, hint, ...missing, unset].filter(Boolean).join("\n\n");
-    const systemMessage = [warning?.systemMessage, ...missing, unset].filter(Boolean).join("\n") || undefined;
+    // A task another session left open, and the last task that was closed unverified (shown once).
+    const stale = isSawProject(cwd) ? staleTask(cwd, sid) : undefined;
+    const staleLine = stale ? `saw: ${staleMessage(stale)}${routingMode(resolved.config) === "hard" ? "; edits stay denied until then" : ""}` : undefined;
+    const unverified = isSawProject(cwd) && (source === undefined || source === "startup" || source === "clear") ? takeUnverifiedExit(cwd) : undefined;
+    const unverifiedLine = unverified ? `saw: the last ${unverified.tier}/${unverified.playbook} task was closed ${unverified.label} (${unverified.at.slice(0, 16).replace("T", " ")}): ${unverified.reason}` : undefined;
+    const context = [(warning?.hookSpecificOutput as { additionalContext?: string } | undefined)?.additionalContext, about, hint, staleLine, unverifiedLine, ...missing, unset].filter(Boolean).join("\n\n");
+    const systemMessage = [warning?.systemMessage, staleLine, unverifiedLine, ...missing, unset].filter(Boolean).join("\n") || undefined;
     if (context || systemMessage) console.log(JSON.stringify({ systemMessage, hookSpecificOutput: { hookEventName: "SessionStart", additionalContext: context } }));
     return 0;
   }
@@ -972,6 +979,17 @@ function taskCommand(cwd: string, config: Table, args: Args): number {
     if (sub === "end") {
       const open = currentTask(cwd);
       const features = config.features as Record<string, boolean>;
+      // Closing a task that isn't Verified is allowed, but says why and is shown to the user next session.
+      if (open) {
+        const status = taskStatus(cwd, config, open);
+        if (status.label !== "Verified") {
+          const reason = (args.values.reason ?? "").trim();
+          const parts = [status.failed.length ? `failed: ${status.failed.join(", ")}` : "", status.missing.length ? `not run: ${status.missing.join(", ")}` : ""].filter(Boolean).join("; ");
+          if (!reason) return fail(`the ${open.tier} task is ${status.label} (${parts}). Run the checks, or close it with saw task end --reason "<why>"`);
+          noteUnverifiedExit(cwd, { label: status.label, reason, tier: open.tier, playbook: open.playbook, at: new Date().toISOString() });
+          logEvent(cwd, config, "warn", "task.unverified", `${open.tier} task closed ${status.label}: ${reason}`, { label: status.label, reason, tier: open.tier, failed: status.failed, missing: status.missing });
+        }
+      }
       if (open && features.metrics) {
         const raw = args.values.tokens;
         const tokens = raw === undefined ? undefined : /^\d+$/.test(raw) ? Number(raw) : NaN;
@@ -989,6 +1007,13 @@ function taskCommand(cwd: string, config: Table, args: Args): number {
     }
     const task = currentTask(cwd);
     if (!task) return fail("no open task; start one with saw task start --tier <t> --playbook <p>");
+    if (sub === "retier" && name) {
+      const t = retierTask(cwd, config, name);
+      console.log(`task: ${t.tier} / ${t.playbook} (retiered from ${task.tier})`);
+      logEvent(cwd, config, "info", "tier", `retier ${task.tier} -> ${t.tier}`, { tier: t.tier, from: task.tier, retier: true });
+      console.log(`steps: ${taskSteps(config, t.tier, t.playbook).join(" · ")}`);
+      return 0;
+    }
     if (sub === "phase" && name) {
       setPhase(cwd, name);
       console.log(`phase: ${name}`);

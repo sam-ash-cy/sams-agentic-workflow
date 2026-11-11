@@ -10,12 +10,13 @@ import { join } from "node:path";
 import type { Table } from "./defaults";
 import { reviewApplies, reviewedSince } from "./review-session";
 import { statePath } from "./session-state";
-import { currentTask } from "./task";
+import { currentTask, setTaskSession } from "./task";
 
 export const UNITS = ["phase", "stage", "feature"] as const;
 
 const TASK_START = /\b(saw|main\.ts)\s+task\s+start\b/;
 // At the start of a command or after a separator, so `echo "git commit"` doesn't count.
+const TASK_CLAIM = /(?:^|[;&|]\s*)(?:\S*[\\/])?(?:saw"?|main\.ts)\s+(?:task\s+(?:start|adhoc)|(resume))\b/;
 const FINISH = /(^|[;&|]\s*)(git\s+commit\b(?!.*--dry-run)|gh\s+pr\s+create\b)/;
 const PR_CREATE = /(^|[;&|]\s*)gh\s+pr\s+create\b(?!.*--dry-run)/;
 
@@ -85,6 +86,10 @@ function handoffSince(cwd: string, at: string): boolean {
 export function sessionHook(cwd: string, config: Table, input: SessionHookInput, now = new Date()): Record<string, unknown> | undefined {
   const command = input.tool_input?.command;
   if (input.tool_name !== "Bash" || typeof command !== "string" || !input.session_id) return undefined;
+  // The task's owner: the session that ran `saw task start|adhoc`, or took it over with `saw resume`.
+  // The CLI never sees the session id, so it is stamped here, before the sessions settings can end the hook early.
+  const claim = TASK_CLAIM.exec(command);
+  if (claim && input.hook_event_name === "PostToolUse" && !failed(input.tool_response)) setTaskSession(cwd, input.session_id, claim[1] === "resume");
   const sessions = (config.sessions ?? {}) as { new_per?: string[]; mode?: string };
   const newPer = sessions.new_per ?? [];
   const reviewOn = (config.review_session as { enabled?: boolean } | undefined)?.enabled === true;

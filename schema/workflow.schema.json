@@ -360,6 +360,25 @@
             "soft",
             "hard"
           ]
+        },
+        "trivial_max_files": {
+          "type": "number",
+          "default": 3
+        },
+        "trivial_max_lines": {
+          "type": "number",
+          "default": 60
+        },
+        "critical_paths": {
+          "type": "array",
+          "default": [
+            "**/auth/**",
+            "**/*secret*",
+            "**/migrations/**",
+            "infra/**",
+            "**/*.tf",
+            ".github/workflows/**"
+          ]
         }
       }
     },
@@ -610,6 +629,14 @@
             "off",
             "agent",
             "review_session"
+          ]
+        },
+        "mode": {
+          "type": "string",
+          "default": "hard",
+          "enum": [
+            "soft",
+            "hard"
           ]
         }
       }

@@ -63,7 +63,8 @@ The `router` skill runs most of these for the agent.
 | `saw task record <check> pass\|fail [--note "..."] [--report <file>]` | Records a judgement check (`code_review`, `security_review`, `docs`, `threat_model`, ...). `--report` names a reviewer's report under `.saw/reviews/` (see `verify.require_review_evidence`). |
 | `saw task report [--post [--pr <n>] [--yes]]` | The Markdown verification section for a PR; `--post` comments it with `gh`, as `autonomy.actions.open_pr` allows. |
 | `saw task pr-body [--base <ref>]` | A whole PR description: the commits since `<ref>` (default `origin/<branch.base>`, else `origin/main`) and the verification section. Pipe it to `gh pr create --body-file -`. |
-| `saw task end [--tokens <n>]` | Closes the task and appends its metrics to `.saw/metrics.jsonl`. |
+| `saw task retier <tier>` | Changes the open task's tier, keeping its check history. Refuses to go below the floor the diff since the task started sets (`routing.trivial_max_files`, `routing.trivial_max_lines`, `routing.critical_paths`). |
+| `saw task end [--tokens <n>] [--reason "<why>"]` | Closes the task and appends its metrics to `.saw/metrics.jsonl`. A task that isn't `Verified` needs `--reason`; saw logs a `task.unverified` event and shows the reason once at the next session start. |
 | `saw resume` | Restores the task a stopped session left: the Stop hook writes `.saw/handoff.json` (open task, branch, latest plan, checks passed); `saw resume` reopens the task in the new session and switches back to its branch when the tree is clean. |
 | `saw run <check> [--changed]` | Runs `checks.<check>` quietly, keeps the full log in `output.full_logs`, records the result. `--changed`: only tests for changed files. Failing test names (bun, jest/vitest, pytest, go, phpunit) go to `.saw/failures.jsonl`; a test that also failed in an earlier task is flagged as recurring. |
 | `saw outline <file>` | Signatures with line numbers (when Trail isn't used). |
@@ -205,7 +206,7 @@ Claude Code runs these from the plugin's `hooks/hooks.json`; you don't call them
 | project | `workflow.toml` | `project` (default) | yes | the team's checks, tiers, reviews, and guardrails that tighten |
 | local | `workflow.local.toml` | `local` | no | your loosened guardrails and experiments for this repo |
 
-Later layers win; `--set` beats all of them for one call. From `workflow.toml`, guarded keys (`safety.*`, `autonomy.*`, `features.worktrees`, `features.parallel_sessions`, `verify.require_review_evidence`) are ignored when they loosen the default, and `safety.deny` entries are added, never removed. `knowledge.vault_path` and `release.names` are ignored from `workflow.toml`. `features.format_hook` only runs a `checks.format` command from your own layers.
+Later layers win; `--set` beats all of them for one call. From `workflow.toml`, guarded keys (`safety.*`, `autonomy.*`, `features.worktrees`, `features.parallel_sessions`, `verify.require_review_evidence`, `verify.mode`) are ignored when they loosen the default, and `safety.deny` entries are added, never removed. `knowledge.vault_path` and `release.names` are ignored from `workflow.toml`. `features.format_hook` only runs a `checks.format` command from your own layers.
 
 ## Configuration keys
 
@@ -258,6 +259,9 @@ Later layers win; `--set` beats all of them for one call. From `workflow.toml`, 
 | `project.type` | `"web"` | `web`, `api`, `cli`, `lib`, `infra`. |
 | `routing.default_tier` | `"auto"` | `auto` lets the router pick; or force a tier. |
 | `routing.always_grill` | `["complex","critical"]` | Tiers that always get grilling. |
+| `routing.trivial_max_files` | `3` | The tier floor: a task is at least `standard` once more files than this changed since it started. |
+| `routing.trivial_max_lines` | `60` | Likewise for changed lines (added plus removed, new files counted). |
+| `routing.critical_paths` | auth, secrets, migrations, `infra/`, `*.tf`, `.github/workflows/` globs | A changed path matching one makes the floor `critical`. Below the floor, the Stop gate and (verify.mode hard) the commit guard block until `saw task retier <tier>`. |
 | `routing.mode` | `"hard"` | `hard` (needs `features.verify_hook`, a project with `workflow.toml`): saw guard denies Edit/Write/MultiEdit/NotebookEdit of files in the repo while no task is open, naming the router skill, `saw task start --tier <t> --playbook <p>` and `saw task adhoc`. `.saw/`, `.claude/`, the repo's own top-level `plans/*.md` and paths outside the repo are exempt. `soft`: the router nudge and the Stop block only. Working-tree changes made without an edit tool (`sed -i`, redirects) are caught by the Stop block in both modes. |
 | `autonomy.level` | `"propose"` | `suggest` (never acts), `propose` (asks before outward-facing actions), `act`. **G** |
 | `autonomy.actions.commit` | `"ask"` | `never`, `ask` or `allow`. **G** |
@@ -321,6 +325,7 @@ effort = "high"
 | `checks.<name>` | none (`dep_audit` set by `saw init`) | Command for a mechanical check: `test`, `lint`, `typecheck`, `format`, `e2e`, `dep_audit`, or your own. |
 | `verify.<tier>.run` | see [tiers](#tasks-and-verification) | Checks the tier requires. |
 | `verify.<tier>.extends` | complex: `standard`; critical: `complex` | Inherit another tier's checks. |
+| `verify.mode` | `"hard"` | `hard` (needs `features.verify_hook`, a saw project with an open task): saw guard denies `git commit`, `git push` and `gh pr create` until the task is `Verified` and not below its tier floor, naming the failed and not-run checks. `soft`: only the Stop gate. With no task open the other rules decide, so closing the task with `saw task end --reason` lifts the hold (the exit is logged and shown to you next session). **G** (a committed `workflow.toml` can go hard, never soft) |
 | `verify.require_review_evidence` | `"off"` | `off`; `agent` (a reviewer report via `--report`, or a review session); `review_session` (only a signed `saw review-session run`). **G** |
 
 ### `[sessions]`, `[review_session]`, `[audit]`

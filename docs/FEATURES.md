@@ -35,6 +35,8 @@ Defaults are what a fresh `saw init` gives you. "Key" is the setting that contro
 | | Docs step on feature and foundation tasks | on | `features.docs_step` | `engineering` plugin (installed by bootstrap) |
 | | Living docs: flag blank docs and reference drift at task end; docs step on debug/integration/hardening | on | `features.living_docs` | |
 | | Review reports required for a review pass | off | `verify.require_review_evidence` | |
+| | Verification enforced (hard: no commit, push or PR while the open task isn't Verified or is below its tier floor; `saw task retier` raises the tier) | on | `features.verify_hook`, `verify.mode`, `routing.trivial_max_files`, `routing.trivial_max_lines`, `routing.critical_paths` | |
+| | Stale tasks (a task another session left open denies edits until `saw resume` or `saw task end`) and unverified exits (`saw task end --reason`, shown at the next session start) | on | `routing.mode` | |
 | Reviews | Code and security review on standard+ | on | `features.code_review`, `features.security_review` | |
 | | Advisor consult on standard+ (Claude Code's advisor, Opus 5.5 by default) | on | `features.advisor`, `advisor.model` | |
 | | PR description from commits and checks (`saw task pr-body`) | manual | | `gh` |
