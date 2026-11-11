@@ -1,9 +1,32 @@
 // `saw init`: copy templates/project into a repo. Never overwrites silently:
 // existing files are skipped, or backed up to <file>.bak with --force.
 
-import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { dirname, isAbsolute, join, relative } from "node:path";
 import { readIfExists } from "./fs";
+
+// saw init --workspace: the git repos directly under dir that have no workflow.toml yet.
+// Only a .git directory counts: a .git file is a worktree or submodule, which belongs to
+// another repo and is never touched. Not recursive. Sorted, so the plan is stable.
+export function workspaceRepos(dir: string): { todo: string[]; skipped: { path: string; why: string }[] } {
+  const todo: string[] = [];
+  const skipped: { path: string; why: string }[] = [];
+  for (const name of readdirSync(dir).sort()) {
+    const path = join(dir, name);
+    try {
+      // lstat: a symlinked child points outside the workspace; leave it alone.
+      if (!lstatSync(path).isDirectory()) continue;
+      const git = join(path, ".git");
+      if (!existsSync(git)) continue;
+      if (!statSync(git).isDirectory()) skipped.push({ path, why: "worktree or submodule (.git is a file)" });
+      else if (existsSync(join(path, "workflow.toml"))) skipped.push({ path, why: "already has workflow.toml" });
+      else todo.push(path);
+    } catch {
+      // Unreadable entry (permissions, a race): leave it alone.
+    }
+  }
+  return { todo, skipped };
+}
 
 export interface InitReport {
   installed: string[];

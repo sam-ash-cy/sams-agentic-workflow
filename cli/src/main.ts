@@ -1,6 +1,6 @@
 // saw: the sams-agentic-workflow CLI.
 
-import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, isAbsolute, join, relative, resolve as resolvePath } from "node:path";
 import { baseBranch, flatten, inside, layerPaths, layerValues, loosens, parseValue, resolve, setPath, unsetPath, validate, weakenedSafety, type Layer } from "./config";
@@ -21,12 +21,13 @@ import { effectiveStyle, styleCheck, styleLine, TONES } from "./style";
 import { autopilot, eligible, parseQueue, readRuns, readState as autopilotState, scheduleCommand, settings as autopilotSettings, spawnClaude, stopReasons } from "./autopilot";
 import { dataVersion, renderHtml, renderMarkdown } from "./dashboard";
 import { logEvent, readEvents } from "./events";
+import { adoption, formatAdoption } from "./adoption";
 import { appendMetric, buildMetric, readMetrics } from "./metrics";
 import { compare, summarise, type Comparison, type Summary } from "./evals";
 import { failureCandidates } from "./failures";
 import { configSuggestions, readProposals, retro } from "./retro";
 import { companionWarnings, compareUrl, eccProblem, gateguardWarning, pin, readLock, readSyncedPluginNames, verifyLock } from "./deps";
-import { depAuditFor, guessType, init, recordInstalled, uninstall, upgrade, type ChangeReport, type InitReport } from "./init";
+import { depAuditFor, guessType, init, recordInstalled, uninstall, upgrade, workspaceRepos, type ChangeReport, type InitReport } from "./init";
 import { lintContext, lintMemory } from "./lint";
 import { docsNudge, docsStatus, REFRESH_BRIEF } from "./docs";
 import { outline } from "./outline";
@@ -38,8 +39,9 @@ import { syncAdvisor, syncSkillDenies } from "./skills";
 import { applyPlan, gh, readState, repoName, repoPlan, type Gh } from "./repo";
 import { formatHook, runCheck, TRUSTED_LAYERS } from "./run";
 import { checkMods } from "./mods";
-import { currentTask, endTask, gate, gitStatusHash, isSawProject, markUntaskedEdit, noteUnverifiedExit, pickTier, recordCheck, retierTask, reviewEvidence, setPhase, staleMessage, staleTask, startTask, storedTreeHash, storeTreeHash, takeUnverifiedExit, taskReport, taskStatus, taskSkills, taskSteps } from "./task";
+import { currentTask, endTask, gate, gitStatusHash, isSawProject, markUntaskedEdit, noteUnverifiedExit, pickTier, recordCheck, retierTask, reviewEvidence, setPhase, staleMessage, staleTask, startTask, storedTreeHash, storeTreeHash, takeUnverifiedExit, taskReport, writeStatusFile, taskStatus, taskSkills, taskSteps } from "./task";
 import { routingMode } from "./routing-guard";
+import { subagentHook } from "./subagent";
 import { patchToml, readToml, stringifyToml } from "./toml";
 import { applyProfile, parseProfiles } from "./profiles";
 import { aboutHook, aboutPaths, createAbout, type AboutScope } from "./about-me";
@@ -55,6 +57,7 @@ const USAGE = `usage: saw <command>
   profile list | show <name> | apply <name> [--dry-run]   merge a recommended profile (docs/COMMANDS.md) into the layers it names
   doctor [--hooks] [--no-plugin]     check settings, environment and the Claude Code plugin install (--hooks: run each plugin hook once)
   init [--dry-run] [--force] [--type <t>] [--hooks] [--agents a,b] [--repo [o/n]]   add workflow.toml, AGENTS.md, CI and the docs/ vault (+ agent adapters; --repo: show the repo plan)
+  init --workspace <dir> [--apply]   init every git repo directly under <dir> that has no workflow.toml (dry run unless --apply)
   init --upgrade [--dry-run]         update unedited template files to the current template; edited ones are kept
   uninstall [--dry-run]              remove template files you haven't edited
   agents check                       smoke test: will each agent in agents.enabled read AGENTS.md?
@@ -75,6 +78,7 @@ const USAGE = `usage: saw <command>
   task retier <tier>                 change the open task's tier (keeps its checks; never below what the diff needs)
   task end [--tokens <n>] [--reason "<why>"]   close the task and append its metrics (.saw/metrics.jsonl); --reason is required unless it is Verified
   dashboard [--serve [--port <n>]]   write the static metrics page (and the Obsidian note if set); --serve: live page on 127.0.0.1
+  adoption [--since <days>] [--json] is the workflow used? tasks opened vs Stops, denials, unverified exits, tiers
   retro [--dry-run]                  write a proposal for each check failing in repeat_threshold+ tasks
   eval [--case <glob>] [--runs <n>] [--dry-run] [--save-baseline]   run the eval suite (claude plugin eval) and compare with the baseline
   eval compare <before.json> <after.json>  compare two saved eval results
@@ -106,14 +110,14 @@ global flag: --set key=value         per-task override (repeatable)`;
 interface Args {
   positional: string[];
   flags: Set<string>;
-  scope: Exclude<Layer, "default" | "override">;
+  scope: Exclude<Layer, "default" | "override" | `enforcement=${string}`>;
   // Whether --scope was given (saw recommend add then passes it on).
   scoped: boolean;
   overrides: Record<string, Value>;
   values: Record<string, string>;
 }
 
-const VALUE_FLAGS = ["--runs", "--repo", "--pr", "--tier", "--playbook", "--note", "--plugin-dir", "--reviewed-by", "--type", "--tokens", "--case", "--agents", "--tone", "--max-words", "--unit", "--unit-id", "--port", "--report", "--pre", "--base", "--reason"];
+const VALUE_FLAGS = ["--runs", "--repo", "--pr", "--tier", "--playbook", "--note", "--plugin-dir", "--reviewed-by", "--type", "--tokens", "--case", "--agents", "--tone", "--max-words", "--unit", "--unit-id", "--port", "--report", "--pre", "--base", "--reason", "--since", "--workspace"];
 const PLUGIN_ROOT = join(import.meta.dir, "..", "..");
 
 function parseArgs(argv: string[]): Args {
@@ -186,7 +190,7 @@ function printChanges(head: string, doneLabel: string, keptLabel: string, r: Cha
   return 0;
 }
 
-const HOOKS = ["guard", "gate", "context", "format-hook", "session-hook", "style-check", "failure-hook", "session-start"];
+const HOOKS = ["guard", "gate", "context", "format-hook", "session-hook", "style-check", "failure-hook", "session-start", "subagent-hook"];
 
 export function run(argv: string[], cwd = process.cwd()): number {
   let args: Args;
@@ -377,6 +381,23 @@ export function run(argv: string[], cwd = process.cwd()): number {
     console.log(ok ? "saw doctor: ok" : `saw doctor: ${problems.length} problem(s)`);
     return ok ? 0 : 1;
   }
+  if (command === "init" && args.values.workspace !== undefined) {
+    // Every repo directly under <dir> without workflow.toml gets the normal init.
+    // Dry run unless --apply; each repo is initialised in its own directory.
+    const dir = resolvePath(cwd, args.values.workspace);
+    if (!existsSync(dir) || !statSync(dir).isDirectory()) return fail(`--workspace: ${dir} is not a directory`);
+    const apply = args.flags.has("--apply");
+    const { todo, skipped } = workspaceRepos(dir);
+    console.log(`saw init --workspace ${dir}: ${todo.length} repo(s) to set up${apply ? "" : " (dry run; add --apply to write)"}`);
+    for (const s of skipped) console.log(`  skip  ${s.path}  (${s.why})`);
+    if (!todo.length) return 0;
+    let code = 0;
+    for (const repo of todo) {
+      console.log(`\n== ${repo}`);
+      if (run(["init", ...(apply ? [] : ["--dry-run"])], repo) !== 0) code = 1;
+    }
+    return code;
+  }
   if (command === "init") {
     const dryRun = args.flags.has("--dry-run");
     const type = args.values.type;
@@ -543,13 +564,20 @@ export function run(argv: string[], cwd = process.cwd()): number {
       return SERVING;
     }
     mkdirSync(join(out, ".."), { recursive: true });
-    writeFileSync(out, renderHtml(metrics, d.panels, proposals, readRuns(cwd), new Date(), readEvents(cwd, d.events_limit)));
+    writeFileSync(out, renderHtml(metrics, d.panels, proposals, readRuns(cwd), new Date(), readEvents(cwd, d.events_limit), false, adoption(readEvents(cwd), metrics)));
     console.log(`saw dashboard: ${metrics.length} tasks -> ${out}`);
     if (note) {
       mkdirSync(join(note, ".."), { recursive: true });
       writeFileSync(note, renderMarkdown(metrics, d.panels, proposals, readRuns(cwd)));
       console.log(`  note -> ${note}`);
     }
+    return 0;
+  }
+  if (command === "adoption") {
+    const raw = args.values.since;
+    if (raw !== undefined && !/^[1-9]\d*$/.test(raw)) return fail("--since must be a whole number of days");
+    const a = adoption(readEvents(cwd), readMetrics(cwd), raw === undefined ? undefined : Number(raw));
+    console.log(args.flags.has("--json") ? JSON.stringify(a, null, 2) : formatAdoption(a));
     return 0;
   }
   if (command === "retro") {
@@ -574,11 +602,16 @@ export function run(argv: string[], cwd = process.cwd()): number {
   }
   if (command === "eval") return evalCommand(cwd, resolved.config, args);
   if (command === "mods") return modsCommand(args);
-  if (command === "task") return taskCommand(cwd, resolved.config, args);
+  if (command === "task") {
+    const code = taskCommand(cwd, resolved.config, args);
+    writeStatusFile(cwd, resolved.config);
+    return code;
+  }
   if (command === "run" && sub) {
     try {
       const r = runCheck(cwd, resolved.config, sub, { changed: args.flags.has("--changed") });
       logEvent(cwd, resolved.config, r.code === 0 ? "info" : "warn", "check", `saw run ${sub}: ${r.code === 0 ? "pass" : `fail (exit ${r.code})`}`, { check: sub, code: r.code });
+      writeStatusFile(cwd, resolved.config);
       if (r.shown) console.log(r.shown);
       console.log(`saw run ${sub}: ${r.code === 0 ? "pass" : `fail (exit ${r.code})`}; full log: ${r.log}`);
       return r.code === 0 ? 0 : 1;
@@ -595,6 +628,7 @@ export function run(argv: string[], cwd = process.cwd()): number {
     }
     const block = gate(cwd, resolved.config, input);
     if (block) console.log(JSON.stringify(block));
+    writeStatusFile(cwd, resolved.config);
     try {
       writeCard(cwd);
     } catch {
@@ -603,6 +637,8 @@ export function run(argv: string[], cwd = process.cwd()): number {
     const tier = currentTask(cwd)?.tier;
     if (block) logEvent(cwd, resolved.config, "warn", "gate.block", block.reason, { tier });
     else if (tier) logEvent(cwd, resolved.config, "info", "gate.pass", `stop allowed (${tier})`, { tier });
+    // A Stop in a saw project with no task open: the adoption report's main miss.
+    else if (isSawProject(cwd)) logEvent(cwd, resolved.config, "info", "gate.untasked", "stop allowed with no saw task open");
     return 0;
   }
   if (command === "context") {
@@ -614,8 +650,10 @@ export function run(argv: string[], cwd = process.cwd()): number {
     }
     const budget = budgetHook(cwd, resolved.config, currentTask(cwd), input);
     if (budget) logEvent(cwd, resolved.config, "warn", "budget", String(budget.systemMessage));
-    const nudge = routerNudge(cwd, resolved.config);
-    if (nudge) logEvent(cwd, resolved.config, "debug", "nudge", "no saw task open: pointed the agent at the router skill");
+    const nudge = routerNudge(cwd, resolved.config, typeof (input as { prompt?: unknown }).prompt === "string" ? (input as { prompt: string }).prompt : undefined);
+    const auto = currentTask(cwd);
+    if (auto?.provisional) logEvent(cwd, resolved.config, "info", "tier", `${auto.tier} / ${auto.playbook} (provisional, routing.auto)`, { tier: auto.tier, playbook: auto.playbook, provisional: true });
+    if (nudge) logEvent(cwd, resolved.config, "info", "nudge", "no saw task open: pointed the agent at the router skill");
     const rec = recommendHook(cwd, resolved.config, input);
     if (rec) logEvent(cwd, resolved.config, "info", "recommend", "suggested MCP servers or skills for this prompt");
     const outs = [nudge, contextHook(cwd, resolved.config, input), budget, rec].filter((o) => o !== undefined);
@@ -670,6 +708,18 @@ export function run(argv: string[], cwd = process.cwd()): number {
   }
   // PostToolUseFailure: the agent sees the error, but nothing kept it. Log
   // which tool failed, on what, and the end of the error.
+  // SubagentStop: the subagent's edits count against the open task (or arm the
+  // untasked-edit Stop check when none is open). Never blocks.
+  if (command === "subagent-hook") {
+    let input = {};
+    try {
+      input = JSON.parse(readFileSync(0, "utf8") || "{}");
+    } catch {
+      // No payload: nothing to record.
+    }
+    subagentHook(cwd, resolved.config, input);
+    return 0;
+  }
   if (command === "failure-hook") {
     let input: { tool_name?: string; tool_input?: { command?: unknown; file_path?: unknown }; error?: unknown; is_interrupt?: boolean } = {};
     try {
@@ -1052,7 +1102,7 @@ function taskCommand(cwd: string, config: Table, args: Args): number {
     }
     if (sub === "status") {
       const s = taskStatus(cwd, config, task);
-      console.log(`${task.tier} / ${task.playbook}: ${s.label}`);
+      console.log(`${task.tier} / ${task.playbook}: ${s.label}${task.provisional ? " (provisional: confirm with saw task retier)" : ""}`);
       if (s.passed.length) console.log(`  passed  ${s.passed.join(", ")}`);
       if (s.failed.length) console.log(`  failed  ${s.failed.join(", ")}`);
       if (s.missing.length) console.log(`  not run ${s.missing.join(", ")}`);
@@ -1335,7 +1385,7 @@ export function serveDashboard(cwd: string, config: Table, port: number): Return
       const path = new URL(req.url).pathname;
       if (path === "/version") return new Response(dataVersion(cwd), { headers: { ...headers, "content-type": "text/plain" } });
       if (path !== "/") return new Response("not found", { status: 404, headers });
-      const html = renderHtml(readMetrics(cwd), d.panels, proposalsDir ? readProposals(proposalsDir) : [], readRuns(cwd), new Date(), readEvents(cwd, d.events_limit), true);
+      const html = renderHtml(readMetrics(cwd), d.panels, proposalsDir ? readProposals(proposalsDir) : [], readRuns(cwd), new Date(), readEvents(cwd, d.events_limit), true, adoption(readEvents(cwd), readMetrics(cwd)));
       return new Response(html, { headers: { ...headers, "content-type": "text/html; charset=utf-8" } });
     },
   });

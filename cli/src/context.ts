@@ -8,15 +8,35 @@ import { join } from "node:path";
 import type { Table } from "./defaults";
 import { readIfExists } from "./fs";
 import { transcriptTokens } from "./metrics";
-import { currentTask, isSawProject } from "./task";
+import { currentTask, isSawProject, openProvisional } from "./task";
+import { classify } from "./auto-route";
 
 // With no task open, routing depends on the agent picking the router skill
 // among every other skill it has, so say it on each prompt until a task opens.
 // Only the agent sees it: a banner on every prompt (questions too) is noise.
-export function routerNudge(cwd: string, config: Table): Record<string, unknown> | undefined {
+export function routerNudge(cwd: string, config: Table, prompt?: string): Record<string, unknown> | undefined {
   const features = (config.features ?? {}) as Record<string, boolean>;
   if (!features.verify_hook || !isSawProject(cwd) || currentTask(cwd)) return undefined;
-  const message = "No saw task is open. If this prompt asks for a code or config change, use the router skill first: classify it, then run `saw task start --tier <t> --playbook <p>`. Skip this for questions.";
+  let message = "No saw task is open. If this prompt asks for a code or config change, use the router skill first: classify it, then run `saw task start --tier <t> --playbook <p>`. Skip this for questions.";
+  const auto = ((config.routing ?? {}) as { auto?: string }).auto ?? "suggest";
+  const route = auto !== "off" && typeof prompt === "string" ? classify(prompt) : "none";
+  if (route !== "none") {
+    // The audit playbook needs features.audit; without it, saw task start would refuse.
+    const playbook = route.playbook === "audit" && !features.audit ? "feature" : route.playbook;
+    const line = `saw task start --tier ${route.tier} --playbook ${playbook}`;
+    // Opening a task clears the untasked-edit marker: with edits already pending, only suggest,
+    // so the Stop gate still reports them.
+    if (auto === "open" && !existsSync(join(cwd, ".saw", "untasked-edits"))) {
+      try {
+        openProvisional(cwd, route.tier, playbook);
+        message = `saw opened a provisional ${route.tier} / ${playbook} task from this prompt (rules: ${route.why.join(", ") || "default"}). Use the router skill to check it: keep it with \`saw task retier ${route.tier}\`, or change it with \`saw task retier <tier>\` or \`saw task start --tier <t> --playbook <p>\`. Commits stay held until you do. If this prompt is a question, close it with \`saw task end\`.`;
+      } catch {
+        message += ` Proposed by rules: \`${line}\`.`;
+      }
+    } else {
+      message += ` Proposed by rules (${route.why.join(", ") || "default"}): \`${line}\`. Check it with the router skill before running it.`;
+    }
+  }
   return {
     hookSpecificOutput: { hookEventName: "UserPromptSubmit", additionalContext: `[saw context] ${message}` },
   };

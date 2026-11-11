@@ -17,13 +17,24 @@ export function parseStatus(out: string): Status {
   return { header: (lines[0] ?? '').trim(), passed: list('passed'), failed: list('failed'), missing: list('not run') }
 }
 
+// In a saw project (workflow.toml) a missing task is the thing to fix, so say it plainly.
+async function noTaskMessage($: EngineInterface): Promise<string> {
+  try {
+    await $.fs.read('workflow.toml')
+    return 'saw: no task open. Start one with saw task start --tier <t> --playbook <p>.'
+  } catch {
+    return 'Not a saw project (no workflow.toml).'
+  }
+}
+
 async function refresh($: EngineInterface, opts: Options): Promise<void> {
   const argv = (opts.sawCommand ?? 'saw').split(' ').filter(Boolean)
   const r = await $.process.run([...argv, 'task', 'status'], { cwd: await $.session.cwd(), timeoutMs: 15000 })
+  const out = (r.stderr || r.stdout).trim()
   const next: Status =
     r.exitCode === 0
       ? parseStatus(r.stdout)
-      : { header: '', passed: [], failed: [], missing: [], error: (r.stderr || r.stdout).trim().split('\n')[0] || 'No open task.' }
+      : { header: '', passed: [], failed: [], missing: [], error: /no open task/.test(out) ? await noTaskMessage($) : out.split('\n')[0] || 'No open task.' }
   await update($, status, () => next)
 }
 
