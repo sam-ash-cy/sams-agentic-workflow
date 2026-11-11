@@ -288,8 +288,11 @@ export const register: Register = (on, options) => {
         )}
         <Button key="handoff" label="Write handoff note" dimColor={off} onPress={press('handoff')} />
         </Box>
-        <Text dimColor={!cost.color} color={cost.color}>{cost.text}</Text>
-        {state && <Text dimColor={!state.includes('no task')} color={state.includes('no task') ? 'yellow' : undefined}>{state}</Text>}
+        {/* Indented one column to line up with the button labels, which sit inside the buttons' padding. */}
+        <Box flexDirection="column" paddingLeft={1}>
+          <Text dimColor={!cost.color} color={cost.color}>{cost.text}</Text>
+          {state && <Text dimColor={!state.includes('no task')} color={state.includes('no task') ? 'yellow' : undefined}>{state}</Text>}
+        </Box>
       </Box>
     )
   })
