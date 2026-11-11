@@ -23,7 +23,7 @@ Defaults are what a fresh `saw init` gives you. "Key" is the setting that contro
 | Category | Feature | Default | Key | Needs |
 |---|---|---|---|---|
 | Routing | Tier + playbook per task, `saw task start` steps | on | `[routing]` | plugin |
-| | Routing enforced (hard: edits wait for an open task; shell writes still hit the Stop gate; session start says when a repo has no `workflow.toml`) | on | `features.verify_hook`, `routing.mode` | |
+| | Routing enforced (hard: edits wait for an open task; shell writes still hit the Stop gate; session start says when a repo has no `workflow.toml`) | off (`routing.mode = "hard"` or `enforcement = "strict"`) | `features.verify_hook`, `routing.mode` | |
 | | Grilling (clarifying questions) on complex and critical | on | `features.grilling`, `routing.always_grill` | |
 | | Branch guard: tasks branch (or worktree) off `main`; no commits on it | on | `features.branch_guard`, `[branch]` | |
 | | Skills named per playbook at task start | on | `features.task_skills`, `[task_skills]` | the named plugins |
@@ -35,7 +35,7 @@ Defaults are what a fresh `saw init` gives you. "Key" is the setting that contro
 | | Docs step on feature and foundation tasks | on | `features.docs_step` | `engineering` plugin (installed by bootstrap) |
 | | Living docs: flag blank docs and reference drift at task end; docs step on debug/integration/hardening | on | `features.living_docs` | |
 | | Review reports required for a review pass | off | `verify.require_review_evidence` | |
-| | Verification enforced (hard: no commit, push or PR while the open task isn't Verified or is below its tier floor, or, with no task open, while the tree has changes no Verified task covers; `saw task retier` raises the tier) | on | `features.verify_hook`, `verify.mode`, `routing.trivial_max_files`, `routing.trivial_max_lines`, `routing.critical_paths` | |
+| | Verification enforced (hard: no commit, push or PR while the open task isn't Verified or is below its tier floor, or, with no task open, while the tree has changes no Verified task covers; `saw task retier` raises the tier) | off (`verify.mode = "hard"` or `enforcement = "strict"`) | `features.verify_hook`, `verify.mode`, `routing.trivial_max_files`, `routing.trivial_max_lines`, `routing.critical_paths` | |
 | | Unconfigured checks: a required check with no `checks.<name>` command makes the task Not verified ("not configured"), unless listed in `verify.allow_unconfigured`; session start and `saw doctor` warn when no `checks.*` command is set | on | `checks.<name>`, `verify.allow_unconfigured` | |
 | | Stale tasks (a task another session left open denies edits until `saw resume` or `saw task end`) and unverified exits (`saw task end --reason`, shown at the next session start) | on | `routing.mode` | |
 | | Enforcement preset: `strict` sets the routing, verify, tdd, tokens, style and sessions modes hard, `relaxed` sets them soft, `custom` leaves each to its key (`saw config show --resolved` names the preset as the source) | custom | `enforcement` | |

@@ -13,13 +13,14 @@ import { readMetrics } from "../src/metrics";
 import { noChecksWarning, recordCheck, startTask, takeUnverifiedExit, taskStatus, unverifiedChanges } from "../src/task";
 
 const CHECKS = '[checks]\ntest = "exit 0"\n';
+const HARD = '[routing]\nmode = "hard"\n[verify]\nmode = "hard"\n';
 
 const git = (cwd: string, ...args: string[]): void => {
   Bun.spawnSync(["git", ...args], { cwd, stdout: "pipe", stderr: "pipe" });
 };
 
 // A saw project that is also a git repo with one commit; workflow.toml is the project layer.
-function repo(toml = CHECKS): string {
+function repo(toml = HARD + CHECKS): string {
   const cwd = mkdtempSync(join(tmpdir(), "saw-gaps-"));
   writeFileSync(join(cwd, "workflow.toml"), toml);
   writeFileSync(join(cwd, "a.ts"), "export const a = 1;\n");
@@ -127,7 +128,7 @@ test("2: a partial commit of a Verified tree leaves the rest covered", () => {
 });
 
 test("3: a required check with no command is Not verified unless verify.allow_unconfigured lists it", () => {
-  const cwd = repo("");
+  const cwd = repo('[verify]\nmode = "hard"\n');
   const task = startTask(cwd, "trivial", "feature");
   const s = taskStatus(cwd, config(cwd), task);
   expect(s.label).toBe("Not verified");
@@ -167,7 +168,7 @@ test("2: a file name git would quote can't dodge the comparison", () => {
 test("2: a sub-project's guard sees changes elsewhere in the repository", () => {
   const cwd = repo();
   mkdirSync(join(cwd, "app"));
-  writeFileSync(join(cwd, "app", "workflow.toml"), CHECKS);
+  writeFileSync(join(cwd, "app", "workflow.toml"), HARD + CHECKS);
   git(cwd, "add", "-A");
   git(cwd, "commit", "-q", "-m", "app");
   writeFileSync(join(cwd, "a.ts"), "export const a = 3;\n");

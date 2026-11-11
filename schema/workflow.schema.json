@@ -364,7 +364,7 @@
         },
         "mode": {
           "type": "string",
-          "default": "hard",
+          "default": "soft",
           "enum": [
             "soft",
             "hard"
@@ -651,7 +651,7 @@
         },
         "mode": {
           "type": "string",
-          "default": "hard",
+          "default": "soft",
           "enum": [
             "soft",
             "hard"

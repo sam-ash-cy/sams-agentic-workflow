@@ -7,7 +7,8 @@ import { guardHook } from "../src/guard";
 import { routingEdit } from "../src/routing-guard";
 import { startTask } from "../src/task";
 
-function config(toml = ""): ReturnType<typeof resolve>["config"] {
+// Hard is opt-in; these tests exercise it unless they pass their own toml.
+function config(toml = '[routing]\nmode = "hard"\n'): ReturnType<typeof resolve>["config"] {
   const dir = mkdtempSync(join(tmpdir(), "saw-rg-"));
   writeFileSync(join(dir, "workflow.toml"), toml);
   const none = join(dir, "none.toml");
@@ -20,7 +21,12 @@ function repo(workflow = true): string {
 }
 const decision = (out: Record<string, unknown> | undefined): string | undefined => (out?.hookSpecificOutput as { permissionDecision?: string } | undefined)?.permissionDecision;
 
-test("hard is the default: an edit with no task is denied, naming the way out", () => {
+test("soft is the default: an edit with no task goes through", () => {
+  const cwd = repo();
+  expect(routingEdit(config(""), join(cwd, "src", "a.ts"), cwd)).toBeUndefined();
+});
+
+test("hard: an edit with no task is denied, naming the way out", () => {
   const cwd = repo();
   const v = routingEdit(config(), join(cwd, "src", "a.ts"), cwd);
   expect(v?.decision).toBe("deny");

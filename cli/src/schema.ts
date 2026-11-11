@@ -30,7 +30,7 @@ export function workflowSchema(): Schema {
       additionalProperties: false,
       properties: { run: { type: "array", items: { type: "string" } }, extends: { type: "string" } },
     },
-    properties: { require_review_evidence: { enum: ENUMS["verify.require_review_evidence"] }, mode: { type: "string", default: "hard", enum: ENUMS["verify.mode"] }, allow_unconfigured: { type: "array", items: { type: "string" }, default: [] } },
+    properties: { require_review_evidence: { enum: ENUMS["verify.require_review_evidence"] }, mode: { type: "string", default: "soft", enum: ENUMS["verify.mode"] }, allow_unconfigured: { type: "array", items: { type: "string" }, default: [] } },
   };
   (root.properties as Schema).checks = { type: "object", additionalProperties: { type: "string" } };
   const modelProps = (root.properties as Record<string, Schema>).models!.properties as Record<string, Schema>;

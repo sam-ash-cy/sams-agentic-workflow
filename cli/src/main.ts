@@ -39,6 +39,7 @@ import { syncAdvisor, syncSkillDenies } from "./skills";
 import { applyPlan, gh, readState, repoName, repoPlan, type Gh } from "./repo";
 import { formatHook, runCheck, TRUSTED_LAYERS } from "./run";
 import { checkMods } from "./mods";
+import { verifyMode } from "./verify-guard";
 import { currentTask, endTask, gate, gitStatusHash, isSawProject, markUntaskedEdit, noteUnverifiedExit, noChecksWarning, pickTier, recordCheck, recordVerifiedTree, retierTask, reviewEvidence, statusProblems, setPhase, staleMessage, staleTask, startTask, storedTreeHash, storeTreeHash, takeUnverifiedExit, taskReport, writeStatusFile, taskStatus, taskSkills, taskSteps, type Status } from "./task";
 import { routingMode } from "./routing-guard";
 import { subagentHook } from "./subagent";
@@ -1055,7 +1056,8 @@ function taskCommand(cwd: string, config: Table, args: Args): number {
       // Closing a task that isn't Verified is allowed, but says why and is shown to the user next session.
       const status = taskStatus(cwd, config, open);
       const reason = (args.values.reason ?? "").trim();
-      if (status.label !== "Verified" && !reason) return fail(`the ${open.tier} task is ${status.label} (${statusProblems(status)}). Run the checks, or close it with saw task end --reason "<why>"`);
+      // verify.mode hard asks for the why; soft records the exit without one.
+      if (status.label !== "Verified" && !reason && verifyMode(config) === "hard") return fail(`the ${open.tier} task is ${status.label} (${statusProblems(status)}). Run the checks, or close it with saw task end --reason "<why>"`);
       if (status.label !== "Verified") {
         noteUnverifiedExit(cwd, { label: status.label, reason, tier: open.tier, playbook: open.playbook, at: new Date().toISOString() });
         logEvent(cwd, config, "warn", "task.unverified", `${open.tier} task closed ${status.label}: ${reason}`, { label: status.label, reason, tier: open.tier, failed: status.failed, missing: status.missing, unconfigured: status.unconfigured, ...(status.floor ? { floor: status.floor } : {}) });

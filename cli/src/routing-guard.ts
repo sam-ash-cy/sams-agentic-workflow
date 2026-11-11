@@ -6,7 +6,7 @@ import { isAbsolute, relative, resolve, sep } from "node:path";
 import type { Table } from "./defaults";
 import { currentTask, isSawProject, staleMessage, staleTask } from "./task";
 
-export const routingMode = (config: Table): "soft" | "hard" => (((config.routing ?? {}) as { mode?: string }).mode === "soft" ? "soft" : "hard");
+export const routingMode = (config: Table): "soft" | "hard" => (((config.routing ?? {}) as { mode?: string }).mode === "hard" ? "hard" : "soft");
 
 // saw's own state, Claude's config, and plan files are never the work being routed.
 const EXEMPT = /^(\.saw|\.claude)(\/|$)|^plans\/[^/]+\.md$/;

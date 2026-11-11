@@ -10,8 +10,10 @@ import { sessionHook } from "../src/sessions";
 import { currentTask, gate, recordCheck, retierTask, setTaskSession, staleTask, startTask, takeUnverifiedExit, tierFloor } from "../src/task";
 
 const CHECKS = '[checks]\ntest = "exit 0"\n';
+const HARD = '[routing]\nmode = "hard"\n[verify]\nmode = "hard"\n';
 
-function config(toml = CHECKS): ReturnType<typeof resolve>["config"] {
+// Hard is opt-in; these tests exercise it unless they pass their own toml.
+function config(toml = HARD + CHECKS): ReturnType<typeof resolve>["config"] {
   const dir = mkdtempSync(join(tmpdir(), "saw-vg-"));
   writeFileSync(join(dir, "workflow.toml"), toml);
   const none = join(dir, "none.toml");
@@ -136,8 +138,17 @@ test("verify.mode soft leaves a below-floor task to the gate's usual checks", ()
   expect(decision(bash(config('[verify]\nmode = "soft"\n' + CHECKS), cwd, "git commit -m x"))).not.toBe("deny");
 });
 
-test("saw task end on a task that isn't Verified needs --reason, records it, and it is shown once", () => {
+test("soft: saw task end on a task that isn't Verified closes without --reason and records the exit", () => {
   const cwd = repo();
+  startTask(cwd, "trivial", "feature");
+  expect(run(["task", "end"], cwd)).toBe(0);
+  expect(currentTask(cwd)).toBeUndefined();
+  expect(takeUnverifiedExit(cwd)).toMatchObject({ label: "Not verified", tier: "trivial" });
+});
+
+test("hard: saw task end on a task that isn't Verified needs --reason, records it, and it is shown once", () => {
+  const cwd = repo();
+  writeFileSync(join(cwd, "workflow.toml"), HARD + CHECKS);
   startTask(cwd, "trivial", "feature");
   expect(run(["task", "end"], cwd)).toBe(1);
   expect(run(["task", "end", "--reason", "  "], cwd)).toBe(1);
@@ -214,11 +225,12 @@ test("agents can't loosen verify.mode or routing.mode with saw config set", () =
   }
 });
 
-test("a committed workflow.toml can't set verify.mode soft", () => {
+test("a committed workflow.toml can't lower a global verify.mode hard to soft", () => {
   const dir = mkdtempSync(join(tmpdir(), "saw-vg-layer-"));
+  writeFileSync(join(dir, "global.toml"), '[verify]\nmode = "hard"\n');
   writeFileSync(join(dir, "workflow.toml"), '[verify]\nmode = "soft"\n');
   const none = join(dir, "none.toml");
-  const r = resolve(dir, {}, { global: none, project: join(dir, "workflow.toml"), local: none });
+  const r = resolve(dir, {}, { global: join(dir, "global.toml"), project: join(dir, "workflow.toml"), local: none });
   expect((r.config.verify as { mode: string }).mode).toBe("hard");
 });
 

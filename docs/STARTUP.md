@@ -212,25 +212,26 @@ saw init --upgrade
 
 Template files you haven't edited are updated; edited ones are listed as `kept (edited)` for you to merge.
 
-### Upgrading to 1.0.2: enforcement is on by default
+### Upgrading to 1.0.2: hard enforcement is opt-in
 
-1.0.2 turns the workflow's rules from advice into blocks. What changes for an existing project:
+1.0.2 adds hard enforcement modes. They are **off by default** (`soft`), so upgrading blocks nothing new. Turn them on when you want the rules to block rather than advise:
 
 - **`routing.mode = "hard"`**: edits to files in a saw project wait for an open task (`saw task start`, or `saw task adhoc` for a one-off edit).
-- **`verify.mode = "hard"`**: `git commit`, `git push` and `gh pr create` are denied while the open task isn't Verified or is below its tier floor. With no task open they are denied while the working tree has changes that no Verified task covers; a clean tree, or the one the last Verified task closed on, passes.
-- **Unconfigured checks no longer count as passed.** A required check such as `test` with no `checks.test` command makes the task `Not verified` ("not configured"). Set the commands, e.g. `saw config set checks.test "bun test"`, or list the checks that really have none: `saw config set verify.allow_unconfigured '["e2e"]'`. Session start and `saw doctor` warn when a project has no `checks.*` commands at all.
-- **`saw task end`** with no task open now fails, and a task below its tier floor closes `Not verified` (it needs `--reason`).
+- **`verify.mode = "hard"`**: `git commit`, `git push` and `gh pr create` are denied while the open task isn't Verified or is below its tier floor. With no task open they are denied while the working tree has changes that no Verified task covers; a clean tree, or the one the last Verified task closed on, passes. Closing an unverified task with `saw task end` then needs `--reason`.
 
-To keep the old behaviour, set the modes soft in your own layer (`--scope global` for every project, or the default local layer for one):
+Turn them on in your own layer (`--scope global` for every project, or the default local layer for one), or in a committed `workflow.toml` for everyone on the project:
 
 ```bash
-saw config set routing.mode soft
-saw config set verify.mode soft
+saw config set routing.mode hard
+saw config set verify.mode hard
 # or all six enforcement modes at once:
-saw config set enforcement relaxed
+saw config set enforcement strict
 ```
 
-A committed `workflow.toml` can't loosen these; they belong in `~/.saw/config.toml` or `workflow.local.toml`.
+Two smaller changes apply in either mode:
+
+- **Unconfigured checks no longer count as passed.** A required check such as `test` with no `checks.test` command shows the task as `Not verified` ("not configured"). Set the commands, e.g. `saw config set checks.test "bun test"`, or list the checks that really have none: `saw config set verify.allow_unconfigured '["e2e"]'`. In soft mode that's a status and a Stop-gate reminder, not a block. Session start and `saw doctor` warn when a project has no `checks.*` commands at all.
+- **`saw task end`** with no task open now fails.
 
 Mod bands and panes (the prompt band, its task-state line, the Workflow pane) draw only in terminal `claude`, not in the desktop app; there, `saw task status` shows the same state.
 
