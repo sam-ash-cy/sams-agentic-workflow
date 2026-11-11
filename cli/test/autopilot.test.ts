@@ -259,9 +259,20 @@ test("auto_approve_tiers runs proposed trivial/standard items; never complex, cr
   const on = project(`${ON}auto_approve_tiers = ["trivial", "standard", "complex", "critical"]\n`, q);
   expect(autoApproveTiers(on.config).tiers).toEqual(["trivial", "standard"]);
   const d = fakeDeps([]);
+  // The same queue is committed on the base branch.
+  d.git = (a) => (d.gits.push(a), { code: 0, out: a[0] === "show" ? q : "" });
   expect(autopilot(on.dir, on.config, [], d)).toBe(0);
+  expect(d.gits).toContainEqual(["show", "main:docs/plans/queue.md"]);
   expect(d.logs[0]).toContain("warning: autopilot.auto_approve_tiers lists complex, critical; ignored");
   expect(Object.keys(readState(on.dir).done)).toEqual(["t", "s"]);
+
+  // A session can't add or relabel an item in the working tree to get it run:
+  // only the committed copy (and its tier) counts.
+  const wt = project(`${ON}auto_approve_tiers = ["trivial"]\n`, "- [proposed] new: added by a session\n  - tier: trivial\n- [proposed] big: relabelled\n  - tier: trivial\n");
+  const dw = fakeDeps([]);
+  dw.git = (a) => (dw.gits.push(a), { code: 0, out: a[0] === "show" ? "- [proposed] big: x\n  - tier: complex\n" : "" });
+  expect(autopilot(wt.dir, wt.config, [], dw)).toBe(0);
+  expect(dw.argvs).toHaveLength(0);
 });
 
 test("needs: a dependent item waits for its dependency, then stacks on its unmerged branch and targets it", () => {
@@ -313,7 +324,17 @@ test("parked, missing or unapproved dependencies skip the item without counting 
   ]));
   expect(readState(dir).done).toEqual({ p: "parked", ok: "pr" });
   expect(readState(dir).failures).toBe(0);
-  expect(d.logs.at(-1)).toContain("queue empty");
+  expect(d.logs.at(-1)).toBe("nothing to run: 4 item(s) skipped for their dependencies in docs/plans/queue.md");
+});
+
+test("a deleted dependency branch (merged PR) counts as merged", () => {
+  const { dir, config } = project(ON, CHAIN);
+  mkdirSync(join(dir, ".saw"), { recursive: true });
+  writeFileSync(join(dir, ".saw", "autopilot.json"), JSON.stringify({ spent_usd: 0, failures: 0, done: { a: "pr" } }));
+  const d = fakeDeps([]);
+  d.git = (a) => (d.gits.push(a), { code: a[0] === "merge-base" ? 128 : 0, out: "" });
+  autopilot(dir, config, [], d);
+  expect(d.gits).toContainEqual(["switch", "-c", "autopilot/b", "main"]);
 });
 
 test("a dependency cycle stops the run with a clear message", () => {

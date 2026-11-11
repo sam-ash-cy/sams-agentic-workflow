@@ -384,7 +384,7 @@ effort = "high"
 | `autopilot.max_failures` | `2` | Consecutive failures before it stops. |
 | `autopilot.max_wait` | `"6h"` | Longest wait on a usage limit. |
 | `autopilot.resume_on_limit` | `true` | Resume the same session after a limit. |
-| `autopilot.auto_approve_tiers` | `[]` | `[proposed]` items whose `tier:` is listed run as approved. Allowed: `trivial`, `standard`; `complex` and `critical` are ignored with a warning. An item without a tier is never auto-approved. |
+| `autopilot.auto_approve_tiers` | `[]` | `[proposed]` items whose `tier:` is listed run as approved. Allowed: `trivial`, `standard`; `complex` and `critical` are ignored with a warning. An item without a tier is never auto-approved, and only an item already committed as `[proposed]` on the base branch (with the tier it has there) counts, so a session can't queue and run its own work. |
 
 ### `[knowledge]`, `[release]`, `[agents]`, `[logging]`, `[dashboard]`
 

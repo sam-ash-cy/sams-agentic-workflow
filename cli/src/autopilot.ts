@@ -110,8 +110,21 @@ export function autoApproveTiers(config: Table): { tiers: string[]; warnings: st
 }
 
 // The owner's `approved`, or a `proposed` item whose tier auto-approves. No tier: never.
-export const isApproved = (i: QueueItem, tiers: string[] = []): boolean =>
-  i.status === "approved" || (i.status === "proposed" && !!i.tier && tiers.includes(i.tier));
+// `committed`: the queue as committed on the base branch. When given, only an item
+// proposed there, with the tier it has there, auto-approves, so a session can't
+// add or relabel an item in the working tree and have it run unreviewed.
+export const isApproved = (i: QueueItem, tiers: string[] = [], committed?: Map<string, QueueItem>): boolean => {
+  if (i.status === "approved") return true;
+  if (i.status !== "proposed") return false;
+  const c = committed ? committed.get(i.slug) : i;
+  return !!c && c.status === "proposed" && !!c.tier && tiers.includes(c.tier);
+};
+
+// The queue file as committed on the base branch (empty when it can't be read).
+export function committedQueue(config: Table, deps: Pick<Deps, "git">): Map<string, QueueItem> {
+  const r = deps.git(["show", `${baseBranch(config)}:${settings(config).queue}`]);
+  return new Map((r.code === 0 ? parseQueue(r.out) : []).map((i) => [i.slug, i]));
+}
 
 export interface PlannedItem {
   item: QueueItem;
@@ -126,8 +139,10 @@ export interface QueuePlan {
   cycle?: string[];
 }
 
-// Is branch `b` already merged into `base`? Read-only (`merge-base --is-ancestor`).
-const merged = (deps: Pick<Deps, "git">, b: string, base: string): boolean => deps.git(["merge-base", "--is-ancestor", b, base]).code === 0;
+// Is branch `b` already merged into `base`? Read-only (`merge-base --is-ancestor`):
+// exit 1 is "not an ancestor"; any other failure (a deleted branch after its PR
+// merged) counts as merged, so the item is cut from the base.
+const merged = (deps: Pick<Deps, "git">, b: string, base: string): boolean => deps.git(["merge-base", "--is-ancestor", b, base]).code !== 1;
 
 // The run order: approved items not yet done, each after its `needs`. Items
 // whose dependency is parked, missing or unapproved are skipped (not failures).
@@ -136,8 +151,10 @@ const merged = (deps: Pick<Deps, "git">, b: string, base: string): boolean => de
 export function planQueue(items: QueueItem[], state: AutopilotState, config: Table, deps: Pick<Deps, "git">): QueuePlan {
   const { tiers } = autoApproveTiers(config);
   const base = baseBranch(config);
+  const committed = tiers.length ? committedQueue(config, deps) : new Map<string, QueueItem>();
+  const approved = (i: QueueItem): boolean => isApproved(i, tiers, committed);
   const bySlug = new Map(items.map((i) => [i.slug, i]));
-  const pending = items.filter((i) => isApproved(i, tiers) && !state.done[i.slug]);
+  const pending = items.filter((i) => approved(i) && !state.done[i.slug]);
   const pendingSet = new Set(pending.map((i) => i.slug));
 
   // A cycle among pending items stops the whole run.
@@ -172,7 +189,7 @@ export function planQueue(items: QueueItem[], state: AutopilotState, config: Tab
       if (state.done[n] === "parked") return `needs ${n}, which was parked`;
       if (!d) return `needs ${n}, which is not in the queue`;
       if (skippedSet.has(n)) return `needs ${n}, which is skipped`;
-      if (!isApproved(d, tiers)) return `needs ${n}, which is not approved (${d.status})`;
+      if (!approved(d)) return `needs ${n}, which is not approved (${d.status})`;
     }
     return undefined;
   };
@@ -341,12 +358,12 @@ export function autopilot(cwd: string, config: Table, weakened: string[], deps: 
       next = plan.order.find((p) => (p.item.needs ?? []).every((n) => state.done[n] === "pr"));
     }
     const item = state.current ? items.find((i) => i.slug === state.current!.slug) : next?.item;
-    if (!item || (state.current && !isApproved(item, tiers))) {
+    if (!item || (state.current && item.status !== "approved" && !isApproved(item, tiers, committedQueue(config, deps)))) {
       if (state.current) {
         deps.log(`stop: ${state.current.slug} is no longer approved in ${s.queue}; resume it by hand or delete .saw/autopilot.json`);
         return 1;
       }
-      deps.log(`queue empty: no approved items left in ${s.queue}`);
+      deps.log(loggedSkips.size ? `nothing to run: ${loggedSkips.size} item(s) skipped for their dependencies in ${s.queue}` : `queue empty: no approved items left in ${s.queue}`);
       return 0;
     }
 

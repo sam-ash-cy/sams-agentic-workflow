@@ -942,6 +942,8 @@ function autopilotCommand(cwd: string, config: Table, weakened: string[], args: 
       }
     };
     const plan = planQueue(items, state, config, { git });
+    // The in-flight item shows as `current` with its saved base, not as planned.
+    plan.order = plan.order.filter((p) => p.item.slug !== state.current?.slug);
     console.log(`saw autopilot: ${plan.order.length} approved item(s) left in ${s.queue}; spent $${state.spent_usd.toFixed(2)} of $${s.max_total_usd}`);
     for (const w of autoApproveTiers(config).warnings) console.log(`  warning: ${w}`);
     if (plan.cycle) console.log(`  would stop: dependency cycle: ${plan.cycle.join(" -> ")}`);
