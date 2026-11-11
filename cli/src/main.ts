@@ -43,7 +43,7 @@ import { formatHook, runCheck, TRUSTED_LAYERS } from "./run";
 import { checkMods } from "./mods";
 import { addProject, inspectProject, listProjects, registerProject, removeProject } from "./projects";
 import { verifyMode } from "./verify-guard";
-import { currentTask, endTask, gate, gitStatusHash, isSawProject, markUntaskedEdit, noteUnverifiedExit, noChecksWarning, pickTier, recordCheck, recordVerifiedTree, retierTask, reviewEvidence, statusProblems, setPhase, staleMessage, staleTask, startTask, storedTreeHash, storeTreeHash, takeUnverifiedExit, taskReport, writeStatusFile, taskStatus, taskSkills, taskSteps, type Status } from "./task";
+import { acceptanceLine, acceptanceProblem, addAcceptance, currentTask, endTask, gate, gitStatusHash, isSawProject, markUntaskedEdit, noteUnverifiedExit, noChecksWarning, pickTier, recordCheck, recordVerifiedTree, retierTask, reviewEvidence, statusProblems, setPhase, staleMessage, staleTask, startTask, storedTreeHash, storeTreeHash, takeUnverifiedExit, taskReport, writeStatusFile, taskStatus, taskSkills, taskSteps, type Status } from "./task";
 import { routingMode } from "./routing-guard";
 import { subagentHook } from "./subagent";
 import { patchToml, readToml, stringifyToml } from "./toml";
@@ -71,11 +71,13 @@ const USAGE = `usage: saw <command>
   deps list | verify [--strict]      pinned third-party skills (deps.lock.toml)
   deps diff <name> <sha>             compare URL to review before updating a pin
   deps pin <name> <sha> --reviewed-by <who>
-  task start --tier <t> --playbook <p> [--tone <t>] [--max-words <n>] [--unit phase|stage|feature --unit-id <name>]   open a task (the router does this)
+  task start --tier <t> --playbook <p> [--tone <t>] [--max-words <n>] [--unit phase|stage|feature --unit-id <name>] [--accept "<criterion>"]...   open a task (the router does this); --accept, repeatable: acceptance criteria, numbered from 1
+  task accept add "<criterion>"     add an acceptance criterion to the open task
   task adhoc [--playbook <p>]        open a trivial task for a one-off edit (same as task start --tier trivial)
   task phase plan|implement|review  mark where the open task is (implement: the main session can't edit source when features.implementer is on)
   task status                        report label + which required checks passed, failed or are missing
   task record <check> pass|fail [--note "..."] [--report <file>]   record a judgement check (code_review, ...); --report: a reviewer's report under .saw/reviews/ (verify.require_review_evidence)
+  task record accept:<n> pass|fail --note "<how it was shown>"   record acceptance criterion <n> (a pass needs --note); the task isn't Verified until every criterion passes
   task report [--post [--pr <n>] [--yes]]   Markdown verification section for a PR (--post: gh pr comment, per autonomy.actions.open_pr)
   task pr-body [--base <ref>]   PR description: commits since <ref> (default origin/<branch.base>) and the verification section
   repo plan|apply [--repo o/n] [--yes]   GitHub settings from [repo]: diff, then apply only with --yes and re-verify
@@ -120,13 +122,15 @@ interface Args {
   scoped: boolean;
   overrides: Record<string, Value>;
   values: Record<string, string>;
+  // --accept "<criterion>", repeatable (saw task start).
+  accepts: string[];
 }
 
 const VALUE_FLAGS = ["--runs", "--repo", "--pr", "--tier", "--playbook", "--note", "--plugin-dir", "--reviewed-by", "--type", "--tokens", "--case", "--agents", "--tone", "--max-words", "--unit", "--unit-id", "--port", "--report", "--pre", "--base", "--reason", "--since", "--workspace"];
 const PLUGIN_ROOT = join(import.meta.dir, "..", "..");
 
 function parseArgs(argv: string[]): Args {
-  const args: Args = { positional: [], flags: new Set(), scope: "project", scoped: false, overrides: {}, values: {} };
+  const args: Args = { positional: [], flags: new Set(), scope: "project", scoped: false, overrides: {}, values: {}, accepts: [] };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i]!;
     if (a === "--scope") {
@@ -136,7 +140,12 @@ function parseArgs(argv: string[]): Args {
     else if (a === "--set") {
       const [key, ...rest] = (argv[++i] ?? "").split("=");
       args.overrides[key!] = parseValue(rest.join("="));
-    } else if (VALUE_FLAGS.includes(a)) {
+    } else if (a === "--accept") {
+      // Bare --accept doesn't swallow the next flag; the empty criterion is refused by startTask.
+      const next = argv[i + 1];
+      args.accepts.push(next !== undefined && !next.startsWith("--") ? argv[++i]! : "");
+    }
+    else if (VALUE_FLAGS.includes(a)) {
       // A value flag given bare (saw init --repo) doesn't swallow the next flag.
       const next = argv[i + 1];
       args.values[a.slice(2)] = next !== undefined && !next.startsWith("--") ? argv[++i]! : "";
@@ -1010,12 +1019,13 @@ function taskCommand(cwd: string, config: Table, args: Args): number {
       const t = startTask(plan.action === "worktree" && plan.path ? plan.path : cwd, tier, playbook, {
         tone,
         max_words: rawCap === undefined ? undefined : Number(rawCap),
-      });
+      }, args.accepts);
       if (plan.action === "worktree" && plan.path && plan.name) markWorktreeTask(cwd, plan.path, plan.name);
       registerProject(cwd);
       console.log(`task: ${t.tier} / ${t.playbook} · ${styleLine(effectiveStyle(config, t))}`);
       logEvent(cwd, config, "info", "tier", `${t.tier} / ${t.playbook}`, { tier: t.tier, playbook: t.playbook, requested: args.values.tier ?? null });
       console.log(`steps: ${taskSteps(config, t.tier, t.playbook).join(" · ")}`);
+      (t.accept ?? []).forEach((c, i) => console.log(`accept:${i + 1} ${c}`));
       const features = (config.features ?? {}) as Record<string, boolean>;
       if (features.task_skills && t.tier !== "trivial") {
         const missing = missingSkillPlugins(taskSkills(config, t.tier, t.playbook), installedNames(cwd));
@@ -1070,7 +1080,14 @@ function taskCommand(cwd: string, config: Table, args: Args): number {
       logEvent(cwd, config, "info", "phase", name, { tier: task.tier });
       return 0;
     }
+    if (sub === "accept" && name === "add" && status !== undefined) {
+      const n = addAcceptance(cwd, status);
+      console.log(`accept:${n} ${status.trim()}`);
+      return 0;
+    }
     if (sub === "record" && name && (status === "pass" || status === "fail")) {
+      const refused = acceptanceProblem(task, name, status, args.values.note);
+      if (refused) return fail(refused);
       const evidence = reviewEvidence(cwd, config, task, name, status, args.values.report);
       if (evidence.problem) {
         logEvent(cwd, config, "warn", "review.refused", `${name} pass not recorded: ${evidence.problem}`, { check: name });
@@ -1110,6 +1127,10 @@ function taskCommand(cwd: string, config: Table, args: Args): number {
       if (s.floor) console.log(`  tier too low: ${s.floor}`);
       if (s.unconfigured.length) console.log(`  not configured ${s.unconfigured.join(", ")} (set checks.<name> in workflow.toml, or list it in verify.allow_unconfigured)`);
       if (s.waived.length) console.log(`  skipped (verify.allow_unconfigured) ${s.waived.join(", ")}`);
+      if (s.acceptance?.length) {
+        console.log("  acceptance criteria");
+        for (const a of s.acceptance) console.log(`  ${acceptanceLine(a)}`);
+      }
       return 0;
     }
   } catch (e) {
