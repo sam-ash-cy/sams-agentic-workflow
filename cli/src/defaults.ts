@@ -109,14 +109,14 @@ export const DEFAULTS: Table = {
   enforcement: "custom",
   // mode auto: a worktree for complex and critical tasks (features.worktrees), a branch otherwise.
   branch: { base: "main", mode: "auto" },
-  // routing.mode hard (features.verify_hook): saw guard denies edits to files in a saw project
+  // routing.mode hard (opt-in; features.verify_hook): saw guard denies edits to files in a saw project
   // until a task is open (router skill, then `saw task start` or `saw task adhoc`). soft = nudges only.
   // The tier floor: a task is at least standard past trivial_max_files files or trivial_max_lines changed lines
   // since it started, and critical when a changed path matches a critical_paths glob.
   routing: {
     default_tier: "auto",
     always_grill: ["complex", "critical"],
-    mode: "hard",
+    mode: "soft",
     // With no task open, the UserPromptSubmit hook classifies the prompt by fixed rules (cli/src/auto-route.ts,
     // no model call). suggest: the router nudge proposes the saw task start line. open: it opens a provisional
     // task the agent confirms with saw task retier or saw task start before verify lets a commit through. off: neither.
@@ -159,10 +159,10 @@ export const DEFAULTS: Table = {
     // and passed with --report); "review_session" a saw review-session only.
     // A guardrail: workflow.toml can raise it, only your own layers can lower it.
     require_review_evidence: "off",
-    // mode hard (features.verify_hook): saw guard denies git commit, git push and gh pr create
+    // mode hard (opt-in; features.verify_hook): saw guard denies git commit, git push and gh pr create
     // while the open task isn't Verified, or its tier is below the diff's floor (routing.trivial_max_*,
     // routing.critical_paths). soft = the Stop gate only. A guardrail: workflow.toml can raise it, only your own layers can lower it.
-    mode: "hard",
+    mode: "soft",
     // Required mechanical checks that may have no [checks] command without blocking
     // Verified. Any other required check with no command makes a task "Not verified".
     allow_unconfigured: [],

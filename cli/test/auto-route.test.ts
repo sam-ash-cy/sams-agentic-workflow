@@ -72,7 +72,7 @@ test("an audit proposal falls back to feature while features.audit is off", () =
 });
 
 test("open starts a provisional task; verify holds commits until it is confirmed", () => {
-  const { cwd, config } = project('[routing]\nauto = "open"\n[checks]\ntest = "exit 0"\n');
+  const { cwd, config } = project('[routing]\nauto = "open"\n[verify]\nmode = "hard"\n[checks]\ntest = "exit 0"\n');
   expect(text(routerNudge(cwd, config, "fix the crash when the config file is empty"))).toContain("provisional");
   const t = currentTask(cwd)!;
   expect(t.provisional).toBe(true);

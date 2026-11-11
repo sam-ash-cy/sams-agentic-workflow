@@ -8,6 +8,7 @@ import { subagentEdits, subagentHook } from "../src/subagent";
 import { gate, startTask } from "../src/task";
 
 const CHECKS = '[checks]\ntest = "exit 0"\n';
+const HARD = '[routing]\nmode = "hard"\n[verify]\nmode = "hard"\n';
 const git = (cwd: string, ...args: string[]): void => {
   Bun.spawnSync(["git", ...args], { cwd, stdout: "pipe", stderr: "pipe" });
 };
@@ -15,7 +16,7 @@ const git = (cwd: string, ...args: string[]): void => {
 // A saw project that is a git repo with one commit, and its resolved settings.
 function repo(): { cwd: string; config: ReturnType<typeof resolve>["config"] } {
   const cwd = mkdtempSync(join(tmpdir(), "saw-sub-"));
-  writeFileSync(join(cwd, "workflow.toml"), CHECKS);
+  writeFileSync(join(cwd, "workflow.toml"), HARD + CHECKS);
   writeFileSync(join(cwd, "a.ts"), "export const a = 1;\n");
   git(cwd, "init", "-q");
   git(cwd, "config", "user.email", "t@example.com");

@@ -9,7 +9,7 @@
 import type { Table } from "./defaults";
 import { currentTask, isSawProject, statusProblems, taskStatus, unverifiedChanges } from "./task";
 
-export const verifyMode = (config: Table): "soft" | "hard" => (((config.verify ?? {}) as { mode?: string }).mode === "soft" ? "soft" : "hard");
+export const verifyMode = (config: Table): "soft" | "hard" => (((config.verify ?? {}) as { mode?: string }).mode === "hard" ? "hard" : "soft");
 
 export function verifyBlock(config: Table, cwd: string): { decision: "deny"; reason: string } | undefined {
   if (verifyMode(config) !== "hard") return undefined;
