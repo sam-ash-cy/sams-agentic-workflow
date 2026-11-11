@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { resolve } from "../src/config";
 import type { Table } from "../src/defaults";
-import { autopilot, claudeArgv, disallowed, durationMs, eligible, itemBrief, opensPr, parseQueue, readRuns, readState, resetAt, scheduleCommand, waitMs, type Deps, type Session } from "../src/autopilot";
+import { autoApproveTiers, autopilot, claudeArgv, disallowed, durationMs, eligible, itemBrief, planQueue, opensPr, parseQueue, readRuns, readState, resetAt, scheduleCommand, waitMs, type Deps, type Session } from "../src/autopilot";
 import { renderHtml } from "../src/dashboard";
 import { readMetrics } from "../src/metrics";
 
@@ -223,4 +223,153 @@ test("review fixes: budget stop isn't a limit, resume switches back, no stale br
   expect(dc.argvs).toHaveLength(0);
 
   expect(disallowed("trunk")).toEqual(expect.arrayContaining(["Bash(git push origin trunk:*)", "Bash(git push origin HEAD:trunk:*)", "Bash(git push origin HEAD:main:*)"]));
+});
+
+const CHAIN = [
+  "- [approved] a: first",
+  "  - tier: standard",
+  "  - accept: does a",
+  "  - accept: and also a",
+  "  - adr: docs/decisions/0001-a.md",
+  "- [approved] b: after a",
+  "  - needs: a",
+  "",
+].join("\n");
+
+// A fake git where no autopilot/* branch is merged into the base yet.
+const unmerged = (d: ReturnType<typeof fakeDeps>): void => {
+  d.git = (a) => {
+    d.gits.push(a);
+    return { code: a[0] === "merge-base" ? 1 : 0, out: "" };
+  };
+};
+
+test("parseQueue reads tier, needs, accept and adr sub-lines; plain items are unchanged", () => {
+  const items = parseQueue(CHAIN + "- [approved] c: x\n  - needs: a, b\n");
+  expect(items[0]).toEqual({ status: "approved", slug: "a", text: "first", tier: "standard", accept: ["does a", "and also a"], adr: "docs/decisions/0001-a.md" });
+  expect(items[1]).toEqual({ status: "approved", slug: "b", text: "after a", needs: ["a"] });
+  expect(items[2]!.needs).toEqual(["a", "b"]);
+  expect(parseQueue("- [approved] login: add login\n")).toEqual([{ status: "approved", slug: "login", text: "add login" }]);
+});
+
+test("auto_approve_tiers runs proposed trivial/standard items; never complex, critical or untiered", () => {
+  const q = "- [proposed] t: x\n  - tier: trivial\n- [proposed] c: x\n  - tier: complex\n- [proposed] n: no tier\n- [proposed] s: x\n  - tier: standard\n";
+  const off = project(ON, q);
+  expect(planQueue(parseQueue(q), { spent_usd: 0, failures: 0, done: {} }, off.config, fakeDeps([])).order).toEqual([]);
+  const on = project(`${ON}auto_approve_tiers = ["trivial", "standard", "complex", "critical"]\n`, q);
+  expect(autoApproveTiers(on.config).tiers).toEqual(["trivial", "standard"]);
+  const d = fakeDeps([]);
+  // The same queue is committed on the base branch.
+  d.git = (a) => (d.gits.push(a), { code: 0, out: a[0] === "show" ? q : "" });
+  expect(autopilot(on.dir, on.config, [], d)).toBe(0);
+  expect(d.gits).toContainEqual(["show", "main:docs/plans/queue.md"]);
+  expect(d.logs[0]).toContain("warning: autopilot.auto_approve_tiers lists complex, critical; ignored");
+  expect(Object.keys(readState(on.dir).done)).toEqual(["t", "s"]);
+
+  // A session can't add or relabel an item in the working tree to get it run:
+  // only the committed copy (and its tier) counts.
+  const wt = project(`${ON}auto_approve_tiers = ["trivial"]\n`, "- [proposed] new: added by a session\n  - tier: trivial\n- [proposed] big: relabelled\n  - tier: trivial\n");
+  const dw = fakeDeps([]);
+  dw.git = (a) => (dw.gits.push(a), { code: 0, out: a[0] === "show" ? "- [proposed] big: x\n  - tier: complex\n" : "" });
+  expect(autopilot(wt.dir, wt.config, [], dw)).toBe(0);
+  expect(dw.argvs).toHaveLength(0);
+});
+
+test("needs: a dependent item waits for its dependency, then stacks on its unmerged branch and targets it", () => {
+  const { dir, config } = project(`${ON}${PR_ON}`, "- [approved] b: after a\n  - needs: a\n- [approved] a: first\n");
+  const d = fakeDeps([]);
+  unmerged(d);
+  expect(autopilot(dir, config, [], d)).toBe(0);
+  const creates = d.gits.filter((g) => g[1] === "-c");
+  expect(creates).toEqual([["switch", "-c", "autopilot/a", "main"], ["switch", "-c", "autopilot/b", "autopilot/a"]]);
+  expect(d.logs).toContainEqual("b: stacked on autopilot/a (not merged into main yet)");
+  expect(d.ghs[1]).toEqual(expect.arrayContaining(["--base", "autopilot/a", "--head", "autopilot/b"]));
+  expect(d.ghs[0]).toEqual(expect.arrayContaining(["--base", "main"]));
+  expect(d.gits.flat()).not.toContain("merge");
+  expect(d.argvs[1]!.join(" ")).toContain("git merge");
+});
+
+test("a merged dependency means the item is cut from the base branch", () => {
+  const { dir, config } = project(ON, CHAIN);
+  mkdirSync(join(dir, ".saw"), { recursive: true });
+  writeFileSync(join(dir, ".saw", "autopilot.json"), JSON.stringify({ spent_usd: 0, failures: 0, done: { a: "pr" } }));
+  const d = fakeDeps([]); // merge-base succeeds: merged
+  autopilot(dir, config, [], d);
+  expect(d.gits).toContainEqual(["switch", "-c", "autopilot/b", "main"]);
+});
+
+test("several unmerged dependencies: the most recently finished branch is the base", () => {
+  const q = "- [approved] x: x\n- [approved] y: y\n- [approved] z: z\n  - needs: y, x\n";
+  const state = { spent_usd: 0, failures: 0, done: { y: "pr", x: "pr" } as Record<string, "pr" | "parked"> };
+  const { config } = project(ON, q);
+  const d = fakeDeps([]);
+  unmerged(d);
+  const plan = planQueue(parseQueue(q), state, config, d);
+  expect(plan.order.map((p) => [p.item.slug, p.base])).toEqual([["z", "autopilot/x"]]);
+  expect(plan.order[0]!.note).toContain("the most recent of autopilot/y, autopilot/x");
+});
+
+test("parked, missing or unapproved dependencies skip the item without counting a failure", () => {
+  const q = "- [approved] p: parked dep\n- [approved] a: x\n  - needs: p\n- [approved] b: x\n  - needs: ghost\n- [approved] c: x\n  - needs: idea\n- [proposed] idea: later\n- [approved] d: x\n  - needs: a\n- [approved] ok: x\n";
+  const { dir, config } = project(`${ON}max_failures = 1\n`, q);
+  mkdirSync(join(dir, ".saw"), { recursive: true });
+  writeFileSync(join(dir, ".saw", "autopilot.json"), JSON.stringify({ spent_usd: 0, failures: 0, done: { p: "parked" } }));
+  const d = fakeDeps([]);
+  expect(autopilot(dir, config, [], d)).toBe(0);
+  expect(d.logs).toEqual(expect.arrayContaining([
+    "skip a: needs p, which was parked",
+    "skip b: needs ghost, which is not in the queue",
+    "skip c: needs idea, which is not approved (proposed)",
+    "skip d: needs a, which is skipped",
+  ]));
+  expect(readState(dir).done).toEqual({ p: "parked", ok: "pr" });
+  expect(readState(dir).failures).toBe(0);
+  expect(d.logs.at(-1)).toBe("nothing to run: 4 item(s) skipped for their dependencies in docs/plans/queue.md");
+});
+
+test("a deleted dependency branch (merged PR) counts as merged", () => {
+  const { dir, config } = project(ON, CHAIN);
+  mkdirSync(join(dir, ".saw"), { recursive: true });
+  writeFileSync(join(dir, ".saw", "autopilot.json"), JSON.stringify({ spent_usd: 0, failures: 0, done: { a: "pr" } }));
+  const d = fakeDeps([]);
+  d.git = (a) => (d.gits.push(a), { code: a[0] === "merge-base" ? 128 : 0, out: "" });
+  autopilot(dir, config, [], d);
+  expect(d.gits).toContainEqual(["switch", "-c", "autopilot/b", "main"]);
+});
+
+test("a dependency cycle stops the run with a clear message", () => {
+  const { dir, config } = project(ON, "- [approved] a: x\n  - needs: b\n- [approved] b: x\n  - needs: a\n- [approved] c: x\n");
+  const d = fakeDeps([]);
+  expect(autopilot(dir, config, [], d)).toBe(1);
+  expect(d.logs.at(-1)).toBe("stop: dependency cycle in docs/plans/queue.md: a -> b -> a; fix the needs: lines");
+  expect(d.argvs).toHaveLength(0);
+});
+
+test("the stacked base is saved and reused on resume after a usage limit", () => {
+  const { dir, config } = project(`${ON}${PR_ON}`, CHAIN);
+  mkdirSync(join(dir, ".saw"), { recursive: true });
+  writeFileSync(join(dir, ".saw", "autopilot.json"), JSON.stringify({ spent_usd: 0, failures: 0, done: { a: "pr" } }));
+  const d = fakeDeps([{ code: 1, cost_usd: 0, is_error: true, text: "rate limit exceeded" }]);
+  unmerged(d);
+  const sleep = d.sleep;
+  d.sleep = (ms) => {
+    expect(readState(dir).current?.base).toBe("autopilot/a");
+    // Meanwhile a got merged; the resume must still target the saved base.
+    d.git = (a) => (d.gits.push(a), { code: 0, out: "" });
+    sleep(ms);
+  };
+  autopilot(dir, config, [], d);
+  expect(d.argvs[1]).toContain("--resume");
+  expect(d.ghs[0]).toEqual(expect.arrayContaining(["--base", "autopilot/a"]));
+});
+
+test("planQueue gives status/dry-run the order, each base and the skip reasons", () => {
+  const q = "- [approved] c: x\n  - needs: b\n- [approved] b: x\n  - needs: a\n- [approved] a: x\n- [approved] s: x\n  - needs: nope\n";
+  const { config } = project(ON, q);
+  const d = fakeDeps([]);
+  unmerged(d);
+  const plan = planQueue(parseQueue(q), { spent_usd: 0, failures: 0, done: {} }, config, d);
+  expect(plan.order.map((p) => `${p.item.slug}<${p.base}`)).toEqual(["a<main", "b<autopilot/a", "c<autopilot/b"]);
+  expect(plan.skipped).toEqual([{ slug: "s", reason: "needs nope, which is not in the queue" }]);
+  expect(eligible(parseQueue(q), { spent_usd: 0, failures: 0, done: {} }).map((i) => i.slug)).toEqual(["a"]);
 });
