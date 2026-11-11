@@ -40,30 +40,44 @@ export function parseLaunch(out: string): { base: string; code: string } | undef
 
 let resolved: string[] | undefined
 
-// How to run saw. An explicit sawCommand wins. Otherwise plain `saw` if it starts; on Windows the
-// `saw` on PATH is a shell shim that cannot be spawned without a shell, so find the repo it lives
-// in (where saw) and run its CLI with bun, which is a real executable.
-async function sawArgv($: EngineInterface, opts: Options): Promise<string[]> {
-  if (opts.sawCommand && opts.sawCommand !== 'saw') return opts.sawCommand.split(' ').filter(Boolean)
-  if (resolved) return resolved
-  try {
-    await $.process.run(['saw', '--version'], { timeoutMs: 10000 })
-    resolved = ['saw']
-    return resolved
-  } catch {
-    /* not startable here: look for the checkout it lives in */
-  }
-  try {
-    const found = await $.process.run(['where', 'saw'], { timeoutMs: 10000 })
-    const shim = found.stdout.split('\n').map(l => l.trim()).find(l => /[\\/]bin[\\/]saw(\.cmd)?$/i.test(l))
-    if (shim) {
-      resolved = ['bun', shim.replace(/[\\/]bin[\\/]saw(\.cmd)?$/i, '/cli/src/main.ts')]
-      return resolved
+const explicit = (opts: Options): string[] | undefined => (opts.sawCommand && opts.sawCommand !== 'saw' ? opts.sawCommand.split(' ').filter(Boolean) : undefined)
+
+const SHIM = /[\\/]bin[\\/]saw(\.cmd)?$/i
+const parent = (dir: string): string => dir.replace(/[\\/]+$/, '').replace(/[\\/][^\\/]*$/, '')
+
+// The app that runs this mod often has no `saw` on its PATH (only the user's terminal does), so
+// when spawning plain `saw` fails, look for a saw checkout that has the pane route, and run its CLI
+// with bun: the session's folder and its parents, then folders on PATH, then the installed plugin.
+async function checkoutArgv($: EngineInterface): Promise<{ argv?: string[]; why: string }> {
+  const seen: string[] = []
+  const usable = async (root: string): Promise<boolean> => {
+    if (!root || seen.includes(root)) return false
+    seen.push(root)
+    try {
+      return (await $.fs.read(`${root}/cli/src/dashboard-server.ts`)).includes('pane-session')
+    } catch {
+      return false
     }
-  } catch {
-    /* no where.exe: fall through to the plain name and its error */
   }
-  return ['saw']
+  const via = (root: string): { argv: string[]; why: string } => ({ argv: ['bun', `${root}/cli/src/main.ts`], why: '' })
+
+  let dir = await $.session.cwd()
+  for (let i = 0; i < 8 && dir; i++, dir = parent(dir)) if (await usable(dir)) return via(dir)
+
+  const path = (await $.env.get('PATH')) ?? ''
+  for (const folder of path.split(/[;:](?![\\/])/).filter(Boolean)) {
+    if (SHIM.test(`${folder.replace(/[\\/]+$/, '')}/saw`) && (await usable(parent(folder)))) return via(parent(folder))
+  }
+
+  const home = (await $.env.get('CLAUDE_CONFIG_DIR')) ?? `${(await $.env.get('USERPROFILE')) ?? (await $.env.get('HOME')) ?? ''}/.claude`
+  const cache = `${home}/plugins/cache/sams-agentic-workflow/sams-agentic-workflow`
+  try {
+    const versions = (await $.fs.list(cache)).map(e => e.name).sort().reverse()
+    for (const v of versions) if (await usable(`${cache}/${v}`)) return via(`${cache}/${v}`)
+  } catch {
+    /* no plugin cache */
+  }
+  return { why: `no saw checkout with the pane route found (looked in ${seen.length} folders from ${await $.session.cwd()}, PATH and ${cache})` }
 }
 
 function release(): void {
@@ -82,7 +96,25 @@ function stop(): void {
 }
 
 async function start($: EngineInterface, opts: Options): Promise<Conn> {
-  const run: Child = $.process.spawn({ argv: [...(await sawArgv($, opts)), 'dashboard', '--serve', '--port', '0'], cwd: await $.session.cwd() })
+  const given = explicit(opts)
+  const first = resolved ?? given ?? ['saw']
+  try {
+    const c = await launchWith($, first)
+    resolved = first
+    return c
+  } catch (e) {
+    // Only a spawn that could not start is retried, and only when the user did not choose a command.
+    if (given || resolved || !/could not run saw dashboard/i.test((e as Error).message)) throw e
+    const shim = await checkoutArgv($)
+    if (!shim.argv) throw new Error(`${(e as Error).message} (no fallback: ${shim.why})`)
+    const c = await launchWith($, shim.argv)
+    resolved = shim.argv
+    return c
+  }
+}
+
+async function launchWith($: EngineInterface, argv: string[]): Promise<Conn> {
+  const run: Child = $.process.spawn({ argv: [...argv, 'dashboard', '--serve', '--port', '0'], cwd: await $.session.cwd() })
   child = run
   let found: (a: { base: string; code: string }) => void = () => {}
   let failed: (e: Error) => void = () => {}
