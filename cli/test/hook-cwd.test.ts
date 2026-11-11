@@ -3,7 +3,7 @@
 // folder the session works in, and never follow a payload to an unrelated repo.
 
 import { expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, symlinkSync, writeFileSync } from "node:fs";
 import { existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -31,6 +31,14 @@ test("a payload cwd in a linked worktree of the same repo wins over the hook's o
   // A subfolder of the worktree counts too.
   mkdirSync(join(worktree, "src"));
   expect(hookCwd(payload(join(worktree, "src")), main)).toBe(join(worktree, "src"));
+});
+
+test("a symlinked spelling of the same folders still matches (macOS temp folders, short Windows names)", () => {
+  const { main } = repoWithWorktree();
+  const alias = join(tmp("alias"), "main-link");
+  symlinkSync(main, alias, "junction");
+  const viaAlias = join(alias, ".claude", "worktrees", "wt");
+  expect(hookCwd(payload(viaAlias), main)).toBe(viaAlias);
 });
 
 test("anything else keeps the folder the hook started in", () => {

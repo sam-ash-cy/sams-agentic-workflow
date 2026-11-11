@@ -298,7 +298,7 @@ test("mods: not installed, unknown and malformed requests are refused and write 
   expect((await post(s, "/api/mods", { project: "global", name: "context-guard", enabled: true })).status).toBe(400);
   expect((await post(s, "/api/mods", { project: "global", name: "../../etc", enabled: true })).status).toBe(400);
   expect((await post(s, "/api/mods", { project: "global", name: "prompt-band", enabled: "yes" })).status).toBe(400);
-  expect(existsSync(user)).toBe(false);
+  expect(() => readFileSync(user, "utf8")).toThrow();
   writeFileSync(user, "{ not json");
   expect((await post(s, "/api/mods", { project: "global", name: "prompt-band", enabled: true })).status).toBe(400);
   expect(readFileSync(user, "utf8")).toBe("{ not json");

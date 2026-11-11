@@ -50,9 +50,21 @@ export interface ModInfo {
   install: string;
 }
 
+// The file's text, or undefined when it is not there. One read, no exists-then-read, so the
+// file cannot change between the check and the use.
+function readIfThere(file: string): string | undefined {
+  try {
+    return readFileSync(file, "utf8");
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code === "ENOENT") return undefined;
+    throw e;
+  }
+}
+
 function readPlugins(file: string | undefined): Record<string, unknown> {
-  if (!file || !existsSync(file)) return {};
-  const data: unknown = JSON.parse(readFileSync(file, "utf8"));
+  const text = file ? readIfThere(file) : undefined;
+  if (text === undefined) return {};
+  const data: unknown = JSON.parse(text);
   const plugins = data && typeof data === "object" ? (data as Record<string, unknown>).enabledPlugins : undefined;
   return plugins && typeof plugins === "object" ? (plugins as Record<string, unknown>) : {};
 }
@@ -87,7 +99,8 @@ export function setModEnabled(root: string, userFile: string, file: string, name
   const id = `${name}@${MOD_MARKETPLACE}`;
   try {
     if (!(id in readPlugins(userFile))) return { ok: false, problem: `${name} is not installed: ${`claude plugin install ${id}`}` };
-    const data: Record<string, unknown> = existsSync(file) ? (JSON.parse(readFileSync(file, "utf8")) as Record<string, unknown>) : {};
+    const current = readIfThere(file);
+    const data: Record<string, unknown> = current === undefined ? {} : (JSON.parse(current) as Record<string, unknown>);
     if (!data || typeof data !== "object" || Array.isArray(data)) return { ok: false, problem: `${file} is not a JSON object` };
     const plugins = data.enabledPlugins && typeof data.enabledPlugins === "object" ? (data.enabledPlugins as Record<string, unknown>) : {};
     plugins[id] = enabled;
