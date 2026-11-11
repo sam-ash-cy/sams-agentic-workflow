@@ -1,6 +1,6 @@
 {
   "name": "context-guard",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "description": "Warns as context fills and, past a limit, holds new prompts until you hand off to a fresh session",
   "types": "./types/index.d.ts",
   "userConfig": {

@@ -2,6 +2,19 @@
 
 All notable changes to this project. Versions follow [Semantic Versioning](https://semver.org); entries are generated from Conventional Commits by `saw release`.
 
+## [1.0.4] - 2026-11-11
+
+### Features
+
+- card layout, switches, filter and a saved toast ([#82](https://github.com/sam-ash-cy/sams-agentic-workflow/pull/82))
+- open the dashboard in a Claude Code pane ([#79](https://github.com/sam-ash-cy/sams-agentic-workflow/pull/79))
+- edit settings, mods and projects from the live dashboard ([#78](https://github.com/sam-ash-cy/sams-agentic-workflow/pull/78))
+
+### Fixes
+
+- find the saw checkout when the host has no saw on PATH ([#81](https://github.com/sam-ash-cy/sams-agentic-workflow/pull/81))
+- run saw through bun when its PATH shim cannot be spawned ([#80](https://github.com/sam-ash-cy/sams-agentic-workflow/pull/80))
+
 ## [Unreleased]
 
 ### Features

@@ -1,6 +1,6 @@
 {
   "name": "dashboard-pane",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "description": "The saw settings dashboard in a pane beside the chat: pick a project, switch settings and mods, add projects. Starts its own local server and stops it when the pane closes",
   "types": "./types/index.d.ts",
   "userConfig": {
