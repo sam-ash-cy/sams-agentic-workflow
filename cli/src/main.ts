@@ -21,6 +21,7 @@ import { effectiveStyle, styleCheck, styleLine, TONES } from "./style";
 import { autopilot, eligible, parseQueue, readRuns, readState as autopilotState, scheduleCommand, settings as autopilotSettings, spawnClaude, stopReasons } from "./autopilot";
 import { renderHtml, renderMarkdown } from "./dashboard";
 import { dashboardUrl, serveDashboard } from "./dashboard-server";
+import { hookCwd } from "./hook-cwd";
 import { logEvent, readEvents } from "./events";
 import { adoption, formatAdoption } from "./adoption";
 import { appendMetric, buildMetric, readMetrics } from "./metrics";
@@ -205,7 +206,8 @@ export const useStdin = (text: string | undefined): void => {
 };
 const readStdin = (): string => stdinOverride ?? readFileSync(0, "utf8");
 
-export function run(argv: string[], cwd = process.cwd()): number {
+export function run(argv: string[], cwdArg?: string): number {
+  let cwd = cwdArg ?? process.cwd();
   let args: Args;
   try {
     args = parseArgs(argv);
@@ -217,6 +219,14 @@ export function run(argv: string[], cwd = process.cwd()): number {
   if (args.flags.has("--help") || args.flags.has("-h")) {
     console.log(USAGE);
     return 0;
+  }
+  // A hook started with no folder given works where the session does: in a git worktree that is
+  // the payload's cwd, not the folder Claude Code was launched from (see hook-cwd.ts). The payload
+  // is read once here; the commands below read it back from stdinOverride.
+  if (cwdArg === undefined && HOOKS.includes(command ?? "") && (stdinOverride !== undefined || !process.stdin.isTTY)) {
+    const text = readStdin();
+    stdinOverride = text;
+    cwd = hookCwd(text, cwd);
   }
   // The guard reads its payload once, here: read-only tools are answered
   // before any settings file is read (see readOnlyGuard).
