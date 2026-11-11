@@ -120,7 +120,7 @@ export function budgetNudge(config: Table, tier: string, spent: number, alreadyF
   const pct = Math.round(share * 100);
   if (share >= 1 && !alreadyFired.includes(1)) {
     const message = t.mode === "hard"
-      ? `This ${tier} task has used ${pct}% of its ${budget}-token budget (hard mode). Stop at the next safe point, write a handoff (prompts/handoff.md) and run saw task end; don't start new work.`
+      ? `This ${tier} task has used ${pct}% of its ${budget}-token budget (hard mode). Stop at the next safe point, write a handoff (prompts/handoff.md) and run saw task end --reason "<why>" (required unless the task is Verified); don't start new work.`
       : `This ${tier} task has used ${pct}% of its ${budget}-token budget. Ask the user whether to continue before doing more.`;
     return { share: 1, level: "handoff", message };
   }

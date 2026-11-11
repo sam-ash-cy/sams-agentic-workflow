@@ -93,7 +93,7 @@ const PUSH_RANK = ["never", "ask", "allow"];
 
 function tightens(key: string, current: Value, next: Value): boolean {
   if (key === "safety.push") return PUSH_RANK.indexOf(String(next)) <= PUSH_RANK.indexOf(String(current));
-  const rank = key === "autonomy.level" ? LEVEL_RANK : key.startsWith("autonomy.actions.") ? ACTION_RANK : key === EVIDENCE_KEY ? EVIDENCE_RANK : undefined;
+  const rank = key === "autonomy.level" ? LEVEL_RANK : key.startsWith("autonomy.actions.") ? ACTION_RANK : key === EVIDENCE_KEY ? EVIDENCE_RANK : key === VERIFY_MODE_KEY ? VERIFY_MODE_RANK : undefined;
   // An unknown value (indexOf -1) never counts as tightening.
   if (rank) return rank.includes(String(next)) && rank.indexOf(String(next)) <= rank.indexOf(String(current));
   if (LOOSER_WHEN_ON.includes(key)) return next === false || current === true;
@@ -109,7 +109,10 @@ const LOOSER_WHEN_ON = ["features.parallel_sessions", "features.worktrees"];
 // A cloned repo may demand review evidence, never waive it.
 const EVIDENCE_KEY = "verify.require_review_evidence";
 const EVIDENCE_RANK = ["review_session", "agent", "off"];
-const guarded = (key: string): boolean => key.startsWith("safety.") || key.startsWith("autonomy.") || LOOSER_WHEN_ON.includes(key) || key === EVIDENCE_KEY;
+// Likewise verify.mode: a cloned repo may go hard, never soft.
+const VERIFY_MODE_KEY = "verify.mode";
+const VERIFY_MODE_RANK = ["hard", "soft"];
+const guarded = (key: string): boolean => key.startsWith("safety.") || key.startsWith("autonomy.") || LOOSER_WHEN_ON.includes(key) || key === EVIDENCE_KEY || key === VERIFY_MODE_KEY;
 // Whether the project layer would ignore this value as looser than the default.
 export const loosens = (key: string, value: Value): boolean => guarded(key) && key in DEFAULT_KEYS && !tightens(key, DEFAULT_KEYS[key]!, value);
 

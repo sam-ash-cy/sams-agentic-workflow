@@ -107,7 +107,16 @@ export const DEFAULTS: Table = {
   branch: { base: "main", mode: "auto" },
   // routing.mode hard (features.verify_hook): saw guard denies edits to files in a saw project
   // until a task is open (router skill, then `saw task start` or `saw task adhoc`). soft = nudges only.
-  routing: { default_tier: "auto", always_grill: ["complex", "critical"], mode: "hard" },
+  // The tier floor: a task is at least standard past trivial_max_files files or trivial_max_lines changed lines
+  // since it started, and critical when a changed path matches a critical_paths glob.
+  routing: {
+    default_tier: "auto",
+    always_grill: ["complex", "critical"],
+    mode: "hard",
+    trivial_max_files: 3,
+    trivial_max_lines: 60,
+    critical_paths: ["**/auth/**", "**/*secret*", "**/migrations/**", "infra/**", "**/*.tf", ".github/workflows/**"],
+  },
   // features.tdd: mode hard = on standard-or-higher tasks in these playbooks, saw
   // guard denies code edits (tests excepted) until `saw run test` has failed since
   // the task started. Needs [checks].test. soft = the step only.
@@ -142,6 +151,10 @@ export const DEFAULTS: Table = {
     // and passed with --report); "review_session" a saw review-session only.
     // A guardrail: workflow.toml can raise it, only your own layers can lower it.
     require_review_evidence: "off",
+    // mode hard (features.verify_hook): saw guard denies git commit, git push and gh pr create
+    // while the open task isn't Verified, or its tier is below the diff's floor (routing.trivial_max_*,
+    // routing.critical_paths). soft = the Stop gate only. A guardrail: workflow.toml can raise it, only your own layers can lower it.
+    mode: "hard",
     trivial: { run: ["test"] },
     standard: { run: ["format", "lint", "typecheck", "test", "code_review", "security_review", "advisor", "docs"] },
     complex: { extends: "standard", run: [] },
@@ -257,6 +270,7 @@ export const ENUMS: Record<string, string[]> = {
   "routing.default_tier": ["auto", "trivial", "standard", "complex", "critical"],
   "tokens.mode": ["soft", "hard"],
   "routing.mode": ["soft", "hard"],
+  "verify.mode": ["soft", "hard"],
   "tdd.mode": ["soft", "hard"],
   "verify.require_review_evidence": ["off", "agent", "review_session"],
   "style.tone": ["normal", "structured", "detailed", "verbose"],

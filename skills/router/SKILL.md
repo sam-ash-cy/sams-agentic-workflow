@@ -45,7 +45,7 @@ Run `saw task status` and use its label:
 - **Partially verified**: some passed, some did not run (say which and why).
 - **Not verified**: none ran (say why, e.g. no Docker here).
 - **Blocked**: a check failed and is not fixed.
-For a PR description, paste `saw task report`. Then `saw task end`. A Stop hook blocks "done" while required checks are missing or failing. If a check failed during the task, run `saw retro`; any proposal it writes is handled with the retro-promote skill.
+For a PR description, paste `saw task report`. Then `saw task end`. A Stop hook blocks "done" while required checks are missing or failing, and with `verify.mode = hard` saw guard denies `git commit`, `git push` and `gh pr create` until the task is Verified. If the diff outgrows the tier (more than `routing.trivial_max_files` files or `routing.trivial_max_lines` lines, or a `routing.critical_paths` file), run `saw task retier <tier>` as the block says; never lower it. If a check can't run here, close with `saw task end --reason "<why>"` (required unless Verified) and report it as Not verified. If session start says the open task belongs to another session, run `saw resume` or `saw task end --reason "<why>"` before editing. If a check failed during the task, run `saw retro`; any proposal it writes is handled with the retro-promote skill.
 
 ## 5. Suggest
 After the report, suggest at most two follow-up features or improvements, each one line, and ask which (if any) the user wants.
