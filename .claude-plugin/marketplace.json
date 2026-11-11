@@ -7,7 +7,7 @@
     {
       "name": "sams-agentic-workflow",
       "source": "./",
-      "version": "1.0.2",
+      "version": "1.0.3",
       "description": "Make your coding agent prove it's done: risk-tiered routing, a gate that blocks 'done' until checks pass, hook-enforced guardrails, token budgets and evidence-driven retros. 45+ features, each switchable globally or per project.",
       "category": "development",
       "homepage": "https://github.com/sam-ash-cy/sams-agentic-workflow",

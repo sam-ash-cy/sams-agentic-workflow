@@ -2,6 +2,12 @@
 
 All notable changes to this project. Versions follow [Semantic Versioning](https://semver.org); entries are generated from Conventional Commits by `saw release`.
 
+## [1.0.3] - 2026-11-11
+
+### Fixes
+
+- line the cost and task-state lines up with the button labels ([#76](https://github.com/sam-ash-cy/sams-agentic-workflow/pull/76))
+
 ## [1.0.2] - 2026-11-11
 
 ### Features
