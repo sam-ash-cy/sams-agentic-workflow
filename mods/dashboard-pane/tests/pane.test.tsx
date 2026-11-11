@@ -7,7 +7,7 @@ const BASE = 'http://127.0.0.1:41234'
 const LAUNCH = `saw dashboard: open ${BASE}/?k=${'a'.repeat(64)} (one use; Ctrl+C to stop)\n`
 
 const row = (key: string, over: Record<string, unknown> = {}) => ({ key, group: key.split('.')[0], description: `about ${key}`, type: 'boolean', default: false, value: false, source: 'default', ...over })
-const PROJECTS = { writable: true, current: '0', projects: [{ id: 'global', name: 'Global', path: '/home/.saw/config.toml', state: 'ready', summary: 'applies to every project' }, { id: '0', name: 'demo', path: '/repo/demo', state: 'ready', summary: '3 tasks' }] }
+const PROJECTS = { writable: true, current: '0', projects: [{ id: 'global', name: 'Global', path: 'global/config.toml', state: 'ready', summary: 'applies to every project' }, { id: '0', name: 'demo', path: '/repo/demo', state: 'ready', summary: '3 tasks' }] }
 const ROWS = { rows: [row('features.grilling'), row('features.docs_step', { value: true, layer: true, source: 'project' }), row('verify.mode', { type: 'enum', options: ['soft', 'hard'], value: 'soft', group: 'verify' })], warnings: [] }
 const MODS = { writable: true, restart: 'A change takes effect in a new Claude session.', scope: '.claude/settings.local.json', mods: [{ name: 'prompt-band', description: 'Buttons above the prompt', state: 'enabled', own: false, install: 'claude plugin install prompt-band@sams-agentic-workflow' }, { name: 'trail-nudge', description: 'Nudges', state: 'not installed', own: false, install: 'claude plugin install trail-nudge@sams-agentic-workflow' }] }
 
