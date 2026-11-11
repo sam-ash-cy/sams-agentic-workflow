@@ -15,10 +15,16 @@ type Seen = { url: string; method: string; headers: Record<string, string>; body
 const reply = (status: number, body: unknown) => ({ value: { status, ok: status < 300, headers: {}, text: JSON.stringify(body) } })
 
 // A fake dashboard server behind http.fetch, and a fake `saw dashboard --serve` child behind process.spawn.
-function fake($: any, on: any, over: { fetchFails?: boolean; output?: string; projects?: unknown; post?: (e: Seen) => ReturnType<typeof reply> } = {}) {
+function fake($: any, on: any, over: { noSaw?: boolean; fetchFails?: boolean; output?: string; projects?: unknown; post?: (e: Seen) => ReturnType<typeof reply> } = {}) {
   const clock = mock.clock(on)
   const seen: Seen[] = []
   const spawned: { argv: string[]; ended: boolean }[] = []
+  // `saw --version` starts unless the test says saw cannot be spawned (a shell shim on Windows).
+  on('process.run', (_: unknown, e: { argv: string[] }) => {
+    if (over.noSaw && e.argv[0] === 'saw') return { deny: 'ENOENT: saw not found' }
+    const out = e.argv[0] === 'where' ? 'C:\\tools\\saw\\bin\\saw\r\nC:\\tools\\saw\\bin\\saw.cmd\r\n' : ''
+    return { value: { exitCode: 0, stdout: out, stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
+  })
   on('session.cwd', () => ({ value: '/repo/demo' }))
   on('ui.open', () => ({ value: { isPlaced: true } }))
   on('ui.close', () => ({ value: undefined }))
@@ -171,4 +177,10 @@ test('a server that stops answering shows an error with a way to try again, not 
   expect(await ui.find({ type: 'Text', text: /did not answer/ })).toBeDefined()
   expect(await ui.find({ type: 'Button', key: 'retry' })).toBeDefined()
   await ui.unmount()
+})
+
+test('when saw cannot be spawned (a shell shim), the pane runs the checkout it lives in with bun', async ($, on) => {
+  const { spawned } = fake($, on, { noSaw: true })
+  await $.command.run({ command: 'dashboard-pane' })
+  expect(spawned[0]!.argv).toEqual(['bun', 'C:\\tools\\saw/cli/src/main.ts', 'dashboard', '--serve', '--port', '0'])
 })

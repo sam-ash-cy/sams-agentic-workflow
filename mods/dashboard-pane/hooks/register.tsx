@@ -38,7 +38,33 @@ export function parseLaunch(out: string): { base: string; code: string } | undef
   return { base: `http://127.0.0.1:${m[1]}`, code: m[2]! }
 }
 
-const sawArgv = (opts: Options): string[] => (opts.sawCommand ?? 'saw').split(' ').filter(Boolean)
+let resolved: string[] | undefined
+
+// How to run saw. An explicit sawCommand wins. Otherwise plain `saw` if it starts; on Windows the
+// `saw` on PATH is a shell shim that cannot be spawned without a shell, so find the repo it lives
+// in (where saw) and run its CLI with bun, which is a real executable.
+async function sawArgv($: EngineInterface, opts: Options): Promise<string[]> {
+  if (opts.sawCommand && opts.sawCommand !== 'saw') return opts.sawCommand.split(' ').filter(Boolean)
+  if (resolved) return resolved
+  try {
+    await $.process.run(['saw', '--version'], { timeoutMs: 10000 })
+    resolved = ['saw']
+    return resolved
+  } catch {
+    /* not startable here: look for the checkout it lives in */
+  }
+  try {
+    const found = await $.process.run(['where', 'saw'], { timeoutMs: 10000 })
+    const shim = found.stdout.split('\n').map(l => l.trim()).find(l => /[\\/]bin[\\/]saw(\.cmd)?$/i.test(l))
+    if (shim) {
+      resolved = ['bun', shim.replace(/[\\/]bin[\\/]saw(\.cmd)?$/i, '/cli/src/main.ts')]
+      return resolved
+    }
+  } catch {
+    /* no where.exe: fall through to the plain name and its error */
+  }
+  return ['saw']
+}
 
 function release(): void {
   const c = child
@@ -56,7 +82,7 @@ function stop(): void {
 }
 
 async function start($: EngineInterface, opts: Options): Promise<Conn> {
-  const run: Child = $.process.spawn({ argv: [...sawArgv(opts), 'dashboard', '--serve', '--port', '0'], cwd: await $.session.cwd() })
+  const run: Child = $.process.spawn({ argv: [...(await sawArgv($, opts)), 'dashboard', '--serve', '--port', '0'], cwd: await $.session.cwd() })
   child = run
   let found: (a: { base: string; code: string }) => void = () => {}
   let failed: (e: Error) => void = () => {}

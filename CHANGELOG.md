@@ -11,6 +11,10 @@ All notable changes to this project. Versions follow [Semantic Versioning](https
 - `saw projects list | add | remove`; `saw init` and `saw task start` register the folder they run in
 - `isKnownKey` rejects `__proto__`, `constructor` and `prototype` segments, so `saw config set verify.__proto__.run` can no longer reach the prototype chain
 
+### Fixes
+
+- `dashboard-pane`: on Windows, where `saw` on PATH is a shell shim that cannot be spawned without a shell, the pane finds the checkout (`where saw`) and runs its CLI with bun. macOS and Linux run `saw` directly, as before
+
 ### Removed
 
 - ECC support: the optional ECC plugin, `features.ecc`, `SAW_WITH_ECC` and the doctor checks for it. A leftover `features.ecc` in your settings is ignored with a warning.
