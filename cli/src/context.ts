@@ -18,7 +18,7 @@ export function routerNudge(cwd: string, config: Table, prompt?: string): Record
   const features = (config.features ?? {}) as Record<string, boolean>;
   if (!features.verify_hook || !isSawProject(cwd) || currentTask(cwd)) return undefined;
   let message = "No saw task is open. If this prompt asks for a code or config change, use the router skill first: classify it, then run `saw task start --tier <t> --playbook <p>`. Skip this for questions.";
-  const auto = ((config.routing ?? {}) as { auto?: string }).auto ?? "suggest";
+  const auto = ((config.routing ?? {}) as { auto?: string }).auto ?? "open";
   const route = auto !== "off" && typeof prompt === "string" ? classify(prompt) : "none";
   if (route !== "none") {
     // The audit playbook needs features.audit; without it, saw task start would refuse.

@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { classify } from "../src/auto-route";
@@ -55,7 +55,7 @@ function project(toml: string): { cwd: string; config: ReturnType<typeof resolve
 const text = (o: Record<string, unknown> | undefined): string => JSON.stringify(o ?? {});
 
 test("suggest adds the proposed saw task start line to the router nudge, not for questions", () => {
-  const { cwd, config } = project('[checks]\ntest = "exit 0"\n');
+  const { cwd, config } = project('[routing]\nauto = "suggest"\n[checks]\ntest = "exit 0"\n');
   expect(text(routerNudge(cwd, config, "fix the crash when the config file is empty"))).toContain("saw task start --tier standard --playbook debug");
   expect(text(routerNudge(cwd, config, "what does this do?"))).not.toContain("Proposed");
   expect(currentTask(cwd)).toBeUndefined();
@@ -67,7 +67,7 @@ test("off leaves the nudge as it was", () => {
 });
 
 test("an audit proposal falls back to feature while features.audit is off", () => {
-  const { cwd, config } = project('[features]\naudit = false\n');
+  const { cwd, config } = project('[routing]\nauto = "suggest"\n[features]\naudit = false\n');
   expect(text(routerNudge(cwd, config, "audit the dependencies"))).toContain("--playbook feature");
 });
 
@@ -89,4 +89,29 @@ test("saw task start replaces a provisional task with a confirmed one", () => {
   expect(currentTask(cwd)!.provisional).toBe(true);
   startTask(cwd, "trivial", "feature");
   expect(currentTask(cwd)!.provisional).toBeUndefined();
+});
+
+test("soft routing with auto = open: an untasked edit opens a provisional task and Stop doesn't block", () => {
+  const dir = mkdtempSync(join(tmpdir(), "saw-ar-"));
+  writeFileSync(join(dir, "workflow.toml"), '[checks]\ntest = "exit 0"\n');
+  const home = mkdtempSync(join(tmpdir(), "saw-ar-home-"));
+  const env = { ...process.env, SAW_HOME: home, HOME: home, USERPROFILE: home } as Record<string, string>;
+  const main = join(import.meta.dir, "..", "src", "main.ts");
+  const hook = (name: string, payload: unknown): string =>
+    Bun.spawnSync(["bun", main, name], { cwd: dir, env, stdin: Buffer.from(JSON.stringify(payload)), stdout: "pipe", stderr: "pipe", timeout: 20000 }).stdout.toString();
+  hook("format-hook", { tool_name: "Edit", tool_input: { file_path: join(dir, "a.ts") } });
+  expect(currentTask(dir)?.provisional).toBe(true);
+  expect(existsSync(join(dir, ".saw", "untasked-edits"))).toBe(false);
+  expect(hook("gate", { session_id: "s1" })).not.toContain("no saw task is open");
+});
+
+test("hard routing still marks untasked edits for the Stop gate", () => {
+  const dir = mkdtempSync(join(tmpdir(), "saw-ar-"));
+  writeFileSync(join(dir, "workflow.toml"), '[routing]\nmode = "hard"\n');
+  const home = mkdtempSync(join(tmpdir(), "saw-ar-home-"));
+  const env = { ...process.env, SAW_HOME: home, HOME: home, USERPROFILE: home } as Record<string, string>;
+  const main = join(import.meta.dir, "..", "src", "main.ts");
+  Bun.spawnSync(["bun", main, "format-hook"], { cwd: dir, env, stdin: Buffer.from(JSON.stringify({ tool_name: "Edit", tool_input: { file_path: join(dir, "a.ts") } })), stdout: "pipe", stderr: "pipe", timeout: 20000 });
+  expect(currentTask(dir)).toBeUndefined();
+  expect(existsSync(join(dir, ".saw", "untasked-edits"))).toBe(true);
 });

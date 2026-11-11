@@ -81,6 +81,14 @@ export function openProvisional(cwd: string, tier: string, playbook: string): Ta
 // so routing is only enforced where the workflow was set up.
 export const isSawProject = (cwd: string): boolean => existsSync(join(cwd, "workflow.toml"));
 
+// Whether an edit to filePath, with no task open, belongs to this project (see markUntaskedEdit).
+export function editOpensProvisional(cwd: string, filePath?: string): boolean {
+  if (!isSawProject(cwd) || currentTask(cwd)) return false;
+  if (!filePath) return true;
+  const rel = relative(cwd, resolve(cwd, filePath));
+  return !rel.startsWith("..") && !isAbsolute(rel);
+}
+
 // Post-edit hook: remembers that files changed while no task was open.
 // An edit in another repo (or ~/.claude) isn't this project's work: that repo's
 // own task, if any, covers it, so it doesn't arm this project's Stop gate.

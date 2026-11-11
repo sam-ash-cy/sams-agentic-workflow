@@ -14,7 +14,7 @@ Global flag on every command: `--set key=value` overrides a setting for that cal
 | `saw init --upgrade [--dry-run]` | Updates template files you haven't edited; lists edited ones as `kept (edited)`. |
 | `saw init --workspace <dir> [--apply]` | Lists every git repo directly under `<dir>` that has no `workflow.toml` and shows what `saw init` would do in each; `--apply` runs it. Skips repos that already have `workflow.toml`, and worktrees and submodules (a `.git` file). Not recursive. |
 | `saw uninstall [--dry-run]` | Removes template files you haven't edited. |
-| `saw doctor [--hooks] [--no-plugin]` | Checks settings (unknown keys, bad values, weakened guardrails), the environment and the plugin install (`claude plugin list`). `--hooks` runs each plugin hook once; `--no-plugin` or `SAW_NO_PLUGIN=1` skips the plugin check. Warns when a saw project has no `checks.*` command. |
+| `saw doctor [--hooks] [--no-plugin]` | Checks settings (unknown keys, bad values, weakened guardrails), the environment and the plugin install (`claude plugin list`). `--hooks` runs each hook entry in `hooks/hooks.json` once, in an empty temporary folder with a harmless payload, and prints its time in milliseconds; `--no-plugin` or `SAW_NO_PLUGIN=1` skips the plugin check. Warns when a saw project has no `checks.*` command. |
 | `saw sync [--plugin-dir <dir>] [--dry-run] [--session]` | Writes `.saw/resolved.json`, sets each agent's `model:` and `effort:` from `[models]`, and denies the skills of features you turned off. `--session` also writes the plan phase's `model` (`opusplan` when plan is opus and implement is sonnet) and `effortLevel` into `.claude/settings.local.json`, which takes effect on the next start. Run after changing features or models. |
 | `saw agents check` | Checks that each agent in `agents.enabled` will read `AGENTS.md`. |
 
@@ -205,7 +205,7 @@ The runner never approves items, edits the queue, merges, pushes to the base bra
 
 ## Hooks
 
-Claude Code runs these from the plugin's `hooks/hooks.json`; you don't call them yourself. `saw doctor --hooks` runs each once.
+Claude Code runs these from the plugin's `hooks/hooks.json`; you don't call them yourself. `saw doctor --hooks` runs each once and prints its time in ms. The guard answers plain `Read`, `Grep` and `Glob` calls before loading the CLI; calls that name `.env*`, `.saw` or the signing key take the full guard.
 
 | Command | Event | What it does |
 |---|---|---|
@@ -239,7 +239,7 @@ Later layers win; `--set` beats all of them for one call. From `workflow.toml`, 
 | Key | Default | Purpose |
 |---|---|---|
 | `features.grilling` | `true` | Clarifying questions before complex work. |
-| `features.tdd` | `true` | Test-first step in task steps. With `tdd.mode = "hard"` (default) and a `[checks].test` command, saw guard denies code edits (test files excepted) on standard-or-higher tasks in `tdd.playbooks` (default feature, foundation, integration, debug) until `saw run test` has failed since the task started. `"soft"`: the step only. |
+| `features.tdd` | `true` | Test-first step in task steps. With `tdd.mode = "hard"` and a `[checks].test` command, saw guard denies code edits (test files excepted) on standard-or-higher tasks in `tdd.playbooks` (default feature, foundation, integration, debug) until `saw run test` has failed since the task started. `"soft"` (default): the step only. |
 | `features.code_review` | `true` | `code_review` in `[verify]`; off drops it. |
 | `features.security_review` | `true` | `security_review` in `[verify]`; off drops it. |
 | `features.verify_hook` | `true` | The gate and the no-task router reminder. |
@@ -284,7 +284,7 @@ Later layers win; `--set` beats all of them for one call. From `workflow.toml`, 
 | `routing.trivial_max_lines` | `60` | Likewise for changed lines (added plus removed, new files counted). |
 | `routing.critical_paths` | auth, secrets, migrations, `infra/`, `*.tf`, `.github/workflows/` globs | A changed path matching one makes the floor `critical`. Below the floor, the Stop gate and (verify.mode hard) the commit guard block until `saw task retier <tier>`. |
 | `enforcement` | `"custom"` | Top-level preset for the six enforcement modes. `strict`: `routing.mode`, `verify.mode`, `tdd.mode`, `tokens.mode`, `style.mode` and `sessions.mode` all `hard`; `relaxed`: all `soft`; `custom`: each key decides. The preset wins over the keys, and `saw config show --resolved` lists them with source `enforcement=<preset>`. **G** (a committed `workflow.toml` can go `strict`, never `relaxed`) |
-| `routing.auto` | `"suggest"` | With no task open in a saw project, the UserPromptSubmit hook classifies the prompt by fixed keyword and path rules (`RULES` in `cli/src/auto-route.ts`, no model call or network) into a tier and playbook; questions and other non-change prompts classify as none. `suggest`: the router nudge adds the proposed `saw task start` line. `open`: saw opens that task flagged provisional, and `verify.mode = "hard"` holds commits until `saw task retier <tier>` or `saw task start` confirms it. `off`: neither. |
+| `routing.auto` | `"open"` | With no task open in a saw project, the UserPromptSubmit hook classifies the prompt by fixed keyword and path rules (`RULES` in `cli/src/auto-route.ts`, no model call or network) into a tier and playbook; questions and other non-change prompts classify as none. `suggest`: the router nudge adds the proposed `saw task start` line. `open`: saw opens that task flagged provisional, and `verify.mode = "hard"` holds commits until `saw task retier <tier>` or `saw task start` confirms it; with `routing.mode = "soft"`, an edit made with no task open also opens a provisional standard / feature task, so the Stop gate doesn't block for untasked edits. `off`: neither. |
 | `routing.mode` | `"soft"` | `hard` (needs `features.verify_hook`, a project with `workflow.toml`): saw guard denies Edit/Write/MultiEdit/NotebookEdit of files in the repo while no task is open, naming the router skill, `saw task start --tier <t> --playbook <p>` and `saw task adhoc`. `.saw/`, `.claude/`, the repo's own top-level `plans/*.md` and paths outside the repo are exempt. `soft`: the router nudge and the Stop block only. Working-tree changes made without an edit tool (`sed -i`, redirects) are caught by the Stop block in both modes. |
 | `autonomy.level` | `"propose"` | `suggest` (never acts), `propose` (asks before outward-facing actions), `act`. **G** |
 | `autonomy.actions.commit` | `"ask"` | `never`, `ask` or `allow`. **G** |

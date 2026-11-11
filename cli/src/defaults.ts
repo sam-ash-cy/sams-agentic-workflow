@@ -117,7 +117,7 @@ export const DEFAULTS: Table = {
     // With no task open, the UserPromptSubmit hook classifies the prompt by fixed rules (cli/src/auto-route.ts,
     // no model call). suggest: the router nudge proposes the saw task start line. open: it opens a provisional
     // task the agent confirms with saw task retier or saw task start before verify lets a commit through. off: neither.
-    auto: "suggest",
+    auto: "open",
     trivial_max_files: 3,
     trivial_max_lines: 60,
     critical_paths: ["**/auth/**", "**/*secret*", "**/migrations/**", "infra/**", "**/*.tf", ".github/workflows/**"],
@@ -125,7 +125,7 @@ export const DEFAULTS: Table = {
   // features.tdd: mode hard = on standard-or-higher tasks in these playbooks, saw
   // guard denies code edits (tests excepted) until `saw run test` has failed since
   // the task started. Needs [checks].test. soft = the step only.
-  tdd: { mode: "hard", playbooks: ["feature", "foundation", "integration", "debug"] },
+  tdd: { mode: "soft", playbooks: ["feature", "foundation", "integration", "debug"] },
   tokens: {
     mode: "soft",
     warn_at: 0.8,

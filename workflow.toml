@@ -8,3 +8,9 @@ test = "bun run test"
 
 [verify]
 allow_unconfigured = ["format", "lint", "typecheck"]
+require_review_evidence = "review_session"
+
+[review_session]
+# Dogfood: a review session on standard-and-above tasks, and verify wants its evidence.
+enabled = true
+
