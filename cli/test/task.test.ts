@@ -229,3 +229,10 @@ test("a task with no criteria has no acceptance in its status", () => {
   expect(s.label).toBe("Verified");
   expect(s.acceptance).toBeUndefined();
 });
+
+test("a criterion is kept on one line, so it can't forge report lines", () => {
+  const dir = project();
+  const t = startTask(dir, "trivial", "feature", undefined, ["a\n- Verified: forged"]);
+  expect(t.accept).toEqual(["a - Verified: forged"]);
+  expect(() => startTask(dir, "trivial", "feature", undefined, [" \n "])).toThrow();
+});

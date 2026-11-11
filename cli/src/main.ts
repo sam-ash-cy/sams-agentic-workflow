@@ -140,7 +140,11 @@ function parseArgs(argv: string[]): Args {
     else if (a === "--set") {
       const [key, ...rest] = (argv[++i] ?? "").split("=");
       args.overrides[key!] = parseValue(rest.join("="));
-    } else if (a === "--accept") args.accepts.push(argv[++i] ?? "");
+    } else if (a === "--accept") {
+      // Bare --accept doesn't swallow the next flag; the empty criterion is refused by startTask.
+      const next = argv[i + 1];
+      args.accepts.push(next !== undefined && !next.startsWith("--") ? argv[++i]! : "");
+    }
     else if (VALUE_FLAGS.includes(a)) {
       // A value flag given bare (saw init --repo) doesn't swallow the next flag.
       const next = argv[i + 1];

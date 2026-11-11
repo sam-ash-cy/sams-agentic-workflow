@@ -66,7 +66,7 @@ export function startTask(cwd: string, tier: string, playbook: string, style?: T
   const dirty = head ? dirtyBaseline(cwd) : undefined;
   if (dirty) task.baseDirty = dirty;
   if (style && (style.tone || style.max_words)) task.style = style;
-  const criteria = accept.map((a) => a.trim());
+  const criteria = accept.map(oneLine);
   if (criteria.some((a) => !a)) throw new Error("--accept needs a non-empty criterion");
   if (criteria.length) task.accept = criteria;
   mkdirSync(dir(cwd), { recursive: true });
@@ -124,11 +124,15 @@ export function restoreTask(cwd: string, task: Task): void {
 
 const writeTask = (cwd: string, task: Task): void => writeFileSync(join(dir(cwd), "task.json"), JSON.stringify(task, null, 2) + "\n");
 
+// A criterion on one line: it may come from a queue file, and a newline in it
+// could forge lines in saw task report's PR section.
+const oneLine = (s: string): string => s.replace(/\s+/g, " ").trim();
+
 // saw task accept add: one more criterion on the open task; returns its number.
 export function addAcceptance(cwd: string, criterion: string): number {
   const task = currentTask(cwd);
   if (!task) throw new Error("no task open");
-  const text = criterion.trim();
+  const text = oneLine(criterion);
   if (!text) throw new Error("the criterion is empty");
   task.accept = [...(task.accept ?? []), text];
   writeTask(cwd, task);
