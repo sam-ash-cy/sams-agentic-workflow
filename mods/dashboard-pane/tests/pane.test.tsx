@@ -15,9 +15,12 @@ type Seen = { url: string; method: string; headers: Record<string, string>; body
 const reply = (status: number, body: unknown) => ({ value: { status, ok: status < 300, headers: {}, text: JSON.stringify(body) } })
 
 // A fake dashboard server behind http.fetch, and a fake `saw dashboard --serve` child behind process.spawn.
-function fake($: any, on: any, over: { cwd?: string; whereEmpty?: boolean; noSaw?: boolean; fetchFails?: boolean; output?: string; projects?: unknown; post?: (e: Seen) => ReturnType<typeof reply> } = {}) {
+function fake($: any, on: any, over: { persist?: boolean; cwd?: string; whereEmpty?: boolean; noSaw?: boolean; fetchFails?: boolean; output?: string; projects?: unknown; post?: (e: Seen) => ReturnType<typeof reply> } = {}) {
   const clock = mock.clock(on)
   const seen: Seen[] = []
+  const stored: Record<string, unknown> = {}
+  const toasts: string[] = []
+  on('ui.toast', (_: unknown, e: { text: string }) => { toasts.push(e.text); return { value: undefined } })
   const spawned: { argv: string[]; ended: boolean }[] = []
   // `where saw` finds the checkout, as on Windows.
   on('process.run', (_: unknown, e: { argv: string[] }) => {
@@ -47,13 +50,20 @@ function fake($: any, on: any, over: { cwd?: string; whereEmpty?: boolean; noSaw
     const path = new URL(call.url).pathname
     if (over.fetchFails && path !== '/pane-session') throw new Error('connection refused')
     if (path === '/pane-session') return reply(200, { ok: true, session: 'S'.repeat(64), csrf: 'C'.repeat(64), writable: true })
-    if (call.method === 'POST') return over.post ? over.post(call) : reply(200, { ok: true })
+    if (call.method === 'POST') {
+      if (over.persist && path === '/api/settings') {
+        const b = JSON.parse(call.body ?? '{}') as { key: string; value?: unknown; unset?: boolean }
+        if (b.unset) delete stored[b.key]
+        else stored[b.key] = b.value
+      }
+      return over.post ? over.post(call) : reply(200, { ok: true })
+    }
     if (path === '/api/projects') return reply(200, over.projects ?? PROJECTS)
-    if (path === '/api/settings') return reply(200, ROWS)
+    if (path === '/api/settings') return reply(200, over.persist ? { ...ROWS, rows: ROWS.rows.map(r => ({ ...r, layer: r.key in stored ? stored[r.key] : undefined })) } : ROWS)
     if (path === '/api/mods') return reply(200, MODS)
     return reply(404, { ok: false })
   })
-  return { seen, spawned, clock }
+  return { seen, spawned, clock, toasts }
 }
 
 test('launch address parsing accepts only the loopback address the server prints', () => {
@@ -111,7 +121,7 @@ test('a switch posts from the dashboard origin with the csrf key, the project fo
   const { seen } = fake($, on)
   await $.command.run({ command: 'dashboard-pane' })
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
-  await ui.press({ plugin: 'dashboard-pane', key: 'set:features.grilling' })
+  await ui.press({ plugin: 'dashboard-pane', key: 'set:features.grilling:on' })
   const post = seen.find(s => s.method === 'POST')!
   expect(post.url).toBe(`${BASE}/api/settings`)
   expect(post.headers.origin).toBe(BASE)
@@ -125,8 +135,8 @@ test('a write the server refuses shows its reason', async ($, on) => {
   fake($, on, { post: () => reply(400, { ok: false, problem: 'The shared workflow.toml can only tighten verify.mode.' }) })
   await $.command.run({ command: 'dashboard-pane' })
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
-  await ui.press({ plugin: 'dashboard-pane', key: 'set:features.grilling' })
-  expect(await ui.find({ type: 'Text', text: 'The shared workflow.toml can only tighten verify.mode.' })).toBeDefined()
+  await ui.press({ plugin: 'dashboard-pane', key: 'set:features.grilling:on' })
+  expect(await ui.find({ type: 'Text', text: /Not saved: The shared workflow\.toml can only tighten verify\.mode\./ })).toBeDefined()
   await ui.unmount()
 })
 
@@ -135,7 +145,7 @@ test('a read-only dashboard offers no switches', async ($, on) => {
   await $.command.run({ command: 'dashboard-pane' })
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
   expect(await ui.find({ type: 'Text', text: 'features.grilling' })).toBeDefined()
-  expect(await ui.find({ type: 'Button', key: 'set:features.grilling' })).toBeUndefined()
+  expect(await ui.find({ type: 'Button', key: 'set:features.grilling:on' })).toBeUndefined()
   await ui.unmount()
 })
 
@@ -144,7 +154,7 @@ test('a mod switch posts to /api/mods', async ($, on) => {
   await $.command.run({ command: 'dashboard-pane' })
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
   await ui.press({ plugin: 'dashboard-pane', key: 'tab:mods' })
-  await ui.press({ plugin: 'dashboard-pane', key: 'mod:prompt-band' })
+  await ui.press({ plugin: 'dashboard-pane', key: 'mod:prompt-band:off' })
   const post = seen.find(s => s.method === 'POST')!
   expect(post.url).toBe(`${BASE}/api/mods`)
   expect(JSON.parse(post.body!)).toEqual({ project: '0', path: '/repo/demo', name: 'prompt-band', enabled: false })
@@ -210,5 +220,56 @@ test('when no checkout is found, the error says where it looked', async ($, on) 
   await $.command.run({ command: 'dashboard-pane' })
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
   expect(await ui.find({ type: 'Text', text: /no fallback: no saw checkout with the pane route found/ })).toBeDefined()
+  await ui.unmount()
+})
+
+for (const surface of ['terminal', 'desktop', 'vscode'] as const) {
+  test(`every tab draws on the ${surface} surface`, async ($, on) => {
+    fake($, on)
+    await $.command.run({ command: 'dashboard-pane' })
+    const ui = await $.ui.mount({ ...PANE, surface })
+    expect(await ui.find({ type: 'Text', text: 'features.grilling' })).toBeDefined()
+    await ui.press({ plugin: 'dashboard-pane', key: 'tab:mods' })
+    expect(await ui.find({ type: 'Text', text: 'prompt-band' })).toBeDefined()
+    await ui.press({ plugin: 'dashboard-pane', key: 'tab:projects' })
+    expect(await ui.find({ type: 'Button', key: 'open:0' })).toBeDefined()
+    await ui.unmount()
+  })
+}
+
+test('the filter finds settings across groups', async ($, on) => {
+  fake($, on)
+  await $.command.run({ command: 'dashboard-pane' })
+  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  await ui.input({ plugin: 'dashboard-pane', key: 'filter', text: 'mode' })
+  expect(await ui.find({ type: 'Text', text: 'verify.mode' })).toBeDefined()
+  await ui.unmount()
+})
+
+test('a saved setting pops up which setting changed, once the server reads it back', async ($, on) => {
+  const { toasts } = fake($, on, { persist: true })
+  await $.command.run({ command: 'dashboard-pane' })
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  await ui.press({ plugin: 'dashboard-pane', key: 'set:features.grilling:on' })
+  expect(toasts).toEqual(['✓ features.grilling: on'])
+  await ui.unmount()
+})
+
+test('a setting the server accepts but does not read back is reported, not called saved', async ($, on) => {
+  const { toasts } = fake($, on)
+  await $.command.run({ command: 'dashboard-pane' })
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  await ui.press({ plugin: 'dashboard-pane', key: 'set:features.grilling:on' })
+  expect(await ui.find({ type: 'Text', text: /reads back differently/ })).toBeDefined()
+  expect(toasts).toEqual([])
+  await ui.unmount()
+})
+
+test('a refused write says it was not saved', async ($, on) => {
+  fake($, on, { post: () => reply(400, { ok: false, problem: 'nope' }) })
+  await $.command.run({ command: 'dashboard-pane' })
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  await ui.press({ plugin: 'dashboard-pane', key: 'set:features.grilling:on' })
+  expect(await ui.find({ type: 'Text', text: 'Not saved: nope' })).toBeDefined()
   await ui.unmount()
 })

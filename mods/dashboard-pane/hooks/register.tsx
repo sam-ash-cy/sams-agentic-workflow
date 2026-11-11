@@ -11,10 +11,10 @@ import type { ModRow, Project, Scope, SettingRow, Tab, View } from '../types'
 
 const PANE = 'dashboard'
 const START_TIMEOUT_MS = 15000
-const PAGE_ROWS = 6
+const PAGE_ROWS = 7
 
-const EMPTY: View = { phase: 'idle', message: '', writable: false, tab: 'settings', project: '', scope: 'project', group: '', page: 0, projects: [], rows: [], mods: [], restart: '' }
-const view = atom({ plugin: 'dashboard-pane', key: 'view' } as const, EMPTY, { shape: 'view-1' })
+const EMPTY: View = { phase: 'idle', message: '', writable: false, tab: 'settings', project: '', scope: 'project', group: '', page: 0, filter: '', projects: [], rows: [], mods: [], restart: '' }
+const view = atom({ plugin: 'dashboard-pane', key: 'view' } as const, EMPTY, { shape: 'view-4' })
 
 type Options = { sawCommand?: string }
 type Conn = { base: string; session: string; csrf: string }
@@ -240,18 +240,31 @@ async function ensure($: EngineInterface, opts: Options): Promise<Conn | undefin
 }
 
 // Sends one write; on success reloads, on refusal shows the server's reason.
-async function write($: EngineInterface, opts: Options, path: string, body: Record<string, unknown>): Promise<void> {
+// What a write says when it worked: the words to show, and a check made on the data read back
+// afterwards, so "saved" means the server now reports the value, not only that it answered 200.
+type Note = { saved: string; check?: (after: View) => boolean; unverified?: string }
+
+async function write($: EngineInterface, opts: Options, path: string, body: Record<string, unknown>, note?: Note): Promise<void> {
   const c = await ensure($, opts)
   if (!c) return
   const v = await read($, view)
+  await update($, view, s => ({ ...s, message: '' }))
   const r = await api($, c, 'POST', path, { project: v.project, ...(v.project === 'global' ? {} : { path: folderOf(v) }), ...body })
   if (!r.ok) {
-    await update($, view, s => ({ ...s, message: problem(r) }))
+    await update($, view, s => ({ ...s, message: `Not saved: ${problem(r)}` }))
     return
   }
   // Removing or adding a project shifts the list positions, so go back to the opening project.
   const moved = path === '/api/projects' ? { project: '', page: 0 } : {}
   await load($, c, { ...moved, message: typeof r.body.warning === 'string' ? r.body.warning : '' })
+  if (!note) return
+  const after = await read($, view)
+  if (after.phase === 'error') return
+  if (note.check && !note.check(after)) {
+    await update($, view, s => ({ ...s, message: note.unverified ?? 'The server accepted the change but it did not read back as expected. Press Refresh and check.' }))
+    return
+  }
+  await $.ui.toast(`✓ ${note.saved}`, { timeoutMs: 6000 })
 }
 
 const clip = (s: string, n: number): string => (s.length > n ? `${s.slice(0, n - 1)}…` : s)
@@ -291,13 +304,18 @@ export const register: Register = (on, options) => {
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
     const { Box, Text, Button, Select, Input } = $.ui.resolve(e)
     const v = await read($, view)
-    if (v.phase === 'idle') return <Text dimColor>Run /dashboard-pane to open the dashboard.</Text>
-    if (v.phase === 'starting') return <Text dimColor>Starting the dashboard…</Text>
+    const retry = async (): Promise<void> => {
+      await update($, view, s => ({ ...s, phase: 'starting', message: '' }))
+      const c = await ensure($, opts)
+      if (c) await load($, c)
+    }
+    if (v.phase === 'idle') return <Box padding={1}><Text dimColor>Run /dashboard-pane to open the dashboard.</Text></Box>
+    if (v.phase === 'starting') return <Box padding={1}><Text dimColor>Starting the dashboard…</Text></Box>
     if (v.phase === 'error') {
       return (
-        <Box flexDirection="column">
+        <Box flexDirection="column" padding={1} gap={1}>
           <Text color="red">{v.message}</Text>
-          <Button key="retry" onPress={async () => { await update($, view, s => ({ ...s, phase: 'starting', message: '' })); const c = await ensure($, opts); if (c) await load($, c) }}>Try again</Button>
+          <Box><Button key="retry" variant="primary" onPress={retry}>Try again</Button></Box>
         </Box>
       )
     }
@@ -311,101 +329,145 @@ export const register: Register = (on, options) => {
       const c = await ensure($, opts)
       if (c) await load($, c, patch)
     }
-    const set = (key: string, value: unknown) => write($, opts, '/api/settings', { scope: v.scope, key, value })
-    const tabs: [Tab, string][] = [['settings', 'Settings'], ['mods', 'Mods'], ['projects', 'Projects']]
+    const where = v.scope === 'global' ? 'all projects (~/.saw/config.toml)' : v.scope === 'local' ? 'this project, only you (workflow.local.toml)' : 'this project, shared (workflow.toml)'
+    const same = (x: unknown, y: unknown): boolean => JSON.stringify(x) === JSON.stringify(y)
+    const set = (key: string, value: unknown) =>
+      write($, opts, '/api/settings', { scope: v.scope, key, value }, { saved: `${key}: ${typeof value === 'boolean' ? (value ? 'on' : 'off') : show(value)}`, check: a => same(a.rows.find(r => r.key === key)?.layer, value), unverified: `${key} was written but reads back differently. Press Refresh and check ${where}.` })
+    const reset = (key: string) =>
+      write($, opts, '/api/settings', { scope: v.scope, key, unset: true }, { saved: `${key}: reset`, check: a => a.rows.find(r => r.key === key)?.layer === undefined })
     const current = v.projects.find(p => p.id === v.project)
 
+    // A row of buttons where the chosen one is filled: a switch for on/off, a picker for a few options.
+    const seg = (base: string, options: { value: string; label: string }[], chosen: string, pick: (value: string) => unknown) => (
+      <Box>
+        {options.map(o => (
+          <Button key={`${base}:${o.value}`} variant={o.value === chosen ? 'primary' : 'secondary'} onPress={() => (o.value === chosen ? undefined : pick(o.value))}>{o.label}</Button>
+        ))}
+      </Box>
+    )
+    const chip = (state: string) => <Text bold color={state === 'ready' || state === 'enabled' ? 'green' : state === 'not set up' || state === 'disabled' || state === 'not installed' ? 'yellow' : 'red'}>{state}</Text>
+    const tabs: [Tab, string][] = [['settings', 'Settings'], ['mods', 'Mods'], ['projects', 'Projects']]
+
     const header = (
-      <Box flexDirection="column">
-        <Text bold>saw dashboard <Text dimColor>{current ? current.name : ''}</Text></Text>
-        <Select key="project" label="Project" value={v.project} options={v.projects.map(p => ({ value: p.id, label: p.name }))} onSelect={id => go({ project: id, group: '', page: 0 })()} />
-        <Box>
-          {tabs.map(([t, label]) => <Button key={`tab:${t}`} variant={v.tab === t ? 'primary' : undefined} onPress={() => update($, view, s => ({ ...s, tab: t, message: '' }))}>{label}</Button>)}
-          <Button key="refresh" dimColor onPress={refresh}>Refresh</Button>
-          <Button key="close" dimColor onPress={async () => { stop(); await update($, view, () => EMPTY); await $.ui.close({ id: PANE }) }}>Close</Button>
+      <Box flexDirection="column" gap={1}>
+        <Box justifyContent="space-between" alignItems="center">
+          <Text size="heading" weight="bold">saw dashboard</Text>
+          <Box gap={1}>
+            <Button key="refresh" dimColor onPress={refresh}>Refresh</Button>
+            <Button key="close" dimColor onPress={async () => { stop(); await update($, view, () => EMPTY); await $.ui.close({ id: PANE }) }}>Close</Button>
+          </Box>
         </Box>
-        {v.message !== '' && <Text color="yellow">{v.message}</Text>}
-        {!v.writable && <Text dimColor>Read-only here: switches are off.</Text>}
+        <Box flexDirection="column">
+          <Select key="project" label="Project" value={v.project} options={v.projects.map(p => ({ value: p.id, label: p.name }))} onSelect={id => go({ project: id, group: '', page: 0, filter: '' })()} />
+          {current && <Text dimColor wrap="truncate-middle">{current.path}</Text>}
+        </Box>
+        <Box gap={1}>
+          {tabs.map(([t, label]) => <Button key={`tab:${t}`} variant={v.tab === t ? 'primary' : 'secondary'} onPress={() => update($, view, s => ({ ...s, tab: t, message: '' }))}>{label}</Button>)}
+        </Box>
+        {v.message !== '' && <Box borderStyle="round" borderColor="yellow" paddingX={1}><Text color="yellow">{v.message}</Text></Box>}
+        {!v.writable && <Text dimColor>Read-only here: the switches are off.</Text>}
       </Box>
     )
 
+    let body
     if (v.tab === 'mods') {
-      return (
+      body = (
         <Box flexDirection="column">
-          {header}
           {v.mods.map(m => (
-            <Box flexDirection="column">
-              <Text bold>{m.name} <Text dimColor>{m.state}{m.own ? ' (this project)' : ''}</Text></Text>
-              <Text dimColor>{clip(m.description, 90)}</Text>
-              {m.state === 'not installed' ? <Text dimColor>{m.install}</Text> : v.writable && <Button key={`mod:${m.name}`} onPress={() => write($, opts, '/api/mods', { name: m.name, enabled: m.state !== 'enabled' })}>{m.state === 'enabled' ? '[x] on' : '[ ] off'}</Button>}
+            <Box key={`modcard:${m.name}`} flexDirection="column" borderStyle="round" borderColor="gray" paddingX={1} marginBottom={1}>
+              <Box justifyContent="space-between"><Text bold>{m.name}</Text>{chip(m.state)}</Box>
+              <Text dimColor>{clip(m.description, 140)}</Text>
+              <Box marginTop={1}>
+                {m.state === 'not installed' ? <Text dimColor mono>{m.install}</Text> : v.writable ? seg(`mod:${m.name}`, [{ value: 'on', label: 'On' }, { value: 'off', label: 'Off' }], m.state === 'enabled' ? 'on' : 'off', val => write($, opts, '/api/mods', { name: m.name, enabled: val === 'on' }, { saved: `${m.name}: ${val}`, check: a => a.mods.find(x => x.name === m.name)?.state === (val === 'on' ? 'enabled' : 'disabled') })) : <Text dimColor>{m.state}{m.own ? ' (this project)' : ''}</Text>}
+              </Box>
             </Box>
           ))}
           {v.restart !== '' && <Text dimColor>{v.restart}</Text>}
         </Box>
       )
-    }
-
-    if (v.tab === 'projects') {
-      return (
+    } else if (v.tab === 'projects') {
+      const open = (id: string) => go({ project: id, tab: 'settings', group: '', page: 0, filter: '' })
+      body = (
         <Box flexDirection="column">
-          {header}
-          {v.projects.filter(p => p.id !== 'global').map(p => (
-            <Box flexDirection="column">
-              <Text bold>{p.name} <Text dimColor>{p.state}</Text></Text>
-              <Text dimColor>{clip(p.path, 90)} · {p.summary}</Text>
-              {v.writable && (
-                <Box>
-                  {p.state === 'not set up' && <Button key={`setup:${p.id}`} onPress={() => write($, opts, '/api/projects', { action: 'setup', project: p.id, path: p.path })}>Set up</Button>}
-                  <Button key={`remove:${p.id}`} dimColor onPress={() => write($, opts, '/api/projects', { action: 'remove', project: p.id, path: p.path })}>Remove from list</Button>
-                </Box>
-              )}
+          {v.writable && <Box marginBottom={1}><Input key="add-project" label="Add a project (full folder path)" placeholder="C:\work\app" onSubmit={path => write($, opts, '/api/projects', { action: 'add', path }, { saved: 'Project added' })} /></Box>}
+          {v.projects.map(p => (
+            <Box key={`projcard:${p.id}`} flexDirection="column" borderStyle="round" borderColor={p.id === v.project ? 'cyan' : 'gray'} paddingX={1} marginBottom={1}>
+              <Box justifyContent="space-between"><Text bold>{p.name}</Text>{chip(p.state)}</Box>
+              {p.id !== 'global' && <Text dimColor wrap="truncate-middle">{p.path}</Text>}
+              <Text dimColor>{p.summary}</Text>
+              <Box marginTop={1} gap={1}>
+                <Button key={`open:${p.id}`} variant={p.id === v.project ? 'primary' : 'secondary'} onPress={open(p.id)}>{p.id === v.project ? 'Open settings' : 'Open'}</Button>
+                {v.writable && p.id !== 'global' && p.state === 'not set up' && <Button key={`setup:${p.id}`} variant="secondary" onPress={() => write($, opts, '/api/projects', { action: 'setup', project: p.id, path: p.path }, { saved: `${p.name}: set up` })}>Set up</Button>}
+                {v.writable && p.id !== 'global' && <Button key={`remove:${p.id}`} dimColor onPress={() => write($, opts, '/api/projects', { action: 'remove', project: p.id, path: p.path }, { saved: `${p.name}: removed from the list`, check: a => !a.projects.some(x => x.path === p.path) })}>Remove from list</Button>}
+              </Box>
             </Box>
           ))}
-          {v.writable && <Input key="add-project" label="Add a project (full folder path)" placeholder="C:\work\app" onSubmit={path => write($, opts, '/api/projects', { action: 'add', path })} />}
+        </Box>
+      )
+    } else {
+      const groups = [...new Set(v.rows.map(r => r.group))]
+      const needle = v.filter.trim().toLowerCase()
+      const shown = needle ? v.rows.filter(r => `${r.key} ${r.description}`.toLowerCase().includes(needle)) : v.rows.filter(r => r.group === v.group)
+      const pages = Math.max(1, Math.ceil(shown.length / PAGE_ROWS))
+      const page = Math.min(v.page, pages - 1)
+      body = (
+        <Box flexDirection="column" gap={1}>
+          {!global && (
+            <Box alignItems="center" gap={1}>
+              <Text dimColor>Save to</Text>
+              {seg('scope', [{ value: 'project', label: 'Shared' }, { value: 'local', label: 'Only me' }], v.scope, val => go({ scope: val as Scope })())}
+            </Box>
+          )}
+          <Input key="filter" label="Filter" placeholder="Search settings" value={v.filter} onInput={t => update($, view, s => ({ ...s, filter: t, page: 0 }))} onSubmit={t => update($, view, s => ({ ...s, filter: t, page: 0 }))} />
+          {!needle && (
+            <Box flexWrap="wrap" gap={1}>
+              {groups.map(g => <Button key={`group:${g}`} variant={g === v.group ? 'primary' : 'secondary'} onPress={() => update($, view, s => ({ ...s, group: g, page: 0 }))}>{g}</Button>)}
+            </Box>
+          )}
+          <Box flexDirection="column">
+            {shown.length === 0 && <Text dimColor>No settings match.</Text>}
+            {shown.slice(page * PAGE_ROWS, (page + 1) * PAGE_ROWS).map((r: SettingRow) => {
+              const allowed = (val: boolean): boolean => !(r.blocked ?? []).includes(val)
+              const lockedOut = r.type === 'boolean' && (!allowed(true) || !allowed(false))
+              return (
+                <Box key={`row:${r.key}`} flexDirection="column" borderStyle="round" borderColor="gray" paddingX={1} marginBottom={1}>
+                  <Box justifyContent="space-between"><Text bold mono>{r.key}</Text><Text dimColor>{r.source}</Text></Box>
+                  <Text dimColor>{clip(r.description, 140)}</Text>
+                  {r.note && <Text color="yellow">{r.note}</Text>}
+                  <Box marginTop={1} alignItems="center" gap={1}>
+                    {!v.writable || r.type === 'list' ? <Text>{show(r.value)}</Text> : r.type === 'boolean' ? (
+                      <Box alignItems="center" gap={1}>
+                        {seg(`set:${r.key}`, [{ value: 'on', label: 'On' }, { value: 'off', label: 'Off' }].filter(o => allowed(o.value === 'on')), r.value ? 'on' : 'off', val => set(r.key, val === 'on'))}
+                        {lockedOut && <Text dimColor>the shared file can only tighten this</Text>}
+                      </Box>
+                    ) : r.type === 'enum' && (r.options ?? []).length <= 4 ? (
+                      seg(`set:${r.key}`, (r.options ?? []).map(o => ({ value: o, label: o })), String(r.value), val => set(r.key, val))
+                    ) : r.type === 'enum' ? (
+                      <Select key={`set:${r.key}`} value={String(r.value)} options={(r.options ?? []).map(o => ({ value: o }))} onSelect={o => set(r.key, o)} />
+                    ) : (
+                      <Input key={`set:${r.key}`} value={String(r.value)} onSubmit={t => set(r.key, r.type === 'number' ? Number(t) : t)} />
+                    )}
+                    {v.writable && r.layer !== undefined && <Button key={`unset:${r.key}`} dimColor onPress={() => reset(r.key)}>Reset</Button>}
+                  </Box>
+                </Box>
+              )
+            })}
+          </Box>
+          {pages > 1 && (
+            <Box justifyContent="space-between" alignItems="center">
+              <Button key="prev" variant="secondary" onPress={() => update($, view, s => ({ ...s, page: Math.max(0, page - 1) }))}>Prev</Button>
+              <Text dimColor>{page + 1} / {pages}</Text>
+              <Button key="next" variant="secondary" onPress={() => update($, view, s => ({ ...s, page: Math.min(pages - 1, page + 1) }))}>Next</Button>
+            </Box>
+          )}
         </Box>
       )
     }
 
-    const groups = [...new Set(v.rows.map(r => r.group))]
-    const inGroup = v.rows.filter(r => r.group === v.group)
-    const pages = Math.max(1, Math.ceil(inGroup.length / PAGE_ROWS))
-    const page = Math.min(v.page, pages - 1)
     return (
-      <Box flexDirection="column">
+      <Box flexDirection="column" padding={1} gap={1}>
         {header}
-        {!global && (
-          <Box>
-            <Button key="scope:project" variant={v.scope === 'project' ? 'primary' : undefined} onPress={go({ scope: 'project' })}>Shared</Button>
-            <Button key="scope:local" variant={v.scope === 'local' ? 'primary' : undefined} onPress={go({ scope: 'local' })}>Only me</Button>
-          </Box>
-        )}
-        <Select key="group" label="Group" value={v.group} options={groups.map(g => ({ value: g }))} onSelect={g => update($, view, s => ({ ...s, group: g, page: 0 }))} />
-        {inGroup.slice(page * PAGE_ROWS, (page + 1) * PAGE_ROWS).map((r: SettingRow) => {
-          const next = r.type === 'boolean' ? !r.value : undefined
-          const blocked = next !== undefined && (r.blocked ?? []).includes(next)
-          return (
-            <Box flexDirection="column">
-              <Text bold>{r.key} <Text dimColor>{r.source}</Text></Text>
-              <Text dimColor>{clip(r.description, 100)}</Text>
-              {r.note && <Text color="yellow">{r.note}</Text>}
-              {!v.writable || r.type === 'list' ? <Text>{show(r.value)}</Text> : r.type === 'boolean' ? (
-                blocked ? <Text dimColor>{r.value ? '[x] on' : '[ ] off'} (the shared file can only tighten this)</Text> : <Button key={`set:${r.key}`} onPress={() => set(r.key, next)}>{r.value ? '[x] on' : '[ ] off'}</Button>
-              ) : r.type === 'enum' ? (
-                <Select key={`set:${r.key}`} value={String(r.value)} options={(r.options ?? []).map(o => ({ value: o }))} onSelect={o => set(r.key, o)} />
-              ) : (
-                <Input key={`set:${r.key}`} value={String(r.value)} onSubmit={t => set(r.key, r.type === 'number' ? Number(t) : t)} />
-              )}
-              {v.writable && r.layer !== undefined && <Button key={`unset:${r.key}`} dimColor onPress={() => write($, opts, '/api/settings', { scope: v.scope, key: r.key, unset: true })}>Reset</Button>}
-            </Box>
-          )
-        })}
-        {pages > 1 && (
-          <Box>
-            <Button key="prev" dimColor onPress={() => update($, view, s => ({ ...s, page: Math.max(0, page - 1) }))}>Prev</Button>
-            <Text dimColor> {page + 1}/{pages} </Text>
-            <Button key="next" dimColor onPress={() => update($, view, s => ({ ...s, page: Math.min(pages - 1, page + 1) }))}>Next</Button>
-          </Box>
-        )}
+        {body}
       </Box>
     )
   })

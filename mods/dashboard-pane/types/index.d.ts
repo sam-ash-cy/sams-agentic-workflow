@@ -29,6 +29,7 @@ export type View = {
   scope: Scope
   group: string
   page: number
+  filter: string
   projects: Project[]
   rows: SettingRow[]
   mods: ModRow[]
