@@ -106,11 +106,24 @@ Review agents in the plugin: `code-reviewer`, `security-reviewer`, `arch-reviewe
 
 | Command | What it does |
 |---|---|
-| `saw dashboard [--serve [--port <n>]]` | Writes the static metrics page (`dashboard.output`) and the Markdown note if `dashboard.obsidian_note` is set. `--serve`: a live page on 127.0.0.1. |
+| `saw dashboard [--serve [--port <n>]]` | Writes the static metrics page (`dashboard.output`) and the Markdown note if `dashboard.obsidian_note` is set. `--serve`: the live dashboard on 127.0.0.1, from any folder (see below). |
+| `saw projects [list \| add <path> [--setup] \| remove <path>]` | The projects saw knows, kept in `~/.saw/projects.json`. `saw init` and `saw task start` add the folder they run in. `add` scans the folder and reports `ready`, `not set up`, `broken settings` or `missing`; `--setup` runs `saw init` in a folder that is not set up. `remove` only forgets the entry and deletes nothing. |
 | `saw adoption [--since <days>] [--json]` | Whether the workflow is used in this repo, from `.saw/events.jsonl` and `.saw/metrics.jsonl`: tasks opened against Stops (the headline ratio, also a dashboard card), Stops and prompts with no task, routing and verify denials, untasked edits blocked at Stop, subagent edit runs, retiers, the tier spread and each unverified exit with its reason. Needs `logging.enabled` (Stops with no task log as `gate.untasked`, prompts with no task as `nudge`, both at `info`). |
 | `saw retro [--dry-run]` | A proposal in `retro.proposals_dir` for each check failing in `repeat_threshold`+ tasks, plus suggested `saw config set` commands (never applied). A single test failing in `repeat_threshold`+ tasks (from `.saw/failures.jsonl`) gets a `test: <name>` proposal of its own. |
 | `saw eval [--case <glob>] [--runs <n>] [--dry-run] [--save-baseline]` | Runs `evals/` with `claude plugin eval` and compares with the baseline. Spends tokens. |
 | `saw eval compare <before.json> <after.json>` | Compares two saved results. |
+
+### The live dashboard
+
+`saw dashboard --serve` opens on the project you started it in, or on the project list when that folder is not a saw project. It has three tabs per entry:
+
+- **Settings**: every key with a one-line description, the layer its value comes from, and a control. A change saves as you make it and is written to the layer you picked: *Global* (`~/.saw/config.toml`), *This project (shared)* (`workflow.toml`) or *This project (only me)* (`workflow.local.toml`). *Reset* removes the key from that layer. The shared file can only make guard settings stricter, so a looser value is disabled there with a pointer to *only me*. It uses the same code as `saw config set`.
+- **Mods**: switch each saw mod on or off. The switch is Claude Code's `enabledPlugins` entry in your user `settings.json` (Global) or the project's `.claude/settings.local.json`. A mod that is not installed shows the `claude plugin install` command instead. A change takes effect in a new Claude session.
+- **Statistics**: the KPIs and panels for that project.
+
+You can add a project by its full path (it is scanned first, and one that is not set up can be set up from the page) or forget one; forgetting deletes nothing.
+
+Any process on the machine can reach a loopback port, so the page is not served to just anyone. `saw dashboard --serve` prints an address with a one-time launch code; opening it trades the code for a session cookie (HttpOnly, SameSite=Strict) and the code stops working. Every later request, reads included, needs that cookie, so restart the command if you lose it. A write must also come from the dashboard's own `http://127.0.0.1:<port>` origin, carry the page's `x-saw-csrf` key, and name the project's folder as well as its position in the list; the host must be a loopback name. Request bodies over 64 KB are refused. In the container the page is read-only. Each change is logged as `settings.changed` in `.saw/events.jsonl`. `saw guard` denies an agent command that addresses the dashboard's `/api/` routes on a loopback address, because the agent must not edit its own guardrails; the page is for you.
 
 The `retro-promote` skill turns a proposal into one enforceable fix with an eval case. The repo's `docker-compose.yml` serves the dashboard from a container if you'd rather not install bun.
 
@@ -244,7 +257,6 @@ Later layers win; `--set` beats all of them for one call. From `workflow.toml`, 
 | `features.parallel_sessions` | `false` | Allow splitting a task into sessions. **G** |
 | `features.unslop` | `false` | unslop polish step in the design playbook. |
 | `features.brag` | `false` | Offer a launch video after feature/foundation PRs merge. |
-| `features.ecc` | `false` | Point nudges and playbooks at ECC skills. |
 | `features.docs_step` | `true` | Feature and foundation tasks end with a `docs` check. |
 | `features.living_docs` | `true` | `saw task end` flags docs still blank in a project with code, and command/config/API changes without a `docs/reference/` change; debug, integration and hardening tasks get a reference-docs step. |
 | `pre_pr.skills` | `[]` | Skills that must run before a PR, e.g. `["security-review", "simplify"]`. Each becomes a required check `skill:<name>` on `pre_pr.tiers` (default standard, complex, critical): record it with `saw task record skill:<name> pass`, or the task stays unverified. |
@@ -410,7 +422,7 @@ effort = "high"
 | `safety.no_secrets` | `true` | No reading `.env` files into the session (`.env.example` is fine). **G** |
 | `safety.deny` | `["rm -rf","git push --force","git push -f","curl \| sh"]` | Denied commands; spellings are normalised. Project entries are added. **G** |
 
-Environment variables: `SAW_HOME` (moves `~/.saw`), `SAW_NO_PLUGIN` (skip plugin steps in bootstrap and doctor), `SAW_WITH_ECC` (bootstrap also installs ECC), `CLAUDE_CONFIG_DIR` (where bootstrap writes instead of `~/.claude`).
+Environment variables: `SAW_HOME` (moves `~/.saw`), `SAW_NO_PLUGIN` (skip plugin steps in bootstrap and doctor), `CLAUDE_CONFIG_DIR` (where bootstrap writes instead of `~/.claude`).
 
 ## Optional extras
 
@@ -445,23 +457,6 @@ agent-browser install
 ```
 
 `agent-browser install` downloads Chrome for Testing.
-
-**ECC** (`features.ecc`), pinned in saw's marketplace (or `SAW_WITH_ECC=1` before the bootstrap):
-
-```bash
-claude plugin install ecc@sams-agentic-workflow
-saw config set features.ecc true
-saw doctor
-```
-
-Three ECC hooks duplicate saw's (GateGuard, its compact nudge, a Stop-time format/typecheck). Turn them off in the `env` block of `~/.claude/settings.json`; `saw doctor` warns while `ECC_GATEGUARD` isn't `off`:
-
-```json
-"env": {
-  "ECC_GATEGUARD": "off",
-  "ECC_DISABLED_HOOKS": "pre:edit-write:suggest-compact,stop:format-typecheck"
-}
-```
 
 **GitHub settings**: `saw config set repo.enabled true`, review `saw repo plan`, then `saw repo apply --yes`.
 

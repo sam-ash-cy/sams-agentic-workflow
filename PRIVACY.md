@@ -10,6 +10,7 @@ All of these are plain files you can read, edit or delete. Deleting them turns t
 |---|---|---|
 | `~/.saw/about-me.md`, `.saw/about-me.local.md`, `docs/about-me.md` | Your answers to the optional about-me interview (role, goals, working preferences, anything else you type). It may include personal details if you enter them. The `docs/` copy is meant for committing, so the skill keeps names, emails and paths out of it. | `about-me` skill, `saw about-me` |
 | `~/.saw/` (other files) | Your global saw settings, and a local key that signs review records so they can't be forged. | `saw init`, `saw settings`, reviews |
+| `~/.saw/projects.json` | The folders saw has been used in: each one's path, name, when it was added and last seen. It only remembers folders; removing an entry deletes nothing. | `saw init`, `saw task start`, `saw projects`, the dashboard |
 | `workflow.toml`, `.saw/` settings | Project settings. | `saw settings` |
 | `.saw/task.json` | The open task: its name, tier, start time and recorded checks. | `saw task` |
 | `.saw/metrics.jsonl` | Per-task metrics: tier, duration, token and dollar counts, check results, autopilot runs. No prompt or file contents. | `saw task end`, autopilot |
@@ -35,11 +36,11 @@ saw has no network code of its own. Data leaves your machine only through these 
 - **GitHub, through the `gh` CLI.** This happens only when you run a command that does it: autopilot opening a PR, or posting a review as a PR comment. It uses your `gh` login.
 - **Plugin marketplaces, through `claude plugin`.** This happens only when you choose to install a recommended plugin.
 - **Your clipboard.** The render mod's copy action puts the content you chose there.
-- **Localhost only.** `saw dashboard` serves its page on your own machine and accepts no outside connections.
+- **Localhost only.** `saw dashboard` serves its page on your own machine and accepts no outside connections. From that page you can change your settings files and switch mods on or off (`enabledPlugins` in your Claude `settings.json` or the project's `.claude/settings.local.json`); every change is logged in `.saw/events.jsonl`.
 
 ## Third parties
 
-Plugins and tools saw recommends or pins (for example ECC, Matt Pocock's skills, Anthropic's engineering plugin, trail) are separate software. You install them yourself, and their own policies apply.
+Plugins and tools saw recommends or pins (for example Matt Pocock's skills, Anthropic's engineering plugin, trail) are separate software. You install them yourself, and their own policies apply.
 
 ## Children
 

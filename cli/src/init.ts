@@ -1,7 +1,7 @@
 // `saw init`: copy templates/project into a repo. Never overwrites silently:
 // existing files are skipped, or backed up to <file>.bak with --force.
 
-import { copyFileSync, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { appendFileSync, copyFileSync, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { dirname, isAbsolute, join, relative } from "node:path";
 import { readIfExists } from "./fs";
 
@@ -220,4 +220,39 @@ export function guessType(target: string): { type: string; from: string } | unde
   if (root && /"bin"\s*:/.test(readFileSync(join(target, root), "utf8"))) return { type: "cli", from: root };
   if (tf && manifests.length === 0) return { type: "infra", from: tf };
   return undefined;
+}
+
+export interface ProjectSetup {
+  report: InitReport;
+  // checks.dep_audit added from the lockfiles found.
+  audit?: string;
+  // project.type guessed from the files found (none when --type was given).
+  guessed?: { type: string; from: string };
+  // --type was given but workflow.toml already existed, so it was not applied.
+  typeIgnored: boolean;
+}
+
+// Everything `saw init` does to a folder, without printing: the templates, then, for a new
+// workflow.toml, the dep_audit check and the project type. `saw init`, `saw projects add
+// --setup` and the dashboard's Set up button all come through here.
+export function initProject(target: string, opts: { dryRun?: boolean; force?: boolean; type?: string } = {}): ProjectSetup {
+  const report = init(target, { dryRun: opts.dryRun, force: opts.force });
+  const fresh = report.installed.includes("workflow.toml");
+  const path = join(target, "workflow.toml");
+  const audit = fresh ? depAuditFor(target) : undefined;
+  if (audit) {
+    report.changed.push(`workflow.toml (checks.dep_audit = "${audit}")`);
+    if (!opts.dryRun) {
+      appendFileSync(path, `\n[checks]\ndep_audit = ${JSON.stringify(audit)}   # from the lockfiles found by saw init\n`);
+      recordInstalled(target, "workflow.toml", readFileSync(path, "utf8"));
+    }
+  }
+  const guessed = opts.type === undefined && fresh ? guessType(target) : undefined;
+  const chosen = opts.type ?? guessed?.type;
+  const typeIgnored = opts.type !== undefined && !fresh;
+  if (!typeIgnored && chosen && !opts.dryRun) {
+    writeFileSync(path, readFileSync(path, "utf8").replace(/^type = "\w+"/m, `type = "${chosen}"`));
+    recordInstalled(target, "workflow.toml", readFileSync(path, "utf8"));
+  }
+  return { report, audit, guessed, typeIgnored };
 }

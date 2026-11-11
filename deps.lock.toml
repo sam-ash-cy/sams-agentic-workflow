@@ -40,18 +40,6 @@ licence = "MIT"
 reviewed_by = "owner"
 reviewed_on = "2026-11-01"
 
-# ECC, Claude Code plugin by Affaan Mustafa (MIT). Installed as a plugin from saw's marketplace
-# (.claude-plugin/marketplace.json, same sha). Reviewed at this SHA: skills only load when invoked,
-# but the plugin ships hooks on every event. saw recommends ECC_GATEGUARD=off (its Fact-Forcing Gate
-# blocks first Bash/Edit calls and duplicates saw guard) and ECC_DISABLED_HOOKS=
-# pre:edit-write:suggest-compact,stop:format-typecheck (duplicate saw's context nudge and Stop gate).
-[ecc]
-repo = "https://github.com/affaan-m/ECC"
-sha = "b38be6a7f6350964d59328b52f0624e1d1d552d1"
-licence = "MIT"
-reviewed_by = "pending"
-reviewed_on = ""
-
 # Render mod base: prismantis by Nahum Litvin (MIT), its plugin/ folder copied into mods/render
 # (LICENSE and THIRD_PARTY_NOTICES.md kept). Reviewed at this SHA: no network or eval; $.process.run
 # only for an optional LaTeX engine and the OS clipboard helpers; $.fs reads local images only.

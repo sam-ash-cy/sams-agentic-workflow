@@ -110,3 +110,11 @@ describe("project template", () => {
     expect(run(["init", "--type", "nope"], dir)).toBe(1);
   });
 });
+
+test("a leftover features.ecc in a user's TOML is ignored with a warning, not an error", () => {
+  const { dir, paths } = setup({ project: "[features]\necc = true\n" });
+  const r = resolve(dir, {}, paths);
+  expect(r.warnings.join(" ")).toContain("features.ecc");
+  expect(r.warnings.join(" ")).toContain("ignored");
+  expect(flatten(r.config)["features.ecc"]).toBeUndefined();
+});

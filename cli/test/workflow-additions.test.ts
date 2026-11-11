@@ -3,7 +3,6 @@ import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { layerPaths, resolve } from "../src/config";
-import { gateguardWarning } from "../src/deps";
 import { docsPluginProblem, run } from "../src/main";
 import { applyProfile, parseProfiles } from "../src/profiles";
 import { configSuggestions } from "../src/retro";
@@ -97,20 +96,13 @@ test("explain shows each layer, and task adhoc opens a trivial task", () => {
   expect(currentTask(dir)?.tier).toBe("trivial");
 });
 
-test("doctor: engineering plugin for the docs step, and the GateGuard warning", () => {
+test("doctor: engineering plugin for the docs step", () => {
   const c = config(project());
   const eng = (status: string): string => `  ❯ sams-agentic-workflow@sams-agentic-workflow\n    Status: ✔ enabled\n\n  ❯ engineering@sams-agentic-workflow\n    Status: ${status}\n`;
   expect(docsPluginProblem(eng("✔ enabled"), c)).toBeUndefined();
   expect(docsPluginProblem(eng("✘ disabled"), c)).toContain("disabled");
   expect(docsPluginProblem("  ❯ sams-agentic-workflow@sams-agentic-workflow\n", c)).toContain("not installed");
   expect(docsPluginProblem("", config(project("[features]\ndocs_step = false\n")))).toBeUndefined();
-
-  const ecc = JSON.stringify({ plugins: { "ecc@ecc": [{}] } });
-  expect(gateguardWarning(ecc, "{}", undefined)).toContain("ECC_GATEGUARD");
-  expect(gateguardWarning(ecc, JSON.stringify({ env: { ECC_GATEGUARD: "off" } }), undefined)).toBeUndefined();
-  expect(gateguardWarning(ecc, "{}", "off")).toBeUndefined();
-  expect(gateguardWarning(JSON.stringify({ plugins: {} }), "{}", undefined)).toBeUndefined();
-  expect(gateguardWarning("{", "{}", undefined)).toBeUndefined();
 });
 
 test("retro suggests settings from evidence, never below the threshold", () => {

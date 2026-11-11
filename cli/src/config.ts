@@ -5,7 +5,9 @@
 import { homedir } from "node:os";
 import { isAbsolute, join, relative, resolve as resolvePath } from "node:path";
 import { DEFAULTS, ENUMS, type Table, type Value } from "./defaults";
-import { readToml } from "./toml";
+import { mkdirSync, writeFileSync } from "node:fs";
+import { readIfExists } from "./fs";
+import { patchToml, readToml, stringifyToml } from "./toml";
 
 export type Layer = "default" | "global" | "project" | "local" | "override" | `enforcement=${string}`;
 
@@ -67,7 +69,11 @@ export function unsetPath(table: Table, key: string): boolean {
 
 const DEFAULT_KEYS = flatten(DEFAULTS);
 
+// Names that would walk setPath onto the prototype chain instead of a settings table.
+const UNSAFE_SEGMENTS = ["__proto__", "constructor", "prototype"];
+
 export function isKnownKey(key: string): boolean {
+  if (key.split(".").some((part) => UNSAFE_SEGMENTS.includes(part))) return false;
   if (key in DEFAULT_KEYS) return true;
   // Tables whose children are open-ended (per-tier check sets, per-role models).
   return /^verify\.[a-z_]+\.(run|extends)$/.test(key) || /^models\.roles\.[a-z_]+$/.test(key) || /^models\.phases\.[a-z_]+\.((trivial|standard|complex|critical)\.)?(model|effort)$/.test(key) || /^checks\.[a-z_]+$/.test(key);
@@ -117,7 +123,7 @@ const ENFORCEMENT_KEY = "enforcement";
 const ENFORCEMENT_RANK = ["strict", "custom", "relaxed"];
 // The modes the enforcement preset sets; it wins over each key's own value.
 export const ENFORCED_MODES = ["routing.mode", "verify.mode", "tdd.mode", "tokens.mode", "style.mode", "sessions.mode"];
-const guarded = (key: string): boolean => key.startsWith("safety.") || key.startsWith("autonomy.") || LOOSER_WHEN_ON.includes(key) || key === EVIDENCE_KEY || key === VERIFY_MODE_KEY || key === ENFORCEMENT_KEY;
+export const guarded = (key: string): boolean => key.startsWith("safety.") || key.startsWith("autonomy.") || LOOSER_WHEN_ON.includes(key) || key === EVIDENCE_KEY || key === VERIFY_MODE_KEY || key === ENFORCEMENT_KEY;
 // Whether the project layer would ignore this value as looser than the default.
 export const loosens = (key: string, value: Value): boolean => guarded(key) && key in DEFAULT_KEYS && !tightens(key, DEFAULT_KEYS[key]!, value);
 
@@ -215,4 +221,32 @@ export function layerValues(cwd: string, resolved: Resolved, paths = layerPaths(
   return Object.entries(flatten(resolved.config)).map(([key, value]) => ({
     key, value, source: resolved.sources[key]!, global: g[key], project: p[key], local: l[key],
   }));
+}
+
+export interface WriteResult {
+  ok: boolean;
+  problem?: string;
+  warning?: string;
+}
+
+// The one place a setting is validated and written to a layer file: `saw config set|unset`
+// and the dashboard both come through here. A value of undefined unsets the key.
+export function writeSetting(path: string, scope: string, key: string, value: Value | undefined): WriteResult {
+  const text = readIfExists(path) ?? "";
+  const table: Table = readToml(path) ?? {};
+  let warning: string | undefined;
+  if (value !== undefined) {
+    const problem = validate(key, value);
+    if (problem) return { ok: false, problem };
+    if (scope === "project" && loosens(key, value)) {
+      warning = `a committed workflow.toml can only tighten ${key}; weakening it there is ignored`;
+    }
+    setPath(table, key, value);
+  } else if (!unsetPath(table, key)) {
+    return { ok: false, problem: `${key} is not set in ${path}` };
+  }
+  mkdirSync(join(path, ".."), { recursive: true });
+  // In place where possible, so the file's comments survive.
+  writeFileSync(path, patchToml(text, key, value, table) ?? stringifyToml(table));
+  return warning ? { ok: true, warning } : { ok: true };
 }

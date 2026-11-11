@@ -3,7 +3,7 @@
 import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, isAbsolute, join, relative, resolve as resolvePath } from "node:path";
-import { baseBranch, flatten, inside, layerPaths, layerValues, loosens, parseValue, resolve, setPath, unsetPath, validate, weakenedSafety, type Layer } from "./config";
+import { baseBranch, flatten, inside, layerPaths, layerValues, loosens, parseValue, resolve, setPath, unsetPath, validate, weakenedSafety, writeSetting, type Layer } from "./config";
 import { DEFAULTS, type Table, type Value } from "./defaults";
 import { readIfExists } from "./fs";
 import { syncAgents, syncSession } from "./agents";
@@ -19,15 +19,17 @@ import { sessionHook, UNITS } from "./sessions";
 import { recordReview, reviewApplies, reviewArgv, reviewBrief, writeChange, type ReviewSettings } from "./review-session";
 import { effectiveStyle, styleCheck, styleLine, TONES } from "./style";
 import { autopilot, eligible, parseQueue, readRuns, readState as autopilotState, scheduleCommand, settings as autopilotSettings, spawnClaude, stopReasons } from "./autopilot";
-import { dataVersion, renderHtml, renderMarkdown } from "./dashboard";
+import { renderHtml, renderMarkdown } from "./dashboard";
+import { dashboardUrl, serveDashboard } from "./dashboard-server";
+import { hookCwd } from "./hook-cwd";
 import { logEvent, readEvents } from "./events";
 import { adoption, formatAdoption } from "./adoption";
 import { appendMetric, buildMetric, readMetrics } from "./metrics";
 import { compare, summarise, type Comparison, type Summary } from "./evals";
 import { failureCandidates } from "./failures";
 import { configSuggestions, readProposals, retro } from "./retro";
-import { companionWarnings, compareUrl, eccProblem, gateguardWarning, pin, readLock, readSyncedPluginNames, verifyLock } from "./deps";
-import { depAuditFor, guessType, init, recordInstalled, uninstall, upgrade, workspaceRepos, type ChangeReport, type InitReport } from "./init";
+import { companionWarnings, compareUrl, pin, readLock, readSyncedPluginNames, verifyLock } from "./deps";
+import { initProject, uninstall, upgrade, workspaceRepos, type ChangeReport, type InitReport } from "./init";
 import { lintContext, lintMemory } from "./lint";
 import { docsNudge, docsStatus, REFRESH_BRIEF } from "./docs";
 import { outline } from "./outline";
@@ -39,6 +41,7 @@ import { syncAdvisor, syncSkillDenies } from "./skills";
 import { applyPlan, gh, readState, repoName, repoPlan, type Gh } from "./repo";
 import { formatHook, runCheck, TRUSTED_LAYERS } from "./run";
 import { checkMods } from "./mods";
+import { addProject, inspectProject, listProjects, registerProject, removeProject } from "./projects";
 import { verifyMode } from "./verify-guard";
 import { currentTask, endTask, gate, gitStatusHash, isSawProject, markUntaskedEdit, noteUnverifiedExit, noChecksWarning, pickTier, recordCheck, recordVerifiedTree, retierTask, reviewEvidence, statusProblems, setPhase, staleMessage, staleTask, startTask, storedTreeHash, storeTreeHash, takeUnverifiedExit, taskReport, writeStatusFile, taskStatus, taskSkills, taskSteps, type Status } from "./task";
 import { routingMode } from "./routing-guard";
@@ -56,7 +59,8 @@ const USAGE = `usage: saw <command>
   config unset <key> [--scope ...]
   explain <key>                      the value in every layer, which one won, and why one was ignored
   profile list | show <name> | apply <name> [--dry-run]   merge a recommended profile (docs/COMMANDS.md) into the layers it names
-  doctor [--hooks] [--no-plugin]     check settings, environment and the Claude Code plugin install (--hooks: run each plugin hook once)
+  projects list | add <path> [--setup] | remove <path>   the projects saw knows about (~/.saw/projects.json); add scans the folder; remove only forgets it
+  doctor [--hooks] [--no-plugin]    check settings, environment and the Claude Code plugin install (--hooks: run each plugin hook once)
   init [--dry-run] [--force] [--type <t>] [--hooks] [--agents a,b] [--repo [o/n]]   add workflow.toml, AGENTS.md, CI and the docs/ vault (+ agent adapters; --repo: show the repo plan)
   init --workspace <dir> [--apply]   init every git repo directly under <dir> that has no workflow.toml (dry run unless --apply)
   init --upgrade [--dry-run]         update unedited template files to the current template; edited ones are kept
@@ -202,7 +206,8 @@ export const useStdin = (text: string | undefined): void => {
 };
 const readStdin = (): string => stdinOverride ?? readFileSync(0, "utf8");
 
-export function run(argv: string[], cwd = process.cwd()): number {
+export function run(argv: string[], cwdArg?: string): number {
+  let cwd = cwdArg ?? process.cwd();
   let args: Args;
   try {
     args = parseArgs(argv);
@@ -214,6 +219,14 @@ export function run(argv: string[], cwd = process.cwd()): number {
   if (args.flags.has("--help") || args.flags.has("-h")) {
     console.log(USAGE);
     return 0;
+  }
+  // A hook started with no folder given works where the session does: in a git worktree that is
+  // the payload's cwd, not the folder Claude Code was launched from (see hook-cwd.ts). The payload
+  // is read once here; the commands below read it back from stdinOverride.
+  if (cwdArg === undefined && HOOKS.includes(command ?? "") && (stdinOverride !== undefined || !process.stdin.isTTY)) {
+    const text = readStdin();
+    stdinOverride = text;
+    cwd = hookCwd(text, cwd);
   }
   // The guard reads its payload once, here: read-only tools are answered
   // before any settings file is read (see readOnlyGuard).
@@ -297,8 +310,6 @@ export function run(argv: string[], cwd = process.cwd()): number {
   if (command === "config" && (sub === "set" || sub === "unset") && key) {
     const path = layerPaths(cwd)[args.scope];
     if (!path) return fail(`--scope must be global, project or local`);
-    const text = readIfExists(path) ?? "";
-    const table: Table = readToml(path) ?? {};
     let value: Value | undefined;
     if (sub === "set") {
       if (raw === undefined) return fail(USAGE);
@@ -307,18 +318,10 @@ export function run(argv: string[], cwd = process.cwd()): number {
       } catch (e) {
         return fail(`bad value for ${key}: ${(e as Error).message}`);
       }
-      const problem = validate(key, value);
-      if (problem) return fail(problem);
-      if (args.scope === "project" && loosens(key, value)) {
-        console.error(`warning: a committed workflow.toml can only tighten ${key}; weakening it there is ignored`);
-      }
-      setPath(table, key, value);
-    } else if (!unsetPath(table, key)) {
-      return fail(`${key} is not set in ${path}`);
     }
-    mkdirSync(join(path, ".."), { recursive: true });
-    // In place where possible, so the file's comments survive.
-    writeFileSync(path, patchToml(text, key, value, table) ?? stringifyToml(table));
+    const written = writeSetting(path, args.scope, key, value);
+    if (!written.ok) return fail(written.problem!);
+    if (written.warning) console.error(`warning: ${written.warning}`);
     console.log(`${sub === "set" ? "set" : "unset"} ${key} in ${path}`);
     return 0;
   }
@@ -370,25 +373,12 @@ export function run(argv: string[], cwd = process.cwd()): number {
     const problems = [...resolved.warnings, ...lint];
     for (const p of lint) console.error(`warning: ${p}`);
     if (!args.flags.has("--no-plugin") && process.env.SAW_NO_PLUGIN !== "1") problems.push(...checkPlugin(resolved.config));
-    const claudeDir = process.env.CLAUDE_CONFIG_DIR ?? join(homedir(), ".claude");
-    const read = (p: string): string | undefined => (existsSync(p) ? readFileSync(p, "utf8") : undefined);
-    // A recommendation, not a failure: GateGuard works, it just duplicates saw guard.
-    const gg = gateguardWarning(read(join(claudeDir, "plugins", "installed_plugins.json")), read(join(claudeDir, "settings.json")), process.env.ECC_GATEGUARD, readSyncedPluginNames(join(claudeDir, "plugins", "synced")));
-    if (gg) console.error(`warning: ${gg}`);
     const noChecks = isSawProject(cwd) ? noChecksWarning(resolved.config) : undefined;
     if (noChecks) console.error(`warning: ${noChecks}`);
     if (args.flags.has("--hooks")) problems.push(...checkHooks(cwd));
     const drift = checkVersions(PLUGIN_ROOT);
     for (const d of drift) console.error(`problem: version drift: ${d}`);
     problems.push(...drift);
-    if ((resolved.config.features as Record<string, boolean>).ecc) {
-      const installed = join(process.env.CLAUDE_CONFIG_DIR ?? join(homedir(), ".claude"), "plugins", "installed_plugins.json");
-      const ecc = eccProblem(existsSync(installed) ? readFileSync(installed, "utf8") : undefined, readLock(join(PLUGIN_ROOT, "deps.lock.toml")).ecc?.sha, readSyncedPluginNames(join(dirname(installed), "synced")));
-      if (ecc) {
-        console.error(`warning: ${ecc}`);
-        problems.push(ecc);
-      }
-    }
     const ok = problems.length === 0;
     console.log(ok ? "saw doctor: ok" : `saw doctor: ${problems.length} problem(s)`);
     return ok ? 0 : 1;
@@ -418,25 +408,9 @@ export function run(argv: string[], cwd = process.cwd()): number {
       if (problem) return fail(problem);
     }
     if (args.flags.has("--upgrade")) return printChanges("saw init --upgrade", "updated", "kept (edited)", upgrade(cwd, { dryRun }), dryRun);
-    const report = init(cwd, { dryRun, force: args.flags.has("--force") });
-    const audit = depAuditFor(cwd);
-    if (audit && report.installed.includes("workflow.toml")) {
-      report.changed.push(`workflow.toml (checks.dep_audit = "${audit}")`);
-      if (!dryRun) {
-        appendFileSync(join(cwd, "workflow.toml"), `\n[checks]\ndep_audit = ${JSON.stringify(audit)}   # from the lockfiles found by saw init\n`);
-        recordInstalled(cwd, "workflow.toml", readFileSync(join(cwd, "workflow.toml"), "utf8"));
-      }
-    }
-    const guessed = type === undefined && report.installed.includes("workflow.toml") ? guessType(cwd) : undefined;
+    const { report, guessed, typeIgnored } = initProject(cwd, { dryRun, force: args.flags.has("--force"), type });
     if (guessed) console.log(`  project.type = "${guessed.type}" (guessed from ${guessed.from}; change it with saw config set project.type <t>)`);
-    const chosen = type ?? guessed?.type;
-    if (type && !report.installed.includes("workflow.toml")) {
-      console.error(`warning: workflow.toml already exists, so --type was not applied; run: saw config set project.type ${type}`);
-    } else if (chosen && !dryRun) {
-      const path = join(cwd, "workflow.toml");
-      writeFileSync(path, readFileSync(path, "utf8").replace(/^type = "\w+"/m, `type = "${chosen}"`));
-      recordInstalled(cwd, "workflow.toml", readFileSync(path, "utf8"));
-    }
+    if (typeIgnored) console.error(`warning: workflow.toml already exists, so --type was not applied; run: saw config set project.type ${type}`);
     const hooksPath = Bun.spawnSync(["git", "config", "--get", "core.hooksPath"], { cwd }).stdout.toString().trim();
     if (args.flags.has("--hooks") && hooksPath && hooksPath !== ".githooks" && !args.flags.has("--force")) {
       // Another hook manager (husky, lefthook, ...) owns hooksPath: don't silently disable it.
@@ -459,6 +433,7 @@ export function run(argv: string[], cwd = process.cwd()): number {
     }
     printReport(report, dryRun);
     if (!dryRun) {
+      registerProject(cwd);
       const claude = join(cwd, "CLAUDE.md");
       if (existsSync(claude) && !/^@AGENTS\.md/m.test(readFileSync(claude, "utf8"))) {
         console.log("note: your existing CLAUDE.md doesn't import AGENTS.md; add a line `@AGENTS.md` at the top so Claude reads it");
@@ -567,9 +542,10 @@ export function run(argv: string[], cwd = process.cwd()): number {
     if (args.flags.has("--serve")) {
       const raw = args.values.port || String(d.port);
       if (!/^\d+$/.test(raw) || Number(raw) < 1 || Number(raw) > 65535) return fail("--port must be a number from 1 to 65535");
+      // Works from any folder; inside a saw project it opens on that project.
       try {
         const server = serveDashboard(cwd, resolved.config, Number(raw));
-        console.log(`saw dashboard: serving on http://127.0.0.1:${server.port}/ (Ctrl+C to stop)`);
+        console.log(`saw dashboard: open ${dashboardUrl(server)} (one use; Ctrl+C to stop)`);
       } catch (e) {
         return fail(`could not serve on port ${raw}: ${(e as Error).message}`);
       }
@@ -614,6 +590,7 @@ export function run(argv: string[], cwd = process.cwd()): number {
   }
   if (command === "eval") return evalCommand(cwd, resolved.config, args);
   if (command === "mods") return modsCommand(args);
+  if (command === "projects") return projectsCommand(args);
   if (command === "task") {
     const code = taskCommand(cwd, resolved.config, args);
     // saw task status writes the file itself from the status it printed.
@@ -1035,6 +1012,7 @@ function taskCommand(cwd: string, config: Table, args: Args): number {
         max_words: rawCap === undefined ? undefined : Number(rawCap),
       });
       if (plan.action === "worktree" && plan.path && plan.name) markWorktreeTask(cwd, plan.path, plan.name);
+      registerProject(cwd);
       console.log(`task: ${t.tier} / ${t.playbook} · ${styleLine(effectiveStyle(config, t))}`);
       logEvent(cwd, config, "info", "tier", `${t.tier} / ${t.playbook}`, { tier: t.tier, playbook: t.playbook, requested: args.values.tier ?? null });
       console.log(`steps: ${taskSteps(config, t.tier, t.playbook).join(" · ")}`);
@@ -1242,6 +1220,35 @@ function printSkillSuggestions(cwd: string, config: Table, playbook: string): bo
   return true;
 }
 
+function projectsCommand(args: Args): number {
+  const [, sub, target] = args.positional;
+  if (sub === "list" || sub === undefined) {
+    const list = listProjects();
+    if (!list.length) console.log("no projects yet: saw init and saw task start add them, or run saw projects add <path>");
+    for (const p of list) console.log(`${inspectProject(p.path).state.padEnd(16)} ${p.name}  ${p.path}`);
+    return 0;
+  }
+  if (sub === "add" && target) {
+    const r = addProject(target);
+    if (!r.ok) return fail(r.problem ?? "could not add the project");
+    const state = r.inspection!.state;
+    console.log(`added ${r.project!.path} (${state})`);
+    for (const p of r.inspection!.problems) console.log(`  ${p}`);
+    for (const w of r.inspection!.warnings) console.log(`  warning: ${w}`);
+    if (state === "not set up") {
+      if (!args.flags.has("--setup")) console.log("  to set it up now: saw projects add <path> --setup");
+      else printReport(initProject(r.project!.path, { dryRun: false, force: false }).report, false);
+    }
+    return 0;
+  }
+  if (sub === "remove" && target) {
+    if (!removeProject(target)) return fail(`${target} is not in the project list`);
+    console.log(`removed ${target} from the list (the folder is untouched)`);
+    return 0;
+  }
+  return fail("usage: saw projects list | add <path> [--setup] | remove <path>");
+}
+
 function modsCommand(args: Args): number {
   const [, sub, name] = args.positional;
   if (sub !== "check") return fail(USAGE);
@@ -1387,34 +1394,8 @@ function checkPlugin(config: Table): string[] {
 // run() returns this when a server is running: the entrypoint must not exit.
 export const SERVING = -1;
 
-// saw dashboard --serve: renders on every request so the page is always current.
-// Listens on 127.0.0.1 only. Inside the optional container (SAW_DASHBOARD_IN_CONTAINER=1
-// and /.dockerenv present) it binds 0.0.0.0; compose publishes it on 127.0.0.1 only.
-export function serveDashboard(cwd: string, config: Table, port: number): ReturnType<typeof Bun.serve> {
-  const inContainer = process.env.SAW_DASHBOARD_IN_CONTAINER === "1" && existsSync("/.dockerenv");
-  const d = config.dashboard as { panels: string[]; events_limit: number };
-  const proposalsDir = inside(cwd, (config.retro as { proposals_dir: string }).proposals_dir);
-  const headers = {
-    "cache-control": "no-store",
-    "x-content-type-options": "nosniff",
-    "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src 'self'; frame-ancestors 'none'",
-  };
-  return Bun.serve({
-    hostname: inContainer ? "0.0.0.0" : "127.0.0.1",
-    port,
-    fetch(req) {
-      // DNS rebinding: only answer requests addressed to a loopback name.
-      const host = (req.headers.get("host") ?? "").replace(/:\d+$/, "");
-      if (!["127.0.0.1", "localhost", "[::1]"].includes(host)) return new Response("forbidden", { status: 403, headers });
-      if (req.method !== "GET") return new Response("method not allowed", { status: 405, headers });
-      const path = new URL(req.url).pathname;
-      if (path === "/version") return new Response(dataVersion(cwd), { headers: { ...headers, "content-type": "text/plain" } });
-      if (path !== "/") return new Response("not found", { status: 404, headers });
-      const html = renderHtml(readMetrics(cwd), d.panels, proposalsDir ? readProposals(proposalsDir) : [], readRuns(cwd), new Date(), readEvents(cwd, d.events_limit), true, adoption(readEvents(cwd), readMetrics(cwd)));
-      return new Response(html, { headers: { ...headers, "content-type": "text/html; charset=utf-8" } });
-    },
-  });
-}
+// saw dashboard --serve: the live page, in dashboard-server.ts.
+export { serveDashboard } from "./dashboard-server";
 
 function fail(message: string): number {
   console.error(`saw: ${message}`);
