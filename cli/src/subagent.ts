@@ -5,7 +5,7 @@
 // and with no task open the same untasked-edit marker a main-session edit sets,
 // so the Stop gate asks for a task.
 
-import { existsSync, readFileSync, statSync } from "node:fs";
+import { closeSync, fstatSync, openSync, readFileSync } from "node:fs";
 import { isAbsolute, relative, resolve } from "node:path";
 import type { Table } from "./defaults";
 import { logEvent } from "./events";
@@ -18,13 +18,20 @@ const MAX_TRANSCRIPT = 20_000_000;
 // File paths the subagent's edit tools targeted, in order, without repeats.
 // The transcript format isn't a documented API: anything unexpected is skipped.
 export function subagentEdits(transcript: string): string[] {
+  // One descriptor for the size check and the read, so the file can't change in between.
+  let text: string;
+  let fd: number | undefined;
   try {
-    if (!existsSync(transcript) || statSync(transcript).size > MAX_TRANSCRIPT) return [];
+    fd = openSync(transcript, "r");
+    if (fstatSync(fd).size > MAX_TRANSCRIPT) return [];
+    text = readFileSync(fd, "utf8");
   } catch {
     return [];
+  } finally {
+    if (fd !== undefined) closeSync(fd);
   }
   const files: string[] = [];
-  for (const line of readFileSync(transcript, "utf8").split("\n")) {
+  for (const line of text.split("\n")) {
     if (!line.includes('"tool_use"')) continue;
     try {
       const content = (JSON.parse(line) as { message?: { content?: unknown } }).message?.content;

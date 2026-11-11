@@ -37,5 +37,7 @@ test("saw init --workspace is a dry run until --apply", () => {
 });
 
 test("saw init --workspace refuses a missing directory", () => {
-  expect(run(["init", "--workspace", join(tmpdir(), "saw-no-such-dir-xyz")], tmpdir())).toBe(1);
+  // A fresh directory, never the shared temp dir itself, as the command's cwd.
+  const dir = mkdtempSync(join(tmpdir(), "saw-workspace-missing-"));
+  expect(run(["init", "--workspace", join(dir, "no-such-dir")], dir)).toBe(1);
 });
