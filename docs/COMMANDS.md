@@ -57,11 +57,13 @@ The `router` skill runs most of these for the agent.
 
 | Command | What it does |
 |---|---|
-| `saw task start --tier <t> --playbook <p> [--tone <t>] [--max-words <n>] [--unit phase\|stage\|feature --unit-id <name>]` | Opens a task and prints its steps and required checks. Tiers: `trivial`, `standard`, `complex`, `critical`. Playbooks: `foundation`, `feature`, `debug`, `design`, `integration`, `spike`, `hardening`, `audit`. |
+| `saw task start --tier <t> --playbook <p> [--tone <t>] [--max-words <n>] [--unit phase\|stage\|feature --unit-id <name>] [--accept "<criterion>"]...` | Opens a task and prints its steps and required checks. `--accept` (repeatable) stores acceptance criteria, numbered from 1. Tiers: `trivial`, `standard`, `complex`, `critical`. Playbooks: `foundation`, `feature`, `debug`, `design`, `integration`, `spike`, `hardening`, `audit`. |
 | `saw task adhoc [--playbook <p>]` | A trivial task for a one-off edit. |
 | `saw task phase plan\|implement\|review` | Marks the task's phase. With `features.implementer` on, the main session can't edit source in `implement`. |
 | `saw task status` | Which required checks passed, failed, are missing or have no command (`not configured`), and whether the tier is below the diff's floor; marks a provisional task (`routing.auto = "open"`). Every `saw task` command, `saw run` and the Stop hook also write `.saw/status.json` (tier, playbook, label) for the prompt-band and workflow-pane mods. |
 | `saw task record <check> pass\|fail [--note "..."] [--report <file>]` | Records a judgement check (`code_review`, `security_review`, `docs`, `threat_model`, ...). `--report` names a reviewer's report under `.saw/reviews/` (see `verify.require_review_evidence`). |
+| `saw task accept add "<criterion>"` | Adds an acceptance criterion to the open task and prints its number. |
+| `saw task record accept:<n> pass\|fail --note "<how>"` | Records acceptance criterion `<n>`. A pass needs a non-empty `--note` saying how it was shown (a command, a test name); an unknown `<n>` is refused. A task with criteria is not Verified while any is unrecorded (`accept:<n> not recorded`) or failed (Blocked); `saw task status` and `saw task report` list each with its result and note. |
 | `saw task report [--post [--pr <n>] [--yes]]` | The Markdown verification section for a PR; `--post` comments it with `gh`, as `autonomy.actions.open_pr` allows. |
 | `saw task pr-body [--base <ref>]` | A whole PR description: the commits since `<ref>` (default `origin/<branch.base>`, else `origin/main`) and the verification section. Pipe it to `gh pr create --body-file -`. |
 | `saw task retier <tier>` | Changes the open task's tier, keeping its check history; at the same tier it confirms a provisional task. Refuses to go below the floor the diff since the task started sets (`routing.trivial_max_files`, `routing.trivial_max_lines`, `routing.critical_paths`). |

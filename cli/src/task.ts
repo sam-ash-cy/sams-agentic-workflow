@@ -38,6 +38,9 @@ export interface Task {
   // Opened by routing.auto = "open" from the prompt alone: the agent confirms it with
   // saw task retier or saw task start before the verify guard lets a commit through.
   provisional?: boolean;
+  // Acceptance criteria of the item being built (saw task start --accept, saw task
+  // accept add), numbered from 1; each is recorded as check accept:<n>.
+  accept?: string[];
 }
 
 export interface CheckResult {
@@ -54,7 +57,7 @@ export type Label = "Verified" | "Partially verified" | "Not verified" | "Blocke
 
 const dir = (cwd: string): string => join(cwd, ".saw");
 
-export function startTask(cwd: string, tier: string, playbook: string, style?: Task["style"]): Task {
+export function startTask(cwd: string, tier: string, playbook: string, style?: Task["style"], accept: string[] = []): Task {
   if (!(TIERS as readonly string[]).includes(tier)) throw new Error(`tier must be one of ${TIERS.join(" | ")}`);
   if (!(PLAYBOOKS as readonly string[]).includes(playbook)) throw new Error(`playbook must be one of ${PLAYBOOKS.join(" | ")}`);
   const task: Task = { tier, playbook, started: new Date().toISOString(), from: checkLines(cwd).length };
@@ -63,6 +66,9 @@ export function startTask(cwd: string, tier: string, playbook: string, style?: T
   const dirty = head ? dirtyBaseline(cwd) : undefined;
   if (dirty) task.baseDirty = dirty;
   if (style && (style.tone || style.max_words)) task.style = style;
+  const criteria = accept.map((a) => a.trim());
+  if (criteria.some((a) => !a)) throw new Error("--accept needs a non-empty criterion");
+  if (criteria.length) task.accept = criteria;
   mkdirSync(dir(cwd), { recursive: true });
   writeFileSync(join(dir(cwd), "task.json"), JSON.stringify(task, null, 2) + "\n");
   rmSync(join(dir(cwd), "untasked-edits"), { force: true });
@@ -117,6 +123,42 @@ export function restoreTask(cwd: string, task: Task): void {
 }
 
 const writeTask = (cwd: string, task: Task): void => writeFileSync(join(dir(cwd), "task.json"), JSON.stringify(task, null, 2) + "\n");
+
+// saw task accept add: one more criterion on the open task; returns its number.
+export function addAcceptance(cwd: string, criterion: string): number {
+  const task = currentTask(cwd);
+  if (!task) throw new Error("no task open");
+  const text = criterion.trim();
+  if (!text) throw new Error("the criterion is empty");
+  task.accept = [...(task.accept ?? []), text];
+  writeTask(cwd, task);
+  return task.accept.length;
+}
+
+// Why saw task record accept:<n> is refused, or undefined when it may be recorded.
+export function acceptanceProblem(task: Task, check: string, status: "pass" | "fail", note?: string): string | undefined {
+  if (!check.startsWith("accept:")) return undefined;
+  const m = /^accept:([1-9]\d*)$/.exec(check);
+  const count = task.accept?.length ?? 0;
+  if (!m || Number(m[1]) > count) return `${check}: unknown criterion; the task has ${count ? `criteria 1-${count}` : "no acceptance criteria"}`;
+  if (status === "pass" && !(note ?? "").trim()) return `${check} pass needs --note saying how it was shown (a command, a test name)`;
+  return undefined;
+}
+
+export interface Acceptance {
+  n: number;
+  text: string;
+  result: "pass" | "fail" | "missing";
+  note?: string;
+}
+
+// Each criterion of the task with its latest recorded result.
+export function acceptanceResults(cwd: string, task: Task, results = checksSince(cwd, task.from)): Acceptance[] {
+  return (task.accept ?? []).map((text, i) => {
+    const r = results.get(`accept:${i + 1}`);
+    return { n: i + 1, text, result: r ? r.status : "missing", ...(r?.note ? { note: r.note } : {}) };
+  });
+}
 
 // Records which session owns the open task (from a hook: the CLI never sees the session id).
 // An owned task keeps its owner unless `force` (saw resume adopting it).
@@ -312,6 +354,8 @@ export interface Status {
   waived: string[];
   // Set when the task's tier is below the diff's floor: the task can't be Verified.
   floor?: string;
+  // The task's acceptance criteria (absent when it has none): one failing blocks, one unrecorded keeps it from Verified.
+  acceptance?: Acceptance[];
 }
 
 // verify.allow_unconfigured: checks that may have no command without blocking Verified.
@@ -338,9 +382,14 @@ export function taskStatus(cwd: string, config: Table, task: Task): Status {
   }
   const low = belowFloor(cwd, config, task);
   if (low) status.floor = low;
-  if (status.failed.length) status.label = "Blocked";
+  const acc = task.accept?.length ? acceptanceResults(cwd, task, results) : [];
+  if (acc.length) status.acceptance = acc;
+  const accFailed = acc.some((a) => a.result === "fail");
+  const accMissing = acc.some((a) => a.result === "missing");
+  const anyPassed = status.passed.length > 0 || acc.some((a) => a.result === "pass");
+  if (status.failed.length || accFailed) status.label = "Blocked";
   else if (status.floor || status.unconfigured.length) status.label = "Not verified";
-  else if (status.missing.length) status.label = status.passed.length ? "Partially verified" : "Not verified";
+  else if (status.missing.length || accMissing) status.label = anyPassed ? "Partially verified" : "Not verified";
   return status;
 }
 
@@ -361,6 +410,7 @@ export function statusProblems(s: Status): string {
     s.failed.length ? `failed: ${s.failed.join(", ")}` : "",
     s.missing.length ? `not run: ${s.missing.join(", ")}` : "",
     s.unconfigured.length ? `not configured: ${s.unconfigured.join(", ")} (set checks.<name> in workflow.toml, or list it in verify.allow_unconfigured)` : "",
+    ...(s.acceptance ?? []).filter((a) => a.result !== "pass").map((a) => `accept:${a.n} ${a.result === "fail" ? "failed" : "not recorded"}`),
   ].filter(Boolean).join("; ");
 }
 
@@ -455,7 +505,14 @@ export function taskReport(cwd: string, config: Table, task: Task): string {
     ...(s.floor ? [`- Not verified: tier too low: ${s.floor}`] : []),
     ...s.unconfigured.map((n) => `- Not verified: \`${n}\` (not configured)`),
     ...s.waived.map((n) => `- Skipped: \`${n}\` (no command; verify.allow_unconfigured)`),
+    ...(s.acceptance?.length ? ["", "**Acceptance criteria**", "", ...s.acceptance.map(acceptanceLine)] : []),
   ].join("\n");
+}
+
+// One criterion as a report / status line: "Verified: 2. <text> (<note>)".
+export function acceptanceLine(a: Acceptance): string {
+  const label = a.result === "pass" ? "Verified" : a.result === "fail" ? "Failed" : "Not verified";
+  return `- ${label}: ${a.n}. ${a.text}${a.note ? ` (${a.note})` : ""}`;
 }
 
 // Shell writes (sed -i, redirects) never fire the edit hook. A hash of `git status

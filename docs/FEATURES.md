@@ -31,6 +31,7 @@ Defaults are what a fresh `saw init` gives you. "Key" is the setting that contro
 | Verification | Mechanical checks, quiet output, full logs kept | on | `[checks]`, `[output]` | your commands |
 | | Required checks per tier (tiers can `extends`) | on | `[verify]` | |
 | | Gate: block "done" until checks pass | on | `features.verify_hook` | plugin |
+| | Acceptance criteria: `saw task start --accept "<criterion>"` (repeatable) or `saw task accept add`; each is recorded as `accept:<n>` (a pass needs `--note`), and the task isn't Verified until all pass. Tasks without criteria are unchanged | on | `features.verify_hook` | |
 | | Format after each edit | on (needs `checks.format`) | `features.format_hook` | |
 | | Docs step on feature and foundation tasks | on | `features.docs_step` | `engineering` plugin (installed by bootstrap) |
 | | Living docs: flag blank docs and reference drift at task end; docs step on debug/integration/hardening | on | `features.living_docs` | |

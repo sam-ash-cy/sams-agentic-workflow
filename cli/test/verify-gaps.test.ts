@@ -189,3 +189,21 @@ test("4: a bad --tokens fails before anything is recorded", () => {
   expect(run(["task", "end", "--reason", "x", "--tokens", "abc"], cwd)).toBe(1);
   expect(takeUnverifiedExit(cwd)).toBeUndefined();
 });
+
+test("saw task --accept, accept add and record accept:<n> through the CLI", () => {
+  const cwd = repo();
+  expect(run(["task", "start", "--tier", "trivial", "--playbook", "feature", "--accept", "first", "--accept", "second"], cwd)).toBe(0);
+  expect(run(["task", "accept", "add", "third"], cwd)).toBe(0);
+  expect(run(["task", "record", "accept:4", "pass", "--note", "x"], cwd)).toBe(1); // unknown criterion
+  expect(run(["task", "record", "accept:0", "fail"], cwd)).toBe(1);
+  expect(run(["task", "record", "accept:1", "pass"], cwd)).toBe(1); // a pass needs a note
+  expect(run(["task", "record", "accept:1", "pass", "--note", "   "], cwd)).toBe(1);
+  expect(run(["run", "test"], cwd)).toBe(0);
+  for (const n of [1, 2]) expect(run(["task", "record", `accept:${n}`, "pass", "--note", "bun test"], cwd)).toBe(0);
+  expect(run(["task", "record", "accept:3", "fail"], cwd)).toBe(0);
+  expect(run(["task", "end"], cwd)).toBe(1); // hard verify.mode: Blocked by accept:3
+  expect(run(["task", "status"], cwd)).toBe(0);
+  expect(run(["task", "report"], cwd)).toBe(0);
+  expect(run(["task", "record", "accept:3", "pass", "--note", "manual check"], cwd)).toBe(0);
+  expect(run(["task", "end"], cwd)).toBe(0);
+});
