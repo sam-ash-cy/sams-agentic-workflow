@@ -5,7 +5,7 @@
 
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { appendFileSync, closeSync, existsSync, fstatSync, lstatSync, mkdirSync, openSync, readFileSync, readlinkSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { appendFileSync, closeSync, existsSync, fstatSync, mkdirSync, openSync, readFileSync, readlinkSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import type { Table } from "./defaults";
 import { statePath as sessionFile } from "./session-state";
@@ -513,15 +513,30 @@ const MAX_UNTRACKED_READ = 200;
 
 // A file's content hash: SHA-1 of the bytes up to 1 MB, size and mtime past it
 // (a rewrite then reads as changed: the guard fails closed, not open).
+// No stat-then-read on the path (a file-system race): readlink answers only for a
+// symlink, and the rest is checked and read through one file descriptor.
 function contentHash(abs: string): string {
   try {
-    const st = lstatSync(abs);
-    if (st.isSymbolicLink()) return `link:${readlinkSync(abs)}`;
-    if (st.isDirectory()) return "dir"; // a submodule: its own commits are its own repo's business
+    return `link:${readlinkSync(abs)}`;
+  } catch {
+    // not a symlink (or gone): fall through
+  }
+  let fd: number;
+  try {
+    fd = openSync(abs, "r");
+  } catch (e) {
+    // a submodule: its own commits are its own repo's business (Windows can't open a dir)
+    return (e as NodeJS.ErrnoException).code === "EISDIR" || (e as NodeJS.ErrnoException).code === "EPERM" ? "dir" : "deleted";
+  }
+  try {
+    const st = fstatSync(fd);
+    if (st.isDirectory()) return "dir";
     if (st.size > 1_000_000) return `big:${st.size}:${st.mtimeMs}`;
-    return createHash("sha1").update(readFileSync(abs)).digest("hex");
+    return createHash("sha1").update(readFileSync(fd)).digest("hex");
   } catch {
     return "deleted";
+  } finally {
+    closeSync(fd);
   }
 }
 
