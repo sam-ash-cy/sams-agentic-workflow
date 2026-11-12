@@ -219,6 +219,9 @@ export const DEFAULTS: Table = {
     // critical are ignored here: they always need the owner.
     auto_approve_tiers: [] as string[],
   },
+  // saw plan: one headless session turns a goal into ADR drafts, a roadmap
+  // and [proposed] queue items. Never approves, edits code or commits.
+  plan: { max_usd: 3 },
   // vault_path: the central personal vault (absolute; global or local layer only).
   knowledge: { store: "repo", vault_path: "" },
   // saw sanitize: extra names of yours to flag before going public, besides git
@@ -425,6 +428,7 @@ export const DESCRIPTIONS: Record<string, string> = {
   "autopilot.max_failures": "Stop after this many failed items.",
   "autopilot.max_wait": "Longest wait for a usage limit to reset, such as 6h.",
   "autopilot.resume_on_limit": "Wait and carry on after a usage limit instead of stopping.",
+  "plan.max_usd": "Most saw plan's planning session may spend, in dollars.",
   "autopilot.auto_approve_tiers": "Tiers whose [proposed] queue items run without your approval: trivial, standard. complex and critical are never auto-approved.",
   "knowledge.store": "Where learnings are kept: in the repo, in your vault, or both.",
   "knowledge.vault_path": "Absolute path of your vault. Set it in the global or only-me layer.",

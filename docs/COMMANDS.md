@@ -2,7 +2,7 @@
 
 Every `saw` command, every setting, and recipes for common goals. `saw help` prints the same command list. Install and setup are in the [README](../README.md); agent-driven setup is in [STARTUP.md](STARTUP.md).
 
-Contents: [Setup](#setup) · [Configuration commands](#configuration-commands) · [Tasks and verification](#tasks-and-verification) · [Reviews](#reviews) · [Metrics and self-improvement](#metrics-and-self-improvement) · [Knowledge and context](#knowledge-and-context) · [Supply chain and release](#supply-chain-and-release) · [GitHub](#github) · [Autopilot](#autopilot) · [Hooks](#hooks) · [Scopes](#scopes) · [Configuration keys](#configuration-keys) · [Optional extras](#optional-extras) · [Recipes](#recipes) · [Profiles](#profiles)
+Contents: [Setup](#setup) · [Configuration commands](#configuration-commands) · [Tasks and verification](#tasks-and-verification) · [Reviews](#reviews) · [Metrics and self-improvement](#metrics-and-self-improvement) · [Knowledge and context](#knowledge-and-context) · [Supply chain and release](#supply-chain-and-release) · [GitHub](#github) · [Planner](#planner) · [Autopilot](#autopilot) · [Hooks](#hooks) · [Scopes](#scopes) · [Configuration keys](#configuration-keys) · [Optional extras](#optional-extras) · [Recipes](#recipes) · [Profiles](#profiles)
 
 Global flag on every command: `--set key=value` overrides a setting for that call only (repeatable).
 
@@ -189,6 +189,25 @@ Rulesets for `main` and `release/**` are in `.github/rulesets/`: import them in 
 |---|---|
 | `saw repo plan [--repo o/n]` | The diff between `[repo]` and the live GitHub settings. |
 | `saw repo apply [--repo o/n] --yes` | Applies it and re-reads to verify. Needs `repo.enabled`. Never changes visibility or deletes anything. |
+
+## Planner
+
+| Command | What it does |
+|---|---|
+| `saw plan "<goal>"` | One headless `claude -p` planning session (brief: `prompts/plan.md`, cap `plan.max_usd`). It writes ADR drafts to `docs/decisions/NNNN-title.md` (`status: proposed`), writes or updates `docs/plans/roadmap.md` and appends `[proposed]` items to `autopilot.queue`. |
+| `saw plan "<goal>" --dry-run` | Prints the brief and the command it would run; spawns nothing. |
+
+Queue items use the shared format (sub-lines optional for finished items):
+
+```markdown
+- [proposed] csv-export: CSV export on the reports page
+  - tier: standard
+  - needs: report-api
+  - accept: the reports page has an Export CSV button
+  - adr: docs/decisions/0007-csv-export.md
+```
+
+The session may only read and edit files under `docs/` (plus the queue file): `--allowedTools` lists reading tools and `docs/**` edits, and the shell, commits, pushes and `gh` are denied. Afterwards `saw plan` sets back to `[proposed]` every `[approved]` item that wasn't approved, word for word with the same sub-lines, before the run (at any indentation, as autopilot reads them). It then checks the queue for duplicate slugs, unknown slugs in `needs`, dependency cycles, a missing or unknown tier, items with no `accept` line and `adr` files that don't exist, and flags any new uncommitted change outside `docs/`. It prints each problem and exits non-zero if there are any. Approve items yourself, then run `saw autopilot`.
 
 ## Autopilot
 
@@ -389,6 +408,12 @@ effort = "high"
 | `autopilot.max_wait` | `"6h"` | Longest wait on a usage limit. |
 | `autopilot.resume_on_limit` | `true` | Resume the same session after a limit. |
 | `autopilot.auto_approve_tiers` | `[]` | `[proposed]` items whose `tier:` is listed run as approved. Allowed: `trivial`, `standard`; `complex` and `critical` are ignored with a warning. An item without a tier is never auto-approved, and only an item already committed as `[proposed]` on the base branch (with the tier it has there) counts, so a session can't queue and run its own work. |
+
+### `[plan]`
+
+| Key | Default | Purpose |
+|---|---|---|
+| `plan.max_usd` | `3` | Cap for the `saw plan` session, in dollars. |
 
 ### `[knowledge]`, `[release]`, `[agents]`, `[logging]`, `[dashboard]`
 
