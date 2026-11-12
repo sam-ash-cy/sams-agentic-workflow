@@ -57,11 +57,13 @@ The `router` skill runs most of these for the agent.
 
 | Command | What it does |
 |---|---|
-| `saw task start --tier <t> --playbook <p> [--tone <t>] [--max-words <n>] [--unit phase\|stage\|feature --unit-id <name>]` | Opens a task and prints its steps and required checks. Tiers: `trivial`, `standard`, `complex`, `critical`. Playbooks: `foundation`, `feature`, `debug`, `design`, `integration`, `spike`, `hardening`, `audit`. |
+| `saw task start --tier <t> --playbook <p> [--tone <t>] [--max-words <n>] [--unit phase\|stage\|feature --unit-id <name>] [--accept "<criterion>"]...` | Opens a task and prints its steps and required checks. `--accept` (repeatable) stores acceptance criteria, numbered from 1. Tiers: `trivial`, `standard`, `complex`, `critical`. Playbooks: `foundation`, `feature`, `debug`, `design`, `integration`, `spike`, `hardening`, `audit`. |
 | `saw task adhoc [--playbook <p>]` | A trivial task for a one-off edit. |
 | `saw task phase plan\|implement\|review` | Marks the task's phase. With `features.implementer` on, the main session can't edit source in `implement`. |
 | `saw task status` | Which required checks passed, failed, are missing or have no command (`not configured`), and whether the tier is below the diff's floor; marks a provisional task (`routing.auto = "open"`). Every `saw task` command, `saw run` and the Stop hook also write `.saw/status.json` (tier, playbook, label) for the prompt-band and workflow-pane mods. |
 | `saw task record <check> pass\|fail [--note "..."] [--report <file>]` | Records a judgement check (`code_review`, `security_review`, `docs`, `threat_model`, ...). `--report` names a reviewer's report under `.saw/reviews/` (see `verify.require_review_evidence`). |
+| `saw task accept add "<criterion>"` | Adds an acceptance criterion to the open task and prints its number. |
+| `saw task record accept:<n> pass\|fail --note "<how>"` | Records acceptance criterion `<n>`. A pass needs a non-empty `--note` saying how it was shown (a command, a test name); an unknown `<n>` is refused. A task with criteria is not Verified while any is unrecorded (`accept:<n> not recorded`) or failed (Blocked); `saw task status` and `saw task report` list each with its result and note. |
 | `saw task report [--post [--pr <n>] [--yes]]` | The Markdown verification section for a PR; `--post` comments it with `gh`, as `autonomy.actions.open_pr` allows. |
 | `saw task pr-body [--base <ref>]` | A whole PR description: the commits since `<ref>` (default `origin/<branch.base>`, else `origin/main`) and the verification section. Pipe it to `gh pr create --body-file -`. |
 | `saw task retier <tier>` | Changes the open task's tier, keeping its check history; at the same tier it confirms a provisional task. Refuses to go below the floor the diff since the task started sets (`routing.trivial_max_files`, `routing.trivial_max_lines`, `routing.critical_paths`). |
@@ -110,7 +112,9 @@ Review agents in the plugin: `code-reviewer`, `security-reviewer`, `arch-reviewe
 | `saw projects [list \| add <path> [--setup] \| remove <path>]` | The projects saw knows, kept in `~/.saw/projects.json`. `saw init` and `saw task start` add the folder they run in. `add` scans the folder and reports `ready`, `not set up`, `broken settings` or `missing`; `--setup` runs `saw init` in a folder that is not set up. `remove` only forgets the entry and deletes nothing. |
 | `saw adoption [--since <days>] [--json]` | Whether the workflow is used in this repo, from `.saw/events.jsonl` and `.saw/metrics.jsonl`: tasks opened against Stops (the headline ratio, also a dashboard card), Stops and prompts with no task, routing and verify denials, untasked edits blocked at Stop, subagent edit runs, retiers, the tier spread and each unverified exit with its reason. Needs `logging.enabled` (Stops with no task log as `gate.untasked`, prompts with no task as `nudge`, both at `info`). |
 | `saw retro [--dry-run]` | A proposal in `retro.proposals_dir` for each check failing in `repeat_threshold`+ tasks, plus suggested `saw config set` commands (never applied). A single test failing in `repeat_threshold`+ tasks (from `.saw/failures.jsonl`) gets a `test: <name>` proposal of its own. |
+| `saw adoption --features [--since <days>] [--json]` | Trigger count per `features.*` key and per mod in the window, rarest first; zero counts are marked as candidates to cut. A feature or mod that logs no event of its own is listed as "not measurable", not as zero. Report only: removes nothing. |
 | `saw eval [--case <glob>] [--runs <n>] [--dry-run] [--save-baseline]` | Runs `evals/` with `claude plugin eval` and compares with the baseline. Spends tokens. |
+| `saw eval --ab [--case <glob>] [--runs <n>] [--dry-run]` | Runs the suite with `claude plugin eval --ablation with-without`, so each case also runs with no plugin loaded (saw off), and prints per case and in a totals row the pass rate, tokens and cost of each arm and the difference; writes `.saw/evals-ab.json`. Spends about twice the tokens. |
 | `saw eval compare <before.json> <after.json>` | Compares two saved results. |
 
 ### The live dashboard
@@ -199,7 +203,14 @@ The queue is a Markdown list you own; only `approved` items run:
 ```markdown
 - [approved] csv-export: CSV export on the reports page
 - [proposed] audit-log: waits for you
+- [approved] csv-import: CSV import, after the export
+  - tier: standard
+  - needs: csv-export
+  - accept: a 10k-row file imports in under 5s
+  - adr: docs/decisions/0007-csv.md
 ```
+
+Optional indented sub-lines: `tier`, `needs` (comma list), `accept` (repeatable) and `adr`. An item runs only after every `needs` item finished with a PR; one whose dependency was parked, is missing or isn't approved is skipped (not a failure), and a dependency cycle stops the run. When a dependency's `autopilot/<slug>` branch isn't merged into the base branch yet, the item is cut from that branch (the most recent one if several) and its PR targets it; the chosen base is saved in `.saw/autopilot.json` so a resume uses the same one. `status` and `--dry-run` print the order, each item's base branch and why any item is skipped.
 
 The runner never approves items, edits the queue, merges, pushes to the base branch or deploys. It pushes an item's branch and opens its PR only when `autonomy.actions.open_pr`, `autonomy.actions.push` and `safety.push` are all `allow`. It stops on an empty queue, `max_total_usd` spent, `max_failures` in a row, a weakened `[safety]` setting (other than `safety.push`), or a `.saw/STOP` file. On a usage limit it saves state to `.saw/autopilot.json`, waits (up to `max_wait`) and resumes. Check your Claude plan's terms before running it unattended; API billing with the USD caps is the predictable option.
 
@@ -377,6 +388,7 @@ effort = "high"
 | `autopilot.max_failures` | `2` | Consecutive failures before it stops. |
 | `autopilot.max_wait` | `"6h"` | Longest wait on a usage limit. |
 | `autopilot.resume_on_limit` | `true` | Resume the same session after a limit. |
+| `autopilot.auto_approve_tiers` | `[]` | `[proposed]` items whose `tier:` is listed run as approved. Allowed: `trivial`, `standard`; `complex` and `critical` are ignored with a warning. An item without a tier is never auto-approved, and only an item already committed as `[proposed]` on the base branch (with the tier it has there) counts, so a session can't queue and run its own work. |
 
 ### `[knowledge]`, `[release]`, `[agents]`, `[logging]`, `[dashboard]`
 
@@ -750,6 +762,7 @@ max_total_usd = 30
 max_failures = 2
 max_wait = "6h"
 resume_on_limit = true
+auto_approve_tiers = ["trivial", "standard"]   # [proposed] items with these tiers run unapproved
 
 [autonomy.actions]
 commit = "allow"         # headless sessions can't answer an "ask"

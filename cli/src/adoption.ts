@@ -25,8 +25,11 @@ export interface Adoption {
 // The Stop-gate reason saw gives for edits made with no task (task.ts UNTASKED).
 const UNTASKED_REASON = "no saw task is open";
 
+const windowStart = (sinceDays: number | undefined, now: Date): string | undefined =>
+  sinceDays !== undefined ? new Date(now.getTime() - sinceDays * 86_400_000).toISOString() : undefined;
+
 export function adoption(events: WorkflowEvent[], metrics: TaskMetric[], sinceDays?: number, now = new Date()): Adoption {
-  const since = sinceDays !== undefined ? new Date(now.getTime() - sinceDays * 86_400_000).toISOString() : undefined;
+  const since = windowStart(sinceDays, now);
   const es = since ? events.filter((e) => e.at >= since) : events;
   const ms = since ? metrics.filter((m) => m.at >= since) : metrics;
   const kind = (k: string): WorkflowEvent[] => es.filter((e) => e.kind === k);
@@ -93,4 +96,67 @@ export function adoptionHtml(a: Adoption, esc: (s: string) => string): string {
     + row("prompts with no task", a.prompts_without_task) + row("routing / verify denials", `${a.routing_denials} / ${a.verify_denials}`)
     + row("unverified exits", a.unverified_exits.length) + row("retiers", a.retiers)
     + `</section>`;
+}
+
+// `saw adoption --features`: how often each feature and mod fired in the
+// window, rarest first. A count comes from the event kinds (or task metrics)
+// that only that feature produces; a feature or mod that logs nothing today
+// is "not measurable", never zero. Report only: it removes nothing.
+const FEATURE_SIGNALS: Record<string, { kinds?: string[]; metric?: (m: TaskMetric) => boolean }> = {
+  // gate.untasked is logged on every Stop with no task, so it isn't the verify hook acting.
+  verify_hook: { kinds: ["gate.block", "gate.pass"] },
+  budgets: { kinds: ["budget"] },
+  format_hook: { kinds: ["format"] },
+  recommend: { kinds: ["recommend", "recommend.add"] },
+  implementer: { kinds: ["subagent.edits"] },
+  // code_review and security_review log nothing when they pass (metrics only
+  // keep failures), so they stay "not measurable" rather than a false zero.
+  metrics: { metric: () => true },
+};
+
+export interface UsageRow {
+  name: string;
+  type: "feature" | "mod";
+  count: number;
+}
+
+export interface FeatureUsage {
+  since?: string;
+  rows: UsageRow[]; // ascending by count
+  candidates: string[]; // count 0: candidates to cut
+  not_measurable: { name: string; type: "feature" | "mod" }[];
+}
+
+// With logging off there are no events, so only metric-based counts mean anything.
+export function featureUsage(features: string[], mods: string[], events: WorkflowEvent[], metrics: TaskMetric[], sinceDays?: number, now = new Date(), logging = true): FeatureUsage {
+  const since = windowStart(sinceDays, now);
+  const es = since ? events.filter((e) => e.at >= since) : events;
+  const ms = since ? metrics.filter((m) => m.at >= since) : metrics;
+  const rows: UsageRow[] = [];
+  const notMeasurable: FeatureUsage["not_measurable"] = [];
+  for (const f of features) {
+    const s = FEATURE_SIGNALS[f];
+    if (!s || (!logging && !s.metric)) {
+      notMeasurable.push({ name: f, type: "feature" });
+      continue;
+    }
+    const count = es.filter((e) => s.kinds?.includes(e.kind)).length + (s.metric ? ms.filter((m) => s.metric!(m)).length : 0);
+    rows.push({ name: f, type: "feature", count });
+  }
+  // No mod logs to .saw/events.jsonl today; one that does names itself in data.mod.
+  for (const m of mods) {
+    const count = es.filter((e) => e.data?.mod === m).length;
+    if (count && logging) rows.push({ name: m, type: "mod", count });
+    else notMeasurable.push({ name: m, type: "mod" });
+  }
+  rows.sort((a, b) => a.count - b.count || a.name.localeCompare(b.name));
+  return { ...(since ? { since } : {}), rows, candidates: rows.filter((r) => r.count === 0).map((r) => r.name), not_measurable: notMeasurable };
+}
+
+export function formatFeatureUsage(u: FeatureUsage): string {
+  return [
+    `saw adoption --features${u.since ? ` since ${u.since.slice(0, 10)}` : ""} (report only; nothing is removed)`,
+    ...u.rows.map((r) => `  ${String(r.count).padStart(5)}  ${r.type === "mod" ? "mod    " : "feature"}  ${r.name}${r.count === 0 ? "  <- candidate to cut" : ""}`),
+    `  not measurable (logs no event): ${u.not_measurable.map((n) => (n.type === "mod" ? `mod:${n.name}` : n.name)).join(", ") || "none"}`,
+  ].join("\n");
 }
