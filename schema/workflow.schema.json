@@ -878,6 +878,10 @@
         "resume_on_limit": {
           "type": "boolean",
           "default": true
+        },
+        "auto_approve_tiers": {
+          "type": "array",
+          "default": []
         }
       }
     },
