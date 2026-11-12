@@ -8,6 +8,16 @@ import { join } from "node:path";
 import { claudeArgv, type Session } from "./autopilot";
 import type { Table } from "./defaults";
 
+// Read in one step rather than existsSync-then-read, so the file can't change between the check and the use (CodeQL js/file-system-race).
+function readOrNull(path: string): string | null {
+  try {
+    return readFileSync(path, "utf8");
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code === "ENOENT") return null;
+    throw e;
+  }
+}
+
 export const TIERS = ["trivial", "standard", "complex", "critical"];
 
 // A queue item with its optional sub-lines (the shared queue format).
@@ -194,20 +204,21 @@ export function plan(cwd: string, config: Table, goal: string, queuePath: string
     deps.log(brief);
     return 0;
   }
-  const before = existsSync(queuePath) ? readFileSync(queuePath, "utf8") : "";
+  const before = readOrNull(queuePath) ?? "";
   const dirtyBefore = deps.changed();
   // ADRs of already-approved items: the session must not change what they say.
-  const read = (p: string): string => (existsSync(join(cwd, p)) ? readFileSync(join(cwd, p), "utf8") : "");
+  const read = (p: string): string => readOrNull(join(cwd, p)) ?? "";
   const approvedAdrs = new Map(parsePlanItems(before).filter((i) => i.status === "approved" && i.adr).map((i) => [i.adr!, read(i.adr!)]));
   const s = deps.claude(argv, brief);
   const failed = s.is_error || s.code !== 0;
   deps.log(`session ${failed ? "failed" : "finished"} ($${s.cost_usd.toFixed(2)})`);
   if (failed && s.text) deps.log(`session said: ${s.text.slice(0, 500)}`);
-  if (!existsSync(queuePath)) {
+  const after = readOrNull(queuePath);
+  if (after === null) {
     deps.log(`no queue at ${queue}`);
     return 1;
   }
-  const { text, reverted } = revertApprovals(before, readFileSync(queuePath, "utf8"));
+  const { text, reverted } = revertApprovals(before, after);
   if (reverted.length) {
     writeFileSync(queuePath, text);
     deps.log(`set back to [proposed] (only the owner approves): ${reverted.join(", ")}`);
