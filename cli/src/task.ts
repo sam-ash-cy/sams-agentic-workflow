@@ -5,7 +5,7 @@
 
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { appendFileSync, closeSync, existsSync, fstatSync, mkdirSync, openSync, readFileSync, readlinkSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { appendFileSync, closeSync, existsSync, fstatSync, mkdirSync, openSync, readFileSync, readlinkSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import type { Table } from "./defaults";
 import { statePath as sessionFile } from "./session-state";
@@ -76,7 +76,7 @@ export function startTask(cwd: string, tier: string, playbook: string, style?: T
 export function openProvisional(cwd: string, tier: string, playbook: string, editedPath?: string): Task {
   const task: Task = { ...startTask(cwd, tier, playbook), provisional: true };
   if (editedPath && task.baseDirty) {
-    const key = relative(repoTop(cwd) ?? cwd, resolve(cwd, editedPath)).split(sep).join("/");
+    const key = relInside(repoTop(cwd) ?? cwd, resolve(cwd, editedPath)).split(sep).join("/");
     delete task.baseDirty[key];
     if (!Object.keys(task.baseDirty).length) delete task.baseDirty;
   }
@@ -86,13 +86,28 @@ export function openProvisional(cwd: string, tier: string, playbook: string, edi
 
 // A saw project: one with workflow.toml. The plugin's hooks run in every repo,
 // so routing is only enforced where the workflow was set up.
+// Paths from hooks may name a symlinked or 8.3-short form of the cwd (macOS /var vs
+// /private/var, Windows RUNNER~1), so compare canonical forms. The file may not
+// exist yet, so canonicalise the nearest existing ancestor and re-append the rest.
+function canonical(p: string): string {
+  const abs = resolve(p);
+  try {
+    return realpathSync.native(abs);
+  } catch {
+    const parent = dirname(abs);
+    return parent === abs ? abs : join(canonical(parent), abs.slice(parent.length).replace(/^[\\/]+/, ""));
+  }
+}
+
+const relInside = (base: string, filePath: string): string => relative(canonical(base), canonical(resolve(base, filePath)));
+
 export const isSawProject = (cwd: string): boolean => existsSync(join(cwd, "workflow.toml"));
 
 // Whether an edit to filePath, with no task open, belongs to this project (see markUntaskedEdit).
 export function editOpensProvisional(cwd: string, filePath?: string): boolean {
   if (!isSawProject(cwd) || currentTask(cwd)) return false;
   if (!filePath) return true;
-  const rel = relative(cwd, resolve(cwd, filePath));
+  const rel = relInside(cwd, filePath);
   return !rel.startsWith("..") && !isAbsolute(rel);
 }
 
@@ -102,7 +117,7 @@ export function editOpensProvisional(cwd: string, filePath?: string): boolean {
 export function markUntaskedEdit(cwd: string, filePath?: string): void {
   if (!isSawProject(cwd) || currentTask(cwd)) return;
   if (filePath) {
-    const rel = relative(cwd, resolve(cwd, filePath));
+    const rel = relInside(cwd, filePath);
     if (rel.startsWith("..") || isAbsolute(rel)) return;
   }
   mkdirSync(dir(cwd), { recursive: true });
