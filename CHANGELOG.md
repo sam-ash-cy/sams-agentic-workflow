@@ -2,6 +2,45 @@
 
 All notable changes to this project. Versions follow [Semantic Versioning](https://semver.org); entries are generated from Conventional Commits by `saw release`.
 
+## [1.0.4] - 2026-11-11
+
+### Features
+
+- dashboard-pane is installed by default: the bootstrap and `/workflow-setup` install it, and `saw doctor` flags it when missing
+- add saw plan to turn a goal into ADRs, a roadmap and proposed queue items ([#87](https://github.com/sam-ash-cy/sams-agentic-workflow/pull/87))
+- soft defaults, timed doctor --hooks and guard read fast path ([#85](https://github.com/sam-ash-cy/sams-agentic-workflow/pull/85))
+- queue dependencies, stacked branches and tier auto-approval ([#84](https://github.com/sam-ash-cy/sams-agentic-workflow/pull/84))
+- saw eval --ab and saw adoption --features ([#88](https://github.com/sam-ash-cy/sams-agentic-workflow/pull/88))
+- acceptance criteria on tasks, enforced by the gate ([#86](https://github.com/sam-ash-cy/sams-agentic-workflow/pull/86))
+- card layout, switches, filter and a saved toast ([#82](https://github.com/sam-ash-cy/sams-agentic-workflow/pull/82))
+- open the dashboard in a Claude Code pane ([#79](https://github.com/sam-ash-cy/sams-agentic-workflow/pull/79))
+- edit settings, mods and projects from the live dashboard ([#78](https://github.com/sam-ash-cy/sams-agentic-workflow/pull/78))
+
+### Fixes
+
+- read the plan queue and ADRs in one step, closing a file-system race (CodeQL)
+- compare canonical paths, so macOS /private/var and Windows short-name temp dirs count as inside the project
+- find the saw checkout when the host has no saw on PATH ([#81](https://github.com/sam-ash-cy/sams-agentic-workflow/pull/81))
+- run saw through bun when its PATH shim cannot be spawned ([#80](https://github.com/sam-ash-cy/sams-agentic-workflow/pull/80))
+
+## [Unreleased]
+
+### Features
+
+- settings dashboard: `saw dashboard --serve` lists your projects (`saw projects`, `~/.saw/projects.json`) and edits every setting at the global, shared-project and only-me layers, switches mods on or off, and shows each project's statistics. Reached through a one-use launch address and a session cookie; writes also need the dashboard's origin and csrf key, and `saw guard` denies an agent talking to its API
+- `dashboard-pane` mod: `/dashboard-pane` opens the dashboard in a pane beside the chat (native view of the dashboard's JSON API; settings, mods and projects, writes included). It starts its own server on a free port (`saw dashboard --serve --port 0`, now allowed), trades the launch code at `GET /pane-session?k=<code>`, and stops the server when the pane closes. The browser dashboard is unchanged
+- `dashboard-pane`: card layout with On/Off switches, a settings filter, group buttons, and project and mod cards with their status; a toast names the setting once the server reads the change back, and a mismatch is warned about in the pane
+- `saw projects list | add | remove`; `saw init` and `saw task start` register the folder they run in
+- `isKnownKey` rejects `__proto__`, `constructor` and `prototype` segments, so `saw config set verify.__proto__.run` can no longer reach the prototype chain
+
+### Fixes
+
+- `dashboard-pane`: on Windows, where `saw` on PATH is a shell shim that cannot be spawned without a shell, the pane finds the checkout (`where saw`) and runs its CLI with bun. macOS and Linux run `saw` directly, as before
+
+### Removed
+
+- ECC support: the optional ECC plugin, `features.ecc`, `SAW_WITH_ECC` and the doctor checks for it. A leftover `features.ecc` in your settings is ignored with a warning.
+
 ## [1.0.3] - 2026-11-11
 
 ### Fixes

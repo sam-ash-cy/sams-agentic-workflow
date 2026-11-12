@@ -5,8 +5,8 @@
 
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { appendFileSync, closeSync, existsSync, fstatSync, mkdirSync, openSync, readFileSync, readlinkSync, rmSync, statSync, writeFileSync } from "node:fs";
-import { dirname, isAbsolute, join, relative, resolve } from "node:path";
+import { appendFileSync, closeSync, existsSync, fstatSync, mkdirSync, openSync, readFileSync, readlinkSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import type { Table } from "./defaults";
 import { statePath as sessionFile } from "./session-state";
 import { advisorModel } from "./skills";
@@ -38,6 +38,9 @@ export interface Task {
   // Opened by routing.auto = "open" from the prompt alone: the agent confirms it with
   // saw task retier or saw task start before the verify guard lets a commit through.
   provisional?: boolean;
+  // Acceptance criteria of the item being built (saw task start --accept, saw task
+  // accept add), numbered from 1; each is recorded as check accept:<n>.
+  accept?: string[];
 }
 
 export interface CheckResult {
@@ -54,7 +57,7 @@ export type Label = "Verified" | "Partially verified" | "Not verified" | "Blocke
 
 const dir = (cwd: string): string => join(cwd, ".saw");
 
-export function startTask(cwd: string, tier: string, playbook: string, style?: Task["style"]): Task {
+export function startTask(cwd: string, tier: string, playbook: string, style?: Task["style"], accept: string[] = []): Task {
   if (!(TIERS as readonly string[]).includes(tier)) throw new Error(`tier must be one of ${TIERS.join(" | ")}`);
   if (!(PLAYBOOKS as readonly string[]).includes(playbook)) throw new Error(`playbook must be one of ${PLAYBOOKS.join(" | ")}`);
   const task: Task = { tier, playbook, started: new Date().toISOString(), from: checkLines(cwd).length };
@@ -63,6 +66,9 @@ export function startTask(cwd: string, tier: string, playbook: string, style?: T
   const dirty = head ? dirtyBaseline(cwd) : undefined;
   if (dirty) task.baseDirty = dirty;
   if (style && (style.tone || style.max_words)) task.style = style;
+  const criteria = accept.map(oneLine);
+  if (criteria.some((a) => !a)) throw new Error("--accept needs a non-empty criterion");
+  if (criteria.length) task.accept = criteria;
   mkdirSync(dir(cwd), { recursive: true });
   writeFileSync(join(dir(cwd), "task.json"), JSON.stringify(task, null, 2) + "\n");
   rmSync(join(dir(cwd), "untasked-edits"), { force: true });
@@ -71,15 +77,45 @@ export function startTask(cwd: string, tier: string, playbook: string, style?: T
 
 // routing.auto = "open": a task opened from the prompt alone, flagged provisional until
 // the agent confirms it (saw task retier, or saw task start with its own choice).
-export function openProvisional(cwd: string, tier: string, playbook: string): Task {
+// editedPath: the edit that opened it (the post-edit hook runs after the write), so that
+// file counts as this task's work, not as dirty before it started.
+export function openProvisional(cwd: string, tier: string, playbook: string, editedPath?: string): Task {
   const task: Task = { ...startTask(cwd, tier, playbook), provisional: true };
+  if (editedPath && task.baseDirty) {
+    const key = relInside(repoTop(cwd) ?? cwd, resolve(cwd, editedPath)).split(sep).join("/");
+    delete task.baseDirty[key];
+    if (!Object.keys(task.baseDirty).length) delete task.baseDirty;
+  }
   writeTask(cwd, task);
   return task;
 }
 
 // A saw project: one with workflow.toml. The plugin's hooks run in every repo,
 // so routing is only enforced where the workflow was set up.
+// Paths from hooks may name a symlinked or 8.3-short form of the cwd (macOS /var vs
+// /private/var, Windows RUNNER~1), so compare canonical forms. The file may not
+// exist yet, so canonicalise the nearest existing ancestor and re-append the rest.
+function canonical(p: string): string {
+  const abs = resolve(p);
+  try {
+    return realpathSync.native(abs);
+  } catch {
+    const parent = dirname(abs);
+    return parent === abs ? abs : join(canonical(parent), abs.slice(parent.length).replace(/^[\\/]+/, ""));
+  }
+}
+
+const relInside = (base: string, filePath: string): string => relative(canonical(base), canonical(resolve(base, filePath)));
+
 export const isSawProject = (cwd: string): boolean => existsSync(join(cwd, "workflow.toml"));
+
+// Whether an edit to filePath, with no task open, belongs to this project (see markUntaskedEdit).
+export function editOpensProvisional(cwd: string, filePath?: string): boolean {
+  if (!isSawProject(cwd) || currentTask(cwd)) return false;
+  if (!filePath) return true;
+  const rel = relInside(cwd, filePath);
+  return !rel.startsWith("..") && !isAbsolute(rel);
+}
 
 // Post-edit hook: remembers that files changed while no task was open.
 // An edit in another repo (or ~/.claude) isn't this project's work: that repo's
@@ -87,7 +123,7 @@ export const isSawProject = (cwd: string): boolean => existsSync(join(cwd, "work
 export function markUntaskedEdit(cwd: string, filePath?: string): void {
   if (!isSawProject(cwd) || currentTask(cwd)) return;
   if (filePath) {
-    const rel = relative(cwd, resolve(cwd, filePath));
+    const rel = relInside(cwd, filePath);
     if (rel.startsWith("..") || isAbsolute(rel)) return;
   }
   mkdirSync(dir(cwd), { recursive: true });
@@ -117,6 +153,46 @@ export function restoreTask(cwd: string, task: Task): void {
 }
 
 const writeTask = (cwd: string, task: Task): void => writeFileSync(join(dir(cwd), "task.json"), JSON.stringify(task, null, 2) + "\n");
+
+// A criterion on one line: it may come from a queue file, and a newline in it
+// could forge lines in saw task report's PR section.
+const oneLine = (s: string): string => s.replace(/\s+/g, " ").trim();
+
+// saw task accept add: one more criterion on the open task; returns its number.
+export function addAcceptance(cwd: string, criterion: string): number {
+  const task = currentTask(cwd);
+  if (!task) throw new Error("no task open");
+  const text = oneLine(criterion);
+  if (!text) throw new Error("the criterion is empty");
+  task.accept = [...(task.accept ?? []), text];
+  writeTask(cwd, task);
+  return task.accept.length;
+}
+
+// Why saw task record accept:<n> is refused, or undefined when it may be recorded.
+export function acceptanceProblem(task: Task, check: string, status: "pass" | "fail", note?: string): string | undefined {
+  if (!check.startsWith("accept:")) return undefined;
+  const m = /^accept:([1-9]\d*)$/.exec(check);
+  const count = task.accept?.length ?? 0;
+  if (!m || Number(m[1]) > count) return `${check}: unknown criterion; the task has ${count ? `criteria 1-${count}` : "no acceptance criteria"}`;
+  if (status === "pass" && !(note ?? "").trim()) return `${check} pass needs --note saying how it was shown (a command, a test name)`;
+  return undefined;
+}
+
+export interface Acceptance {
+  n: number;
+  text: string;
+  result: "pass" | "fail" | "missing";
+  note?: string;
+}
+
+// Each criterion of the task with its latest recorded result.
+export function acceptanceResults(cwd: string, task: Task, results = checksSince(cwd, task.from)): Acceptance[] {
+  return (task.accept ?? []).map((text, i) => {
+    const r = results.get(`accept:${i + 1}`);
+    return { n: i + 1, text, result: r ? r.status : "missing", ...(r?.note ? { note: r.note } : {}) };
+  });
+}
 
 // Records which session owns the open task (from a hook: the CLI never sees the session id).
 // An owned task keeps its owner unless `force` (saw resume adopting it).
@@ -273,7 +349,6 @@ export function taskSteps(config: Table, tier: string, playbook = "feature"): st
   if (features.living_docs && !delivers && SURFACE_PLAYBOOKS.includes(playbook)) steps.push("living docs: if this changes commands, settings or APIs: update docs/reference/ (and glossary.md / conventions.md / learnings/ where they're affected)");
   if (features.docs_step && delivers) steps.push("docs step: engineering:documentation in the Diataxis split (tutorial, how-to, reference, explanation); mattpocock-skills:writing-for-agents for AGENTS.md, CLAUDE.md and skill files" +
     (taskChecks(config, tier, playbook).includes("docs") ? "; then saw task record docs pass --note \"<files>\" (or --note \"none needed: <why>\")" : ""));
-  if (features.ecc && delivers) steps.push("before the PR: ecc:verification-loop (build, types, lint, tests, diff review)");
   if (features.brag && delivers) steps.push("optional after the PR merges: a launch video with the brag skill");
   if (taskChecks(config, tier, playbook).includes("advisor")) {
     const model = advisorModel(config);
@@ -313,6 +388,8 @@ export interface Status {
   waived: string[];
   // Set when the task's tier is below the diff's floor: the task can't be Verified.
   floor?: string;
+  // The task's acceptance criteria (absent when it has none): one failing blocks, one unrecorded keeps it from Verified.
+  acceptance?: Acceptance[];
 }
 
 // verify.allow_unconfigured: checks that may have no command without blocking Verified.
@@ -339,9 +416,14 @@ export function taskStatus(cwd: string, config: Table, task: Task): Status {
   }
   const low = belowFloor(cwd, config, task);
   if (low) status.floor = low;
-  if (status.failed.length) status.label = "Blocked";
+  const acc = task.accept?.length ? acceptanceResults(cwd, task, results) : [];
+  if (acc.length) status.acceptance = acc;
+  const accFailed = acc.some((a) => a.result === "fail");
+  const accMissing = acc.some((a) => a.result === "missing");
+  const anyPassed = status.passed.length > 0 || acc.some((a) => a.result === "pass");
+  if (status.failed.length || accFailed) status.label = "Blocked";
   else if (status.floor || status.unconfigured.length) status.label = "Not verified";
-  else if (status.missing.length) status.label = status.passed.length ? "Partially verified" : "Not verified";
+  else if (status.missing.length || accMissing) status.label = anyPassed ? "Partially verified" : "Not verified";
   return status;
 }
 
@@ -362,6 +444,7 @@ export function statusProblems(s: Status): string {
     s.failed.length ? `failed: ${s.failed.join(", ")}` : "",
     s.missing.length ? `not run: ${s.missing.join(", ")}` : "",
     s.unconfigured.length ? `not configured: ${s.unconfigured.join(", ")} (set checks.<name> in workflow.toml, or list it in verify.allow_unconfigured)` : "",
+    ...(s.acceptance ?? []).filter((a) => a.result !== "pass").map((a) => `accept:${a.n} ${a.result === "fail" ? "failed" : "not recorded"}`),
   ].filter(Boolean).join("; ");
 }
 
@@ -456,7 +539,14 @@ export function taskReport(cwd: string, config: Table, task: Task): string {
     ...(s.floor ? [`- Not verified: tier too low: ${s.floor}`] : []),
     ...s.unconfigured.map((n) => `- Not verified: \`${n}\` (not configured)`),
     ...s.waived.map((n) => `- Skipped: \`${n}\` (no command; verify.allow_unconfigured)`),
+    ...(s.acceptance?.length ? ["", "**Acceptance criteria**", "", ...s.acceptance.map(acceptanceLine)] : []),
   ].join("\n");
+}
+
+// One criterion as a report / status line: "Verified: 2. <text> (<note>)".
+export function acceptanceLine(a: Acceptance): string {
+  const label = a.result === "pass" ? "Verified" : a.result === "fail" ? "Failed" : "Not verified";
+  return `- ${label}: ${a.n}. ${a.text}${a.note ? ` (${a.note})` : ""}`;
 }
 
 // Shell writes (sed -i, redirects) never fire the edit hook. A hash of `git status
@@ -724,6 +814,9 @@ export function gate(
   }
   const s = taskStatus(cwd, config, task);
   if (out) out.status = s;
+  // Soft routing doesn't interrupt a provisional task (opened by routing.auto = "open"): its
+  // status still shows in saw task status and the status file, and verify.mode = hard still holds commits.
+  if (task.provisional && ((config.routing ?? {}) as { mode?: string }).mode !== "hard") return undefined;
   if (s.floor) return { decision: "block", reason: `Tier too low: ${s.floor}.` };
   if (s.label === "Verified") return undefined;
   // Debugging is phased in when needed: a check failing twice means guessing has stopped working.

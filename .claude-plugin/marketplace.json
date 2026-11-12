@@ -7,7 +7,7 @@
     {
       "name": "sams-agentic-workflow",
       "source": "./",
-      "version": "1.0.3",
+      "version": "1.0.4",
       "description": "Make your coding agent prove it's done: risk-tiered routing, a gate that blocks 'done' until checks pass, hook-enforced guardrails, token budgets and evidence-driven retros. 45+ features, each switchable globally or per project.",
       "category": "development",
       "homepage": "https://github.com/sam-ash-cy/sams-agentic-workflow",
@@ -40,15 +40,6 @@
         "sha": "2574e29377c7173d0cecffef29a6ecbd7f8ccb5d"
       },
       "description": "Anthropic's engineering plugin (Apache-2.0), pinned at the commit in deps.lock.toml: documentation (the docs step, features.docs_step), code-review, architecture and more. Its MCP connectors stay off until you authorize them."
-    },
-    {
-      "name": "ecc",
-      "source": {
-        "source": "url",
-        "url": "https://github.com/affaan-m/ECC.git",
-        "sha": "b38be6a7f6350964d59328b52f0624e1d1d552d1"
-      },
-      "description": "ECC by Affaan Mustafa (MIT), optional (features.ecc), pinned at the commit in deps.lock.toml: strategic-compact, context-budget, verification-loop and more. See docs/COMMANDS.md (Optional extras) for the hooks saw recommends turning off."
     },
     {
       "name": "render",
@@ -89,6 +80,11 @@
       "name": "trail-nudge",
       "source": "./mods/trail-nudge",
       "description": "saw mod: trail-nudge."
+    },
+    {
+      "name": "dashboard-pane",
+      "source": "./mods/dashboard-pane",
+      "description": "saw mod: the settings dashboard in a pane beside the chat."
     },
     {
       "name": "workflow-pane",

@@ -88,10 +88,6 @@
           "type": "boolean",
           "default": false
         },
-        "ecc": {
-          "type": "boolean",
-          "default": false
-        },
         "docs_step": {
           "type": "boolean",
           "default": true
@@ -372,7 +368,7 @@
         },
         "auto": {
           "type": "string",
-          "default": "suggest",
+          "default": "open",
           "enum": [
             "off",
             "suggest",
@@ -406,7 +402,7 @@
       "properties": {
         "mode": {
           "type": "string",
-          "default": "hard",
+          "default": "soft",
           "enum": [
             "soft",
             "hard"
@@ -882,6 +878,20 @@
         "resume_on_limit": {
           "type": "boolean",
           "default": true
+        },
+        "auto_approve_tiers": {
+          "type": "array",
+          "default": []
+        }
+      }
+    },
+    "plan": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "max_usd": {
+          "type": "number",
+          "default": 3
         }
       }
     },

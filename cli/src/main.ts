@@ -1,9 +1,9 @@
 // saw: the sams-agentic-workflow CLI.
 
-import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
-import { homedir } from "node:os";
+import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { homedir, tmpdir } from "node:os";
 import { dirname, isAbsolute, join, relative, resolve as resolvePath } from "node:path";
-import { baseBranch, flatten, inside, layerPaths, layerValues, loosens, parseValue, resolve, setPath, unsetPath, validate, weakenedSafety, type Layer } from "./config";
+import { baseBranch, flatten, inside, layerPaths, layerValues, loosens, parseValue, resolve, setPath, unsetPath, validate, weakenedSafety, writeSetting, type Layer } from "./config";
 import { DEFAULTS, type Table, type Value } from "./defaults";
 import { readIfExists } from "./fs";
 import { syncAgents, syncSession } from "./agents";
@@ -18,16 +18,19 @@ import { guardHook, readOnlyGuard, unreadableSettingsGuard } from "./guard";
 import { sessionHook, UNITS } from "./sessions";
 import { recordReview, reviewApplies, reviewArgv, reviewBrief, writeChange, type ReviewSettings } from "./review-session";
 import { effectiveStyle, styleCheck, styleLine, TONES } from "./style";
-import { autopilot, eligible, parseQueue, readRuns, readState as autopilotState, scheduleCommand, settings as autopilotSettings, spawnClaude, stopReasons } from "./autopilot";
-import { dataVersion, renderHtml, renderMarkdown } from "./dashboard";
+import { autoApproveTiers, autopilot, parseQueue, planQueue, readRuns, readState as autopilotState, scheduleCommand, settings as autopilotSettings, spawnClaude, stopReasons } from "./autopilot";
+import { plan } from "./plan";
+import { renderHtml, renderMarkdown } from "./dashboard";
+import { dashboardUrl, serveDashboard } from "./dashboard-server";
+import { hookCwd } from "./hook-cwd";
 import { logEvent, readEvents } from "./events";
-import { adoption, formatAdoption } from "./adoption";
+import { adoption, featureUsage, formatAdoption, formatFeatureUsage } from "./adoption";
 import { appendMetric, buildMetric, readMetrics } from "./metrics";
-import { compare, summarise, type Comparison, type Summary } from "./evals";
+import { compare, formatAb, runAb, summarise, type Comparison, type EvalRunner, type Summary } from "./evals";
 import { failureCandidates } from "./failures";
 import { configSuggestions, readProposals, retro } from "./retro";
-import { companionWarnings, compareUrl, eccProblem, gateguardWarning, pin, readLock, readSyncedPluginNames, verifyLock } from "./deps";
-import { depAuditFor, guessType, init, recordInstalled, uninstall, upgrade, workspaceRepos, type ChangeReport, type InitReport } from "./init";
+import { companionWarnings, compareUrl, pin, readLock, readSyncedPluginNames, verifyLock } from "./deps";
+import { initProject, uninstall, upgrade, workspaceRepos, type ChangeReport, type InitReport } from "./init";
 import { lintContext, lintMemory } from "./lint";
 import { docsNudge, docsStatus, REFRESH_BRIEF } from "./docs";
 import { outline } from "./outline";
@@ -38,9 +41,10 @@ import { sanitize, sanitizeHistory } from "./sanitize";
 import { syncAdvisor, syncSkillDenies } from "./skills";
 import { applyPlan, gh, readState, repoName, repoPlan, type Gh } from "./repo";
 import { formatHook, runCheck, TRUSTED_LAYERS } from "./run";
-import { checkMods } from "./mods";
+import { checkMods, DEFAULT_MODS, listMods } from "./mods";
+import { addProject, inspectProject, listProjects, registerProject, removeProject } from "./projects";
 import { verifyMode } from "./verify-guard";
-import { currentTask, endTask, gate, gitStatusHash, isSawProject, markUntaskedEdit, noteUnverifiedExit, noChecksWarning, pickTier, recordCheck, recordVerifiedTree, retierTask, reviewEvidence, statusProblems, setPhase, staleMessage, staleTask, startTask, storedTreeHash, storeTreeHash, takeUnverifiedExit, taskReport, writeStatusFile, taskStatus, taskSkills, taskSteps, type Status } from "./task";
+import { acceptanceLine, acceptanceProblem, addAcceptance, currentTask, endTask, gate, gitStatusHash, isSawProject, markUntaskedEdit, noteUnverifiedExit, noChecksWarning, pickTier, recordCheck, recordVerifiedTree, retierTask, reviewEvidence, statusProblems, setPhase, staleMessage, staleTask, startTask, storedTreeHash, storeTreeHash, takeUnverifiedExit, taskReport, writeStatusFile, taskStatus, taskSkills, taskSteps, type Status, editOpensProvisional, openProvisional } from "./task";
 import { routingMode } from "./routing-guard";
 import { subagentHook } from "./subagent";
 import { patchToml, readToml, stringifyToml } from "./toml";
@@ -56,7 +60,8 @@ const USAGE = `usage: saw <command>
   config unset <key> [--scope ...]
   explain <key>                      the value in every layer, which one won, and why one was ignored
   profile list | show <name> | apply <name> [--dry-run]   merge a recommended profile (docs/COMMANDS.md) into the layers it names
-  doctor [--hooks] [--no-plugin]     check settings, environment and the Claude Code plugin install (--hooks: run each plugin hook once)
+  projects list | add <path> [--setup] | remove <path>   the projects saw knows about (~/.saw/projects.json); add scans the folder; remove only forgets it
+  doctor [--hooks] [--no-plugin]    check settings, environment and the Claude Code plugin install (--hooks: time each plugin hook once, in ms)
   init [--dry-run] [--force] [--type <t>] [--hooks] [--agents a,b] [--repo [o/n]]   add workflow.toml, AGENTS.md, CI and the docs/ vault (+ agent adapters; --repo: show the repo plan)
   init --workspace <dir> [--apply]   init every git repo directly under <dir> that has no workflow.toml (dry run unless --apply)
   init --upgrade [--dry-run]         update unedited template files to the current template; edited ones are kept
@@ -67,11 +72,13 @@ const USAGE = `usage: saw <command>
   deps list | verify [--strict]      pinned third-party skills (deps.lock.toml)
   deps diff <name> <sha>             compare URL to review before updating a pin
   deps pin <name> <sha> --reviewed-by <who>
-  task start --tier <t> --playbook <p> [--tone <t>] [--max-words <n>] [--unit phase|stage|feature --unit-id <name>]   open a task (the router does this)
+  task start --tier <t> --playbook <p> [--tone <t>] [--max-words <n>] [--unit phase|stage|feature --unit-id <name>] [--accept "<criterion>"]...   open a task (the router does this); --accept, repeatable: acceptance criteria, numbered from 1
+  task accept add "<criterion>"     add an acceptance criterion to the open task
   task adhoc [--playbook <p>]        open a trivial task for a one-off edit (same as task start --tier trivial)
   task phase plan|implement|review  mark where the open task is (implement: the main session can't edit source when features.implementer is on)
   task status                        report label + which required checks passed, failed or are missing
   task record <check> pass|fail [--note "..."] [--report <file>]   record a judgement check (code_review, ...); --report: a reviewer's report under .saw/reviews/ (verify.require_review_evidence)
+  task record accept:<n> pass|fail --note "<how it was shown>"   record acceptance criterion <n> (a pass needs --note); the task isn't Verified until every criterion passes
   task report [--post [--pr <n>] [--yes]]   Markdown verification section for a PR (--post: gh pr comment, per autonomy.actions.open_pr)
   task pr-body [--base <ref>]   PR description: commits since <ref> (default origin/<branch.base>) and the verification section
   repo plan|apply [--repo o/n] [--yes]   GitHub settings from [repo]: diff, then apply only with --yes and re-verify
@@ -79,9 +86,9 @@ const USAGE = `usage: saw <command>
   task retier <tier>                 change the open task's tier (keeps its checks; never below what the diff needs)
   task end [--tokens <n>] [--reason "<why>"]   close the task and append its metrics (.saw/metrics.jsonl); --reason is required unless it is Verified
   dashboard [--serve [--port <n>]]   write the static metrics page (and the Obsidian note if set); --serve: live page on 127.0.0.1
-  adoption [--since <days>] [--json] is the workflow used? tasks opened vs Stops, denials, unverified exits, tiers
+  adoption [--features] [--since <days>] [--json] is the workflow used? (--features: trigger count per feature and mod) tasks opened vs Stops, denials, unverified exits, tiers
   retro [--dry-run]                  write a proposal for each check failing in repeat_threshold+ tasks
-  eval [--case <glob>] [--runs <n>] [--dry-run] [--save-baseline]   run the eval suite (claude plugin eval) and compare with the baseline
+  eval [--case <glob>] [--runs <n>] [--dry-run] [--save-baseline] [--ab]   run the eval suite (claude plugin eval) and compare with the baseline; --ab runs it with saw on and off (.saw/evals-ab.json)
   eval compare <before.json> <after.json>  compare two saved eval results
   mods check [<name>]                validate and test the mods under mods/ (needs the claude CLI)
   run <check> [--changed]            run checks.<check> quietly and record the result (--changed: only tests for changed files)
@@ -101,6 +108,7 @@ const USAGE = `usage: saw <command>
   format-hook                        PostToolUse hook: run checks.format after each edit
   review-session brief|run [--dry-run]|record <file> --unit <kind> --unit-id <name>   independent read-only review of a unit ([review_session])
   autopilot [status] [--dry-run] [--once] [--install-schedule]   work through approved queue items, one headless session + branch each ([autopilot]; never merges)
+  plan "<goal>" [--dry-run]          one headless planning session: ADR drafts, roadmap and [proposed] queue items, then validates the queue ([plan])
   style                              the effective reply style for this task (tone, word cap)
   style-check                        Stop hook: warn (soft) or ask for a rewrite (hard) when a reply is over the cap
   about-me [show] [--scope global|project|local] [--dry-run]   create the about-me profile from the template (show: the merged summary sessions get)
@@ -116,13 +124,15 @@ interface Args {
   scoped: boolean;
   overrides: Record<string, Value>;
   values: Record<string, string>;
+  // --accept "<criterion>", repeatable (saw task start).
+  accepts: string[];
 }
 
 const VALUE_FLAGS = ["--runs", "--repo", "--pr", "--tier", "--playbook", "--note", "--plugin-dir", "--reviewed-by", "--type", "--tokens", "--case", "--agents", "--tone", "--max-words", "--unit", "--unit-id", "--port", "--report", "--pre", "--base", "--reason", "--since", "--workspace"];
 const PLUGIN_ROOT = join(import.meta.dir, "..", "..");
 
 function parseArgs(argv: string[]): Args {
-  const args: Args = { positional: [], flags: new Set(), scope: "project", scoped: false, overrides: {}, values: {} };
+  const args: Args = { positional: [], flags: new Set(), scope: "project", scoped: false, overrides: {}, values: {}, accepts: [] };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i]!;
     if (a === "--scope") {
@@ -132,7 +142,12 @@ function parseArgs(argv: string[]): Args {
     else if (a === "--set") {
       const [key, ...rest] = (argv[++i] ?? "").split("=");
       args.overrides[key!] = parseValue(rest.join("="));
-    } else if (VALUE_FLAGS.includes(a)) {
+    } else if (a === "--accept") {
+      // Bare --accept doesn't swallow the next flag; the empty criterion is refused by startTask.
+      const next = argv[i + 1];
+      args.accepts.push(next !== undefined && !next.startsWith("--") ? argv[++i]! : "");
+    }
+    else if (VALUE_FLAGS.includes(a)) {
       // A value flag given bare (saw init --repo) doesn't swallow the next flag.
       const next = argv[i + 1];
       args.values[a.slice(2)] = next !== undefined && !next.startsWith("--") ? argv[++i]! : "";
@@ -202,7 +217,8 @@ export const useStdin = (text: string | undefined): void => {
 };
 const readStdin = (): string => stdinOverride ?? readFileSync(0, "utf8");
 
-export function run(argv: string[], cwd = process.cwd()): number {
+export function run(argv: string[], cwdArg?: string): number {
+  let cwd = cwdArg ?? process.cwd();
   let args: Args;
   try {
     args = parseArgs(argv);
@@ -214,6 +230,14 @@ export function run(argv: string[], cwd = process.cwd()): number {
   if (args.flags.has("--help") || args.flags.has("-h")) {
     console.log(USAGE);
     return 0;
+  }
+  // A hook started with no folder given works where the session does: in a git worktree that is
+  // the payload's cwd, not the folder Claude Code was launched from (see hook-cwd.ts). The payload
+  // is read once here; the commands below read it back from stdinOverride.
+  if (cwdArg === undefined && HOOKS.includes(command ?? "") && (stdinOverride !== undefined || !process.stdin.isTTY)) {
+    const text = readStdin();
+    stdinOverride = text;
+    cwd = hookCwd(text, cwd);
   }
   // The guard reads its payload once, here: read-only tools are answered
   // before any settings file is read (see readOnlyGuard).
@@ -297,8 +321,6 @@ export function run(argv: string[], cwd = process.cwd()): number {
   if (command === "config" && (sub === "set" || sub === "unset") && key) {
     const path = layerPaths(cwd)[args.scope];
     if (!path) return fail(`--scope must be global, project or local`);
-    const text = readIfExists(path) ?? "";
-    const table: Table = readToml(path) ?? {};
     let value: Value | undefined;
     if (sub === "set") {
       if (raw === undefined) return fail(USAGE);
@@ -307,18 +329,10 @@ export function run(argv: string[], cwd = process.cwd()): number {
       } catch (e) {
         return fail(`bad value for ${key}: ${(e as Error).message}`);
       }
-      const problem = validate(key, value);
-      if (problem) return fail(problem);
-      if (args.scope === "project" && loosens(key, value)) {
-        console.error(`warning: a committed workflow.toml can only tighten ${key}; weakening it there is ignored`);
-      }
-      setPath(table, key, value);
-    } else if (!unsetPath(table, key)) {
-      return fail(`${key} is not set in ${path}`);
     }
-    mkdirSync(join(path, ".."), { recursive: true });
-    // In place where possible, so the file's comments survive.
-    writeFileSync(path, patchToml(text, key, value, table) ?? stringifyToml(table));
+    const written = writeSetting(path, args.scope, key, value);
+    if (!written.ok) return fail(written.problem!);
+    if (written.warning) console.error(`warning: ${written.warning}`);
     console.log(`${sub === "set" ? "set" : "unset"} ${key} in ${path}`);
     return 0;
   }
@@ -370,25 +384,12 @@ export function run(argv: string[], cwd = process.cwd()): number {
     const problems = [...resolved.warnings, ...lint];
     for (const p of lint) console.error(`warning: ${p}`);
     if (!args.flags.has("--no-plugin") && process.env.SAW_NO_PLUGIN !== "1") problems.push(...checkPlugin(resolved.config));
-    const claudeDir = process.env.CLAUDE_CONFIG_DIR ?? join(homedir(), ".claude");
-    const read = (p: string): string | undefined => (existsSync(p) ? readFileSync(p, "utf8") : undefined);
-    // A recommendation, not a failure: GateGuard works, it just duplicates saw guard.
-    const gg = gateguardWarning(read(join(claudeDir, "plugins", "installed_plugins.json")), read(join(claudeDir, "settings.json")), process.env.ECC_GATEGUARD, readSyncedPluginNames(join(claudeDir, "plugins", "synced")));
-    if (gg) console.error(`warning: ${gg}`);
     const noChecks = isSawProject(cwd) ? noChecksWarning(resolved.config) : undefined;
     if (noChecks) console.error(`warning: ${noChecks}`);
     if (args.flags.has("--hooks")) problems.push(...checkHooks(cwd));
     const drift = checkVersions(PLUGIN_ROOT);
     for (const d of drift) console.error(`problem: version drift: ${d}`);
     problems.push(...drift);
-    if ((resolved.config.features as Record<string, boolean>).ecc) {
-      const installed = join(process.env.CLAUDE_CONFIG_DIR ?? join(homedir(), ".claude"), "plugins", "installed_plugins.json");
-      const ecc = eccProblem(existsSync(installed) ? readFileSync(installed, "utf8") : undefined, readLock(join(PLUGIN_ROOT, "deps.lock.toml")).ecc?.sha, readSyncedPluginNames(join(dirname(installed), "synced")));
-      if (ecc) {
-        console.error(`warning: ${ecc}`);
-        problems.push(ecc);
-      }
-    }
     const ok = problems.length === 0;
     console.log(ok ? "saw doctor: ok" : `saw doctor: ${problems.length} problem(s)`);
     return ok ? 0 : 1;
@@ -418,25 +419,9 @@ export function run(argv: string[], cwd = process.cwd()): number {
       if (problem) return fail(problem);
     }
     if (args.flags.has("--upgrade")) return printChanges("saw init --upgrade", "updated", "kept (edited)", upgrade(cwd, { dryRun }), dryRun);
-    const report = init(cwd, { dryRun, force: args.flags.has("--force") });
-    const audit = depAuditFor(cwd);
-    if (audit && report.installed.includes("workflow.toml")) {
-      report.changed.push(`workflow.toml (checks.dep_audit = "${audit}")`);
-      if (!dryRun) {
-        appendFileSync(join(cwd, "workflow.toml"), `\n[checks]\ndep_audit = ${JSON.stringify(audit)}   # from the lockfiles found by saw init\n`);
-        recordInstalled(cwd, "workflow.toml", readFileSync(join(cwd, "workflow.toml"), "utf8"));
-      }
-    }
-    const guessed = type === undefined && report.installed.includes("workflow.toml") ? guessType(cwd) : undefined;
+    const { report, guessed, typeIgnored } = initProject(cwd, { dryRun, force: args.flags.has("--force"), type });
     if (guessed) console.log(`  project.type = "${guessed.type}" (guessed from ${guessed.from}; change it with saw config set project.type <t>)`);
-    const chosen = type ?? guessed?.type;
-    if (type && !report.installed.includes("workflow.toml")) {
-      console.error(`warning: workflow.toml already exists, so --type was not applied; run: saw config set project.type ${type}`);
-    } else if (chosen && !dryRun) {
-      const path = join(cwd, "workflow.toml");
-      writeFileSync(path, readFileSync(path, "utf8").replace(/^type = "\w+"/m, `type = "${chosen}"`));
-      recordInstalled(cwd, "workflow.toml", readFileSync(path, "utf8"));
-    }
+    if (typeIgnored) console.error(`warning: workflow.toml already exists, so --type was not applied; run: saw config set project.type ${type}`);
     const hooksPath = Bun.spawnSync(["git", "config", "--get", "core.hooksPath"], { cwd }).stdout.toString().trim();
     if (args.flags.has("--hooks") && hooksPath && hooksPath !== ".githooks" && !args.flags.has("--force")) {
       // Another hook manager (husky, lefthook, ...) owns hooksPath: don't silently disable it.
@@ -459,6 +444,7 @@ export function run(argv: string[], cwd = process.cwd()): number {
     }
     printReport(report, dryRun);
     if (!dryRun) {
+      registerProject(cwd);
       const claude = join(cwd, "CLAUDE.md");
       if (existsSync(claude) && !/^@AGENTS\.md/m.test(readFileSync(claude, "utf8"))) {
         console.log("note: your existing CLAUDE.md doesn't import AGENTS.md; add a line `@AGENTS.md` at the top so Claude reads it");
@@ -566,10 +552,11 @@ export function run(argv: string[], cwd = process.cwd()): number {
     const proposals = proposalsDir ? readProposals(proposalsDir) : [];
     if (args.flags.has("--serve")) {
       const raw = args.values.port || String(d.port);
-      if (!/^\d+$/.test(raw) || Number(raw) < 1 || Number(raw) > 65535) return fail("--port must be a number from 1 to 65535");
+      if (!/^\d+$/.test(raw) || Number(raw) > 65535) return fail("--port must be a number from 0 to 65535 (0 picks a free port)");
+      // Works from any folder; inside a saw project it opens on that project.
       try {
         const server = serveDashboard(cwd, resolved.config, Number(raw));
-        console.log(`saw dashboard: serving on http://127.0.0.1:${server.port}/ (Ctrl+C to stop)`);
+        console.log(`saw dashboard: open ${dashboardUrl(server)} (one use; Ctrl+C to stop)`);
       } catch (e) {
         return fail(`could not serve on port ${raw}: ${(e as Error).message}`);
       }
@@ -588,6 +575,11 @@ export function run(argv: string[], cwd = process.cwd()): number {
   if (command === "adoption") {
     const raw = args.values.since;
     if (raw !== undefined && !/^[1-9]\d*$/.test(raw)) return fail("--since must be a whole number of days");
+    if (args.flags.has("--features")) {
+      const u = featureUsage(Object.keys((DEFAULTS.features ?? {}) as Table), listMods(PLUGIN_ROOT), readEvents(cwd), readMetrics(cwd), raw === undefined ? undefined : Number(raw), new Date(), ((resolved.config.logging ?? {}) as { enabled?: boolean }).enabled === true);
+      console.log(args.flags.has("--json") ? JSON.stringify(u, null, 2) : formatFeatureUsage(u));
+      return 0;
+    }
     const a = adoption(readEvents(cwd), readMetrics(cwd), raw === undefined ? undefined : Number(raw));
     console.log(args.flags.has("--json") ? JSON.stringify(a, null, 2) : formatAdoption(a));
     return 0;
@@ -614,6 +606,7 @@ export function run(argv: string[], cwd = process.cwd()): number {
   }
   if (command === "eval") return evalCommand(cwd, resolved.config, args);
   if (command === "mods") return modsCommand(args);
+  if (command === "projects") return projectsCommand(args);
   if (command === "task") {
     const code = taskCommand(cwd, resolved.config, args);
     // saw task status writes the file itself from the status it printed.
@@ -776,7 +769,13 @@ export function run(argv: string[], cwd = process.cwd()): number {
     if (command === "format-hook") {
       const path = (input as { tool_input?: { file_path?: unknown; notebook_path?: unknown } }).tool_input;
       const file = path?.file_path ?? path?.notebook_path;
-      markUntaskedEdit(cwd, typeof file === "string" ? file : undefined);
+      const filePath = typeof file === "string" ? file : undefined;
+      // Soft routing with routing.auto = open: an edit with no task opens a provisional one
+      // instead of arming the Stop gate, so normal prompting isn't interrupted.
+      const routing = (resolved.config.routing ?? {}) as { mode?: string; auto?: string };
+      if (routing.mode !== "hard" && routing.auto === "open" && editOpensProvisional(cwd, filePath)) {
+        try { openProvisional(cwd, "standard", "feature", filePath); } catch { markUntaskedEdit(cwd, filePath); }
+      } else markUntaskedEdit(cwd, filePath);
     }
     if (command === "format-hook") {
       const source = resolved.sources["checks.format"];
@@ -868,6 +867,7 @@ export function run(argv: string[], cwd = process.cwd()): number {
   }
   if (command === "review-session") return reviewSessionCommand(cwd, resolved.config, args);
   if (command === "autopilot") return autopilotCommand(cwd, resolved.config, weakenedSafety(resolved), args);
+  if (command === "plan") return planCommand(cwd, resolved.config, args);
   if (command === "style") {
     console.log(styleLine(effectiveStyle(resolved.config, currentTask(cwd))));
     return 0;
@@ -954,11 +954,25 @@ function autopilotCommand(cwd: string, config: Table, weakened: string[], args: 
     return 0;
   }
   const state = autopilotState(cwd);
-  const items = existsSync(queue) ? eligible(parseQueue(readFileSync(queue, "utf8")), state) : [];
   if (args.positional[1] === "status" || args.flags.has("--dry-run")) {
-    console.log(`saw autopilot: ${items.length} approved item(s) left in ${s.queue}; spent $${state.spent_usd.toFixed(2)} of $${s.max_total_usd}`);
-    for (const i of items) console.log(`  next  ${i.slug}${i.text ? `: ${i.text}` : ""}`);
-    if (state.current) console.log(`  current ${state.current.slug} (${state.current.branch}, session ${state.current.session_id}${state.current.until ? `, waiting until ${state.current.until}` : ""})`);
+    const items = existsSync(queue) ? parseQueue(readFileSync(queue, "utf8")) : [];
+    const git = (a: string[]): { code: number; out: string } => {
+      try {
+        const p = Bun.spawnSync(["git", ...a], { cwd, stdout: "pipe", stderr: "pipe" });
+        return { code: p.exitCode ?? 1, out: p.stdout.toString() };
+      } catch {
+        return { code: 1, out: "" };
+      }
+    };
+    const plan = planQueue(items, state, config, { git });
+    // The in-flight item shows as `current` with its saved base, not as planned.
+    plan.order = plan.order.filter((p) => p.item.slug !== state.current?.slug);
+    console.log(`saw autopilot: ${plan.order.length} approved item(s) left in ${s.queue}; spent $${state.spent_usd.toFixed(2)} of $${s.max_total_usd}`);
+    for (const w of autoApproveTiers(config).warnings) console.log(`  warning: ${w}`);
+    if (plan.cycle) console.log(`  would stop: dependency cycle: ${plan.cycle.join(" -> ")}`);
+    plan.order.forEach((p, n) => console.log(`  ${String(n + 1).padStart(2)}. ${p.item.slug} from ${p.base}${p.item.status === "proposed" ? ` (auto-approved: ${p.item.tier})` : ""}${p.item.text ? `: ${p.item.text}` : ""}`));
+    for (const k of plan.skipped) console.log(`  skip  ${k.slug}: ${k.reason}`);
+    if (state.current) console.log(`  current ${state.current.slug} (${state.current.branch}${state.current.base ? ` from ${state.current.base}` : ""}, session ${state.current.session_id}${state.current.until ? `, waiting until ${state.current.until}` : ""})`);
     for (const [slug, o] of Object.entries(state.done)) console.log(`  ${o.padEnd(6)} ${slug}`);
     for (const r of stopReasons(cwd, config, state, weakened)) console.log(`  would stop: ${r}`);
     return 0;
@@ -1004,6 +1018,20 @@ function autopilotCommand(cwd: string, config: Table, weakened: string[], args: 
   }
 }
 
+function planCommand(cwd: string, config: Table, args: Args): number {
+  const goal = args.positional.slice(1).join(" ").trim();
+  if (!goal) return fail('usage: saw plan "<goal>" [--dry-run]');
+  const queue = inside(cwd, autopilotSettings(config).queue);
+  if (!queue) return fail("autopilot.queue must be a path inside the project");
+  return plan(cwd, config, goal, queue, { claude: spawnClaude(cwd), changed: () => gitChanged(cwd), uuid: () => crypto.randomUUID(), log: (l) => console.log(`saw plan: ${l}`) }, { dryRun: args.flags.has("--dry-run"), base: baseBranch(config) });
+}
+
+// Paths with uncommitted changes, relative to the repo root.
+function gitChanged(cwd: string): string[] {
+  const p = Bun.spawnSync(["git", "status", "--porcelain", "--untracked-files=all"], { cwd, stdout: "pipe", stderr: "pipe" });
+  return p.stdout.toString().split("\n").filter(Boolean).map((l) => l.slice(3).replace(/^.* -> /, "").replace(/^"|"$/g, ""));
+}
+
 const NO_TASK = "no open task; start one with saw task start --tier <t> --playbook <p>";
 
 function taskCommand(cwd: string, config: Table, args: Args): number {
@@ -1033,11 +1061,13 @@ function taskCommand(cwd: string, config: Table, args: Args): number {
       const t = startTask(plan.action === "worktree" && plan.path ? plan.path : cwd, tier, playbook, {
         tone,
         max_words: rawCap === undefined ? undefined : Number(rawCap),
-      });
+      }, args.accepts);
       if (plan.action === "worktree" && plan.path && plan.name) markWorktreeTask(cwd, plan.path, plan.name);
+      registerProject(cwd);
       console.log(`task: ${t.tier} / ${t.playbook} · ${styleLine(effectiveStyle(config, t))}`);
       logEvent(cwd, config, "info", "tier", `${t.tier} / ${t.playbook}`, { tier: t.tier, playbook: t.playbook, requested: args.values.tier ?? null });
       console.log(`steps: ${taskSteps(config, t.tier, t.playbook).join(" · ")}`);
+      (t.accept ?? []).forEach((c, i) => console.log(`accept:${i + 1} ${c}`));
       const features = (config.features ?? {}) as Record<string, boolean>;
       if (features.task_skills && t.tier !== "trivial") {
         const missing = missingSkillPlugins(taskSkills(config, t.tier, t.playbook), installedNames(cwd));
@@ -1092,7 +1122,14 @@ function taskCommand(cwd: string, config: Table, args: Args): number {
       logEvent(cwd, config, "info", "phase", name, { tier: task.tier });
       return 0;
     }
+    if (sub === "accept" && name === "add" && status !== undefined) {
+      const n = addAcceptance(cwd, status);
+      console.log(`accept:${n} ${status.trim()}`);
+      return 0;
+    }
     if (sub === "record" && name && (status === "pass" || status === "fail")) {
+      const refused = acceptanceProblem(task, name, status, args.values.note);
+      if (refused) return fail(refused);
       const evidence = reviewEvidence(cwd, config, task, name, status, args.values.report);
       if (evidence.problem) {
         logEvent(cwd, config, "warn", "review.refused", `${name} pass not recorded: ${evidence.problem}`, { check: name });
@@ -1132,6 +1169,10 @@ function taskCommand(cwd: string, config: Table, args: Args): number {
       if (s.floor) console.log(`  tier too low: ${s.floor}`);
       if (s.unconfigured.length) console.log(`  not configured ${s.unconfigured.join(", ")} (set checks.<name> in workflow.toml, or list it in verify.allow_unconfigured)`);
       if (s.waived.length) console.log(`  skipped (verify.allow_unconfigured) ${s.waived.join(", ")}`);
+      if (s.acceptance?.length) {
+        console.log("  acceptance criteria");
+        for (const a of s.acceptance) console.log(`  ${acceptanceLine(a)}`);
+      }
       return 0;
     }
   } catch (e) {
@@ -1242,6 +1283,35 @@ function printSkillSuggestions(cwd: string, config: Table, playbook: string): bo
   return true;
 }
 
+function projectsCommand(args: Args): number {
+  const [, sub, target] = args.positional;
+  if (sub === "list" || sub === undefined) {
+    const list = listProjects();
+    if (!list.length) console.log("no projects yet: saw init and saw task start add them, or run saw projects add <path>");
+    for (const p of list) console.log(`${inspectProject(p.path).state.padEnd(16)} ${p.name}  ${p.path}`);
+    return 0;
+  }
+  if (sub === "add" && target) {
+    const r = addProject(target);
+    if (!r.ok) return fail(r.problem ?? "could not add the project");
+    const state = r.inspection!.state;
+    console.log(`added ${r.project!.path} (${state})`);
+    for (const p of r.inspection!.problems) console.log(`  ${p}`);
+    for (const w of r.inspection!.warnings) console.log(`  warning: ${w}`);
+    if (state === "not set up") {
+      if (!args.flags.has("--setup")) console.log("  to set it up now: saw projects add <path> --setup");
+      else printReport(initProject(r.project!.path, { dryRun: false, force: false }).report, false);
+    }
+    return 0;
+  }
+  if (sub === "remove" && target) {
+    if (!removeProject(target)) return fail(`${target} is not in the project list`);
+    console.log(`removed ${target} from the list (the folder is untouched)`);
+    return 0;
+  }
+  return fail("usage: saw projects list | add <path> [--setup] | remove <path>");
+}
+
 function modsCommand(args: Args): number {
   const [, sub, name] = args.positional;
   if (sub !== "check") return fail(USAGE);
@@ -1273,13 +1343,29 @@ function evalCommand(cwd: string, config: Table, args: Args): number {
     const runs = args.values.runs ? Number(args.values.runs) : e.runs;
     if (!Number.isInteger(runs) || runs < 1) return fail("--runs must be a whole number of at least 1");
     const out = join(cwd, ".saw", "evals", `${new Date().toISOString().replace(/[:.]/g, "-")}.json`);
-    // No ablation arm: before/after compares two versions of the plugin, not plugin vs none.
-    const cmd = ["claude", "plugin", "eval", PLUGIN_ROOT, "--no-publish", "--ablation", "none", "--runs", String(runs), "--threshold", "0", "--json", out];
+    // No ablation arm: before/after compares two versions of the plugin, not plugin vs none (--ab adds it).
+    const cmd = ["claude", "plugin", "eval", PLUGIN_ROOT, "--no-publish", "--ablation", args.flags.has("--ab") ? "with-without" : "none", "--runs", String(runs), "--threshold", "0", "--json", out];
     if (args.values.case) cmd.push("--case", args.values.case);
     // A paid run: say how big it is first.
     const cases = readdirSync(join(PLUGIN_ROOT, "evals"), { withFileTypes: true }).filter((d) => d.isDirectory() && (!args.values.case || new Bun.Glob(args.values.case).match(d.name))).length;
-    console.log(`saw eval: ${cases} case(s) x ${runs} run(s) = ${cases * runs} agent sessions (paid)`);
+    const arms = args.flags.has("--ab") ? 2 : 1; // --ab adds the no-plugin arm
+    console.log(`saw eval: ${cases} case(s) x ${runs} run(s)${arms > 1 ? " x 2 arms" : ""} = ${cases * runs * arms} agent sessions (paid)`);
     console.log(`  ${cmd.join(" ")}`);
+    if (args.flags.has("--ab")) {
+      if (args.flags.has("--save-baseline")) return fail("--ab and --save-baseline don't combine: save a baseline with a plain saw eval");
+      console.log("  --ab: --ablation with-without, so each case also runs with no plugin loaded (saw off)");
+      if (args.flags.has("--dry-run")) return 0;
+      const dir = join(cwd, ".saw");
+      mkdirSync(dir, { recursive: true });
+      const runner: EvalRunner = (path) => {
+        const c = cmd.map((x) => (x === out ? path : x));
+        return Bun.spawnSync(c, { cwd, stdout: "inherit", stderr: "inherit" }).exitCode ?? 1;
+      };
+      const r = runAb(dir, runner, e.max_token_increase, (p) => JSON.parse(readFileSync(p, "utf8")), (p, v) => writeFileSync(p, JSON.stringify(v, null, 2) + "\n"));
+      console.log(formatAb(r));
+      console.log(`  -> ${join(dir, "evals-ab.json")}`);
+      return 0;
+    }
     if (args.flags.has("--dry-run")) return 0;
     mkdirSync(join(out, ".."), { recursive: true });
     const run = Bun.spawnSync(cmd, { cwd, stdout: "inherit", stderr: "inherit" });
@@ -1311,20 +1397,30 @@ function report(c: Comparison): number {
   return c.regressions.length ? 1 : 0;
 }
 
-// saw doctor --hooks: runs each plugin hook's saw subcommand with an empty
-// payload; a hook that crashes would otherwise fail silently in a session.
-function checkHooks(cwd: string): string[] {
+// saw doctor --hooks: runs each plugin hook entry in hooks/hooks.json once, in an empty
+// temporary folder (not a saw project, so nothing is written) with a harmless Read payload,
+// and prints its time in milliseconds. A hook that crashes would otherwise fail silently.
+function checkHooks(_cwd: string): string[] {
   const hooks = JSON.parse(readFileSync(join(PLUGIN_ROOT, "hooks", "hooks.json"), "utf8")) as { hooks: Record<string, { hooks: { command: string }[] }[]> };
   const problems: string[] = [];
-  for (const [event, groups] of Object.entries(hooks.hooks)) {
-    for (const h of groups.flatMap((g) => g.hooks)) {
-      const sub = /bin\/saw"?\s+(\S+)/.exec(h.command)?.[1];
-      if (!sub) continue;
-      const proc = Bun.spawnSync(["bun", join(import.meta.dir, "main.ts"), sub], { cwd, stdin: Buffer.from("{}"), stdout: "pipe", stderr: "pipe" });
-      const ok = proc.exitCode === 0;
-      console.log(`  hook ${event.padEnd(16)} saw ${sub.padEnd(12)} ${ok ? "ok" : `exit ${proc.exitCode}`}`);
-      if (!ok) problems.push(`hook ${event} (saw ${sub}) exited ${proc.exitCode}: ${proc.stderr.toString().trim().split("\n").pop()}`);
+  const scratch = mkdtempSync(join(tmpdir(), "saw-doctor-hooks-"));
+  try {
+    for (const [event, groups] of Object.entries(hooks.hooks)) {
+      for (const h of groups.flatMap((g) => g.hooks)) {
+        const file = /hooks\/run\/([\w-]+)\.ts/.exec(h.command)?.[1];
+        if (!file) continue;
+        const payload = JSON.stringify({ hook_event_name: event, cwd: scratch, tool_name: "Read", tool_input: { file_path: join(scratch, "README.md") }, stop_hook_active: true, prompt: "" });
+        const started = performance.now();
+        const proc = Bun.spawnSync(["bun", "--no-install", join(PLUGIN_ROOT, "hooks", "run", `${file}.ts`)], { cwd: scratch, stdin: Buffer.from(payload), stdout: "pipe", stderr: "pipe", timeout: 15000, env: { ...process.env, CLAUDE_PLUGIN_ROOT: PLUGIN_ROOT } });
+        const ms = Math.round(performance.now() - started);
+        const ok = proc.exitCode === 0;
+        const why = proc.exitCode === null ? "timed out after 15 s" : `exited ${proc.exitCode}`;
+        console.log(`  hook ${event.padEnd(18)} ${file.padEnd(14)} ${String(ms).padStart(5)} ms ${ok ? "ok" : why}`);
+        if (!ok) problems.push(`hook ${event} (${file}) ${why}: ${proc.stderr.toString().trim().split("\n").pop()}`);
+      }
     }
+  } finally {
+    rmSync(scratch, { recursive: true, force: true });
   }
   return problems;
 }
@@ -1360,8 +1456,10 @@ export function modsReport(listOutput: string, mods: string[], entrypoint: strin
   for (const m of mods) {
     const block = new RegExp(`(?:^|\\s)${m}@sams-agentic-workflow[^]*?(?=\\n\\s*❯|$)`).exec(listOutput)?.[0];
     const state = !block ? "not installed" : /disabled/i.test(block) ? "disabled" : "enabled";
-    // Mods are optional: one not installed is a note, a disabled one a problem.
-    lines.push(`mod ${m.padEnd(18)} ${state}${state === "not installed" ? ` (optional: claude plugin install ${m}@sams-agentic-workflow)` : ""}`);
+    // Most mods are optional: one not installed is a note. A default mod missing, or any mod disabled, is a problem.
+    const isDefault = DEFAULT_MODS.includes(m);
+    lines.push(`mod ${m.padEnd(18)} ${state}${state === "not installed" && !isDefault ? ` (optional: claude plugin install ${m}@sams-agentic-workflow)` : ""}`);
+    if (state === "not installed" && isDefault) problems.push(`mod ${m} is installed by default but missing: \`claude plugin install ${m}@sams-agentic-workflow\``);
     if (state === "disabled") problems.push(`mod ${m} is disabled: \`claude plugin enable ${m}@sams-agentic-workflow\``);
   }
   if (mods.length && entrypoint && entrypoint !== "cli") lines.push(`host ${entrypoint}: mod panes, bands and buttons draw only in the terminal \`claude\`; run it there to see them`);
@@ -1387,34 +1485,8 @@ function checkPlugin(config: Table): string[] {
 // run() returns this when a server is running: the entrypoint must not exit.
 export const SERVING = -1;
 
-// saw dashboard --serve: renders on every request so the page is always current.
-// Listens on 127.0.0.1 only. Inside the optional container (SAW_DASHBOARD_IN_CONTAINER=1
-// and /.dockerenv present) it binds 0.0.0.0; compose publishes it on 127.0.0.1 only.
-export function serveDashboard(cwd: string, config: Table, port: number): ReturnType<typeof Bun.serve> {
-  const inContainer = process.env.SAW_DASHBOARD_IN_CONTAINER === "1" && existsSync("/.dockerenv");
-  const d = config.dashboard as { panels: string[]; events_limit: number };
-  const proposalsDir = inside(cwd, (config.retro as { proposals_dir: string }).proposals_dir);
-  const headers = {
-    "cache-control": "no-store",
-    "x-content-type-options": "nosniff",
-    "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src 'self'; frame-ancestors 'none'",
-  };
-  return Bun.serve({
-    hostname: inContainer ? "0.0.0.0" : "127.0.0.1",
-    port,
-    fetch(req) {
-      // DNS rebinding: only answer requests addressed to a loopback name.
-      const host = (req.headers.get("host") ?? "").replace(/:\d+$/, "");
-      if (!["127.0.0.1", "localhost", "[::1]"].includes(host)) return new Response("forbidden", { status: 403, headers });
-      if (req.method !== "GET") return new Response("method not allowed", { status: 405, headers });
-      const path = new URL(req.url).pathname;
-      if (path === "/version") return new Response(dataVersion(cwd), { headers: { ...headers, "content-type": "text/plain" } });
-      if (path !== "/") return new Response("not found", { status: 404, headers });
-      const html = renderHtml(readMetrics(cwd), d.panels, proposalsDir ? readProposals(proposalsDir) : [], readRuns(cwd), new Date(), readEvents(cwd, d.events_limit), true, adoption(readEvents(cwd), readMetrics(cwd)));
-      return new Response(html, { headers: { ...headers, "content-type": "text/html; charset=utf-8" } });
-    },
-  });
-}
+// saw dashboard --serve: the live page, in dashboard-server.ts.
+export { serveDashboard } from "./dashboard-server";
 
 function fail(message: string): number {
   console.error(`saw: ${message}`);

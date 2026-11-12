@@ -3,7 +3,7 @@ import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { renderHtml } from "../src/dashboard";
-import { compare, summarise } from "../src/evals";
+import { abCompare, compare, formatAb, runAb, summarise } from "../src/evals";
 import type { TaskMetric } from "../src/metrics";
 import { candidates, readProposals, retro } from "../src/retro";
 
@@ -64,4 +64,41 @@ test("saw retro and saw eval compare from the CLI", async () => {
   expect(run(["retro"], dir)).toBe(0);
   writeFileSync(join(dir, "workflow.toml"), '[retro]\nproposals_dir = "../out"');
   expect(run(["retro"], dir)).toBe(1);
+});
+
+test("saw eval --ab splits one ablation run into saw on and saw off, with an injected runner", () => {
+  const dir = mkdtempSync(join(tmpdir(), "saw-ab-"));
+  const run = (score: number, costUsd: number, tokens: number) => ({ score, costUsd, tokens });
+  const result = {
+    schemaVersion: 1,
+    cases: [
+      { name: "router", arms: { with: [run(1, 0.05, 1000), run(1, 0.05, 1000)], without: [run(0, 0.04, 800), run(1, 0.04, 800)] } },
+      { name: "tdd", arms: { with: [run(0.5, 0.2, 2000)], without: [run(0.5, 0.15, 1500)] } },
+    ],
+  };
+  const calls: string[] = [];
+  const runner = (out: string): number => {
+    calls.push(out);
+    writeFileSync(out, JSON.stringify(result));
+    return 0;
+  };
+  const r = runAb(dir, runner, 0.2, (p) => JSON.parse(readFileSync(p, "utf8")), (p, v) => writeFileSync(p, JSON.stringify(v)));
+  expect(calls).toEqual([join(dir, "evals-ab-run.json")]);
+  expect(r.rows.find((x) => x.case === "router")?.delta).toEqual({ score: 0.5, tokens: 200, cost: expect.closeTo(0.02, 5) });
+  expect(r.totals.delta.score).toBeCloseTo(0.25);
+  expect(r.totals.delta.tokens).toBe(700);
+  expect(r.comparison.improvements).toEqual(["router: score 0.50 -> 1.00"]);
+  expect(r.comparison.regressions).toEqual(["tdd: tokens +33% at the same score"]);
+  expect(JSON.parse(readFileSync(join(dir, "evals-ab.json"), "utf8")).totals.case).toBe("TOTAL");
+  expect(formatAb(r)).toContain("TOTAL");
+  expect(() => runAb(dir, () => 2, 0.2, () => ({}), () => {})).toThrow("claude plugin eval exited 2");
+  expect(() => runAb(dir, () => 0, 0.2, () => ({}), () => {})).toThrow("wrote no result");
+  const noOff = (out: string): number => (writeFileSync(out, JSON.stringify({ cases: [{ name: "a", arms: { with: [run(1, 0.1, 1)] } }] })), 0);
+  expect(() => runAb(dir, noOff, 0.2, (p) => JSON.parse(readFileSync(p, "utf8")), () => {})).toThrow("no saw-off");
+});
+
+test("abCompare keeps a case missing from one arm without a delta", () => {
+  const r = abCompare([{ name: "a", score: 1 }], [], 0.2);
+  expect(r.rows[0].delta.score).toBeUndefined();
+  expect(r.comparison.missing).toEqual([]);
 });

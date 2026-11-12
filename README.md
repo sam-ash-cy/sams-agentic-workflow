@@ -23,7 +23,7 @@ Needs [bun](https://bun.sh) 1.3+ and [Claude Code](https://claude.com/claude-cod
 /workflow-setup
 ```
 
-`/workflow-setup` walks you through global and project setup; `/workflow-setup full` lists every setting to turn on or off. Prefer the terminal, or want one prompt that does it all? See [docs/STARTUP.md](docs/STARTUP.md).
+Then run `/dashboard-pane` to see and switch every setting in a pane beside the chat (installed by default with the setup). `/workflow-setup` walks you through global and project setup; `/workflow-setup full` lists every setting to turn on or off. Prefer the terminal, or want one prompt that does it all? See [docs/STARTUP.md](docs/STARTUP.md).
 
 ## Why it's different
 
@@ -46,10 +46,12 @@ Coding agents treat a typo and a payment migration the same way, say "done" befo
 | **Test-first** | code edits can wait for a failing test |
 | **Token control** | per-tier budgets, cost shown above the prompt, auto-compact and handoff to a fresh session |
 | **Sessions** | branch guard, a worktree per complex task, and `saw split` to run plan stages in parallel |
-| **Metrics + retro** | per-task outcomes, a dashboard, and proposals from repeated failures |
-| **Autopilot** | an approved queue worked through headlessly, one session and PR per item |
+| **Dashboard pane** | `/dashboard-pane` opens settings, mods and projects in a pane beside the chat; installed by default |
+| **Metrics + retro** | per-task outcomes, proposals from repeated failures, and a local dashboard (`saw dashboard --serve`) that lists your projects and edits their settings and mods |
+| **Planner** | `saw plan "<goal>"` drafts ADRs, a roadmap and `[proposed]` queue items for you to approve |
+| **Autopilot** | an approved queue worked through headlessly, one session and PR per item; `needs:` stacks dependent items on each other's branches |
 
-**45+ features and 9 mods, every one switchable globally, per project, or just for you.** See the [full feature list](docs/FEATURES.md).
+**45+ features and 10 mods (`dashboard-pane` on by default), every one switchable globally, per project, or just for you.** See the [full feature list](docs/FEATURES.md).
 
 ## Configure it your way
 
@@ -107,6 +109,5 @@ saw doesn't copy these into the repo. They are pinned by commit in `deps.lock.to
 - [mattpocock/skills](https://github.com/mattpocock/skills) (MIT), installed as a companion plugin
 - [unslop](https://github.com/heydamir/unslop) by Damir Sokolovsky (CC BY 4.0), optional UI polish (`features.unslop`)
 - [brag](https://github.com/latent-spaces/brag) by Shunit Haviv Hakimi (MIT), optional launch videos (`features.brag`). Its bundled music is CC BY 4.0 by [Sascha Ende](https://ende.app): credit him wherever you publish a video made with it.
-- [ECC](https://github.com/affaan-m/ECC) by Affaan Mustafa (MIT), optional plugin (`features.ecc`). saw recommends turning off its duplicate hooks; see [optional extras](docs/COMMANDS.md#optional-extras).
 
 Tests: `bun run test`. Licence: [MIT](LICENSE).

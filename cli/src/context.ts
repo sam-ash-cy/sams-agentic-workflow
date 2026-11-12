@@ -18,7 +18,7 @@ export function routerNudge(cwd: string, config: Table, prompt?: string): Record
   const features = (config.features ?? {}) as Record<string, boolean>;
   if (!features.verify_hook || !isSawProject(cwd) || currentTask(cwd)) return undefined;
   let message = "No saw task is open. If this prompt asks for a code or config change, use the router skill first: classify it, then run `saw task start --tier <t> --playbook <p>`. Skip this for questions.";
-  const auto = ((config.routing ?? {}) as { auto?: string }).auto ?? "suggest";
+  const auto = ((config.routing ?? {}) as { auto?: string }).auto ?? "open";
   const route = auto !== "off" && typeof prompt === "string" ? classify(prompt) : "none";
   if (route !== "none") {
     // The audit playbook needs features.audit; without it, saw task start would refuse.
@@ -75,8 +75,6 @@ export function nudgeFor(config: Table, tokens: number, alreadyFired: number[]):
   const c = (config.context ?? {}) as { window_tokens?: number; suggest_compact_at?: number[]; handoff_at?: number };
   const share = tokens / (c.window_tokens || 200000);
   const pct = Math.round(share * 100);
-  // With ECC on, hand the "where to compact" judgement to its skill instead of repeating it here.
-  const ecc = ((config.features ?? {}) as Record<string, boolean>).ecc === true;
   // Highest threshold crossed that hasn't fired yet; lower ones are implied.
   const handoff = c.handoff_at ?? 0.85;
   if (share >= handoff && !alreadyFired.includes(handoff)) {
@@ -91,7 +89,7 @@ export function nudgeFor(config: Table, tokens: number, alreadyFired: number[]):
     return {
       share: due,
       level: "compact",
-      message: `Context is ${pct}% full. At the next natural break (a phase or task boundary), suggest /compact to the user; a fresh session is better if the next task is unrelated.${ecc ? " Use the ecc:strategic-compact skill to pick the boundary and what the /compact focus keeps." : ""}`,
+      message: `Context is ${pct}% full. At the next natural break (a phase or task boundary), suggest /compact to the user; a fresh session is better if the next task is unrelated.`,
     };
   }
   return undefined;

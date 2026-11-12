@@ -2,7 +2,7 @@
 
 Every `saw` command, every setting, and recipes for common goals. `saw help` prints the same command list. Install and setup are in the [README](../README.md); agent-driven setup is in [STARTUP.md](STARTUP.md).
 
-Contents: [Setup](#setup) · [Configuration commands](#configuration-commands) · [Tasks and verification](#tasks-and-verification) · [Reviews](#reviews) · [Metrics and self-improvement](#metrics-and-self-improvement) · [Knowledge and context](#knowledge-and-context) · [Supply chain and release](#supply-chain-and-release) · [GitHub](#github) · [Autopilot](#autopilot) · [Hooks](#hooks) · [Scopes](#scopes) · [Configuration keys](#configuration-keys) · [Optional extras](#optional-extras) · [Recipes](#recipes) · [Profiles](#profiles)
+Contents: [Setup](#setup) · [Configuration commands](#configuration-commands) · [Tasks and verification](#tasks-and-verification) · [Reviews](#reviews) · [Metrics and self-improvement](#metrics-and-self-improvement) · [Knowledge and context](#knowledge-and-context) · [Supply chain and release](#supply-chain-and-release) · [GitHub](#github) · [Planner](#planner) · [Autopilot](#autopilot) · [Hooks](#hooks) · [Scopes](#scopes) · [Configuration keys](#configuration-keys) · [Optional extras](#optional-extras) · [Recipes](#recipes) · [Profiles](#profiles)
 
 Global flag on every command: `--set key=value` overrides a setting for that call only (repeatable).
 
@@ -14,7 +14,7 @@ Global flag on every command: `--set key=value` overrides a setting for that cal
 | `saw init --upgrade [--dry-run]` | Updates template files you haven't edited; lists edited ones as `kept (edited)`. |
 | `saw init --workspace <dir> [--apply]` | Lists every git repo directly under `<dir>` that has no `workflow.toml` and shows what `saw init` would do in each; `--apply` runs it. Skips repos that already have `workflow.toml`, and worktrees and submodules (a `.git` file). Not recursive. |
 | `saw uninstall [--dry-run]` | Removes template files you haven't edited. |
-| `saw doctor [--hooks] [--no-plugin]` | Checks settings (unknown keys, bad values, weakened guardrails), the environment and the plugin install (`claude plugin list`). `--hooks` runs each plugin hook once; `--no-plugin` or `SAW_NO_PLUGIN=1` skips the plugin check. Warns when a saw project has no `checks.*` command. |
+| `saw doctor [--hooks] [--no-plugin]` | Checks settings (unknown keys, bad values, weakened guardrails), the environment and the plugin install (`claude plugin list`). `--hooks` runs each hook entry in `hooks/hooks.json` once, in an empty temporary folder with a harmless payload, and prints its time in milliseconds; `--no-plugin` or `SAW_NO_PLUGIN=1` skips the plugin check. Warns when a saw project has no `checks.*` command. |
 | `saw sync [--plugin-dir <dir>] [--dry-run] [--session]` | Writes `.saw/resolved.json`, sets each agent's `model:` and `effort:` from `[models]`, and denies the skills of features you turned off. `--session` also writes the plan phase's `model` (`opusplan` when plan is opus and implement is sonnet) and `effortLevel` into `.claude/settings.local.json`, which takes effect on the next start. Run after changing features or models. |
 | `saw agents check` | Checks that each agent in `agents.enabled` will read `AGENTS.md`. |
 
@@ -57,11 +57,13 @@ The `router` skill runs most of these for the agent.
 
 | Command | What it does |
 |---|---|
-| `saw task start --tier <t> --playbook <p> [--tone <t>] [--max-words <n>] [--unit phase\|stage\|feature --unit-id <name>]` | Opens a task and prints its steps and required checks. Tiers: `trivial`, `standard`, `complex`, `critical`. Playbooks: `foundation`, `feature`, `debug`, `design`, `integration`, `spike`, `hardening`, `audit`. |
+| `saw task start --tier <t> --playbook <p> [--tone <t>] [--max-words <n>] [--unit phase\|stage\|feature --unit-id <name>] [--accept "<criterion>"]...` | Opens a task and prints its steps and required checks. `--accept` (repeatable) stores acceptance criteria, numbered from 1. Tiers: `trivial`, `standard`, `complex`, `critical`. Playbooks: `foundation`, `feature`, `debug`, `design`, `integration`, `spike`, `hardening`, `audit`. |
 | `saw task adhoc [--playbook <p>]` | A trivial task for a one-off edit. |
 | `saw task phase plan\|implement\|review` | Marks the task's phase. With `features.implementer` on, the main session can't edit source in `implement`. |
 | `saw task status` | Which required checks passed, failed, are missing or have no command (`not configured`), and whether the tier is below the diff's floor; marks a provisional task (`routing.auto = "open"`). Every `saw task` command, `saw run` and the Stop hook also write `.saw/status.json` (tier, playbook, label) for the prompt-band and workflow-pane mods. |
 | `saw task record <check> pass\|fail [--note "..."] [--report <file>]` | Records a judgement check (`code_review`, `security_review`, `docs`, `threat_model`, ...). `--report` names a reviewer's report under `.saw/reviews/` (see `verify.require_review_evidence`). |
+| `saw task accept add "<criterion>"` | Adds an acceptance criterion to the open task and prints its number. |
+| `saw task record accept:<n> pass\|fail --note "<how>"` | Records acceptance criterion `<n>`. A pass needs a non-empty `--note` saying how it was shown (a command, a test name); an unknown `<n>` is refused. A task with criteria is not Verified while any is unrecorded (`accept:<n> not recorded`) or failed (Blocked); `saw task status` and `saw task report` list each with its result and note. |
 | `saw task report [--post [--pr <n>] [--yes]]` | The Markdown verification section for a PR; `--post` comments it with `gh`, as `autonomy.actions.open_pr` allows. |
 | `saw task pr-body [--base <ref>]` | A whole PR description: the commits since `<ref>` (default `origin/<branch.base>`, else `origin/main`) and the verification section. Pipe it to `gh pr create --body-file -`. |
 | `saw task retier <tier>` | Changes the open task's tier, keeping its check history; at the same tier it confirms a provisional task. Refuses to go below the floor the diff since the task started sets (`routing.trivial_max_files`, `routing.trivial_max_lines`, `routing.critical_paths`). |
@@ -106,11 +108,32 @@ Review agents in the plugin: `code-reviewer`, `security-reviewer`, `arch-reviewe
 
 | Command | What it does |
 |---|---|
-| `saw dashboard [--serve [--port <n>]]` | Writes the static metrics page (`dashboard.output`) and the Markdown note if `dashboard.obsidian_note` is set. `--serve`: a live page on 127.0.0.1. |
+| `saw dashboard [--serve [--port <n>]]` | Writes the static metrics page (`dashboard.output`) and the Markdown note if `dashboard.obsidian_note` is set. `--serve`: the live dashboard on 127.0.0.1, from any folder (see below); `--port 0` picks a free port and prints it in the address. |
+| `saw projects [list \| add <path> [--setup] \| remove <path>]` | The projects saw knows, kept in `~/.saw/projects.json`. `saw init` and `saw task start` add the folder they run in. `add` scans the folder and reports `ready`, `not set up`, `broken settings` or `missing`; `--setup` runs `saw init` in a folder that is not set up. `remove` only forgets the entry and deletes nothing. |
 | `saw adoption [--since <days>] [--json]` | Whether the workflow is used in this repo, from `.saw/events.jsonl` and `.saw/metrics.jsonl`: tasks opened against Stops (the headline ratio, also a dashboard card), Stops and prompts with no task, routing and verify denials, untasked edits blocked at Stop, subagent edit runs, retiers, the tier spread and each unverified exit with its reason. Needs `logging.enabled` (Stops with no task log as `gate.untasked`, prompts with no task as `nudge`, both at `info`). |
 | `saw retro [--dry-run]` | A proposal in `retro.proposals_dir` for each check failing in `repeat_threshold`+ tasks, plus suggested `saw config set` commands (never applied). A single test failing in `repeat_threshold`+ tasks (from `.saw/failures.jsonl`) gets a `test: <name>` proposal of its own. |
+| `saw adoption --features [--since <days>] [--json]` | Trigger count per `features.*` key and per mod in the window, rarest first; zero counts are marked as candidates to cut. A feature or mod that logs no event of its own is listed as "not measurable", not as zero. Report only: removes nothing. |
 | `saw eval [--case <glob>] [--runs <n>] [--dry-run] [--save-baseline]` | Runs `evals/` with `claude plugin eval` and compares with the baseline. Spends tokens. |
+| `saw eval --ab [--case <glob>] [--runs <n>] [--dry-run]` | Runs the suite with `claude plugin eval --ablation with-without`, so each case also runs with no plugin loaded (saw off), and prints per case and in a totals row the pass rate, tokens and cost of each arm and the difference; writes `.saw/evals-ab.json`. Spends about twice the tokens. |
 | `saw eval compare <before.json> <after.json>` | Compares two saved results. |
+
+### The live dashboard
+
+`saw dashboard --serve` opens on the project you started it in, or on the project list when that folder is not a saw project. It has three tabs per entry:
+
+- **Settings**: every key with a one-line description, the layer its value comes from, and a control. A change saves as you make it and is written to the layer you picked: *Global* (`~/.saw/config.toml`), *This project (shared)* (`workflow.toml`) or *This project (only me)* (`workflow.local.toml`). *Reset* removes the key from that layer. The shared file can only make guard settings stricter, so a looser value is disabled there with a pointer to *only me*. It uses the same code as `saw config set`.
+- **Mods**: switch each saw mod on or off. The switch is Claude Code's `enabledPlugins` entry in your user `settings.json` (Global) or the project's `.claude/settings.local.json`. A mod that is not installed shows the `claude plugin install` command instead. A change takes effect in a new Claude session.
+- **Statistics**: the KPIs and panels for that project.
+
+You can add a project by its full path (it is scanned first, and one that is not set up can be set up from the page) or forget one; forgetting deletes nothing.
+
+Any process on the machine can reach a loopback port, so the page is not served to just anyone. `saw dashboard --serve` prints an address with a one-time launch code; opening it trades the code for a session cookie (HttpOnly, SameSite=Strict) and the code stops working. Every later request, reads included, needs that cookie, so restart the command if you lose it. A write must also come from the dashboard's own `http://127.0.0.1:<port>` origin, carry the page's `x-saw-csrf` key, and name the project's folder as well as its position in the list; the host must be a loopback name. Request bodies over 64 KB are refused. In the container the page is read-only. Each change is logged as `settings.changed` in `.saw/events.jsonl`. `saw guard` denies an agent command that addresses the dashboard's `/api/` routes on a loopback address, because the agent must not edit its own guardrails; the page is for you.
+
+#### In a Claude Code pane
+
+The `dashboard-pane` mod is installed by default (the bootstrap and `/workflow-setup` install it; by hand: `claude plugin install dashboard-pane@sams-agentic-workflow`). `saw doctor` reports it as a problem when it is missing. It adds `/dashboard-pane`, which opens the dashboard in a pane beside the chat; the browser dashboard keeps working as before. A pane draws native elements and cannot embed a web page, so it is a native view of the same JSON API: project picker, Settings (a group at a time, with switches, choices and text fields, *Shared* or *Only me*, *Reset*), Mods and Projects tabs. Statistics stay in the browser. Writes go through the same server code and checks as the page.
+
+The command starts its own `saw dashboard --serve --port 0` (a free port, so it never meets a browser dashboard on `dashboard.port`), reads the launch address from that child's output, and trades the one-use code at `GET /pane-session?k=<code>`, which answers the session and the csrf key in a JSON body because a pane cannot read an HttpOnly cookie. The pane sends the session as a cookie and, on a write, its own origin, the `x-saw-csrf` key and the project folder, exactly like the page. The session and key live only in the mod's memory. The code is spent by the pane, so a browser tab cannot also use it. One server runs per session: opening the pane again reuses it, and closing the pane (its *Close* button or the close mark) or ending the session stops it. The mod runs `saw` from your `PATH`, or the command set in its `sawCommand` option.
 
 The `retro-promote` skill turns a proposal into one enforceable fix with an eval case. The repo's `docker-compose.yml` serves the dashboard from a container if you'd rather not install bun.
 
@@ -167,6 +190,25 @@ Rulesets for `main` and `release/**` are in `.github/rulesets/`: import them in 
 | `saw repo plan [--repo o/n]` | The diff between `[repo]` and the live GitHub settings. |
 | `saw repo apply [--repo o/n] --yes` | Applies it and re-reads to verify. Needs `repo.enabled`. Never changes visibility or deletes anything. |
 
+## Planner
+
+| Command | What it does |
+|---|---|
+| `saw plan "<goal>"` | One headless `claude -p` planning session (brief: `prompts/plan.md`, cap `plan.max_usd`). It writes ADR drafts to `docs/decisions/NNNN-title.md` (`status: proposed`), writes or updates `docs/plans/roadmap.md` and appends `[proposed]` items to `autopilot.queue`. |
+| `saw plan "<goal>" --dry-run` | Prints the brief and the command it would run; spawns nothing. |
+
+Queue items use the shared format (sub-lines optional for finished items):
+
+```markdown
+- [proposed] csv-export: CSV export on the reports page
+  - tier: standard
+  - needs: report-api
+  - accept: the reports page has an Export CSV button
+  - adr: docs/decisions/0007-csv-export.md
+```
+
+The session may only read and edit files under `docs/` (plus the queue file): `--allowedTools` lists reading tools and `docs/**` edits, and the shell, commits, pushes and `gh` are denied. Afterwards `saw plan` sets back to `[proposed]` every `[approved]` item that wasn't approved, word for word with the same sub-lines, before the run (at any indentation, as autopilot reads them). It then checks the queue for duplicate slugs, unknown slugs in `needs`, dependency cycles, a missing or unknown tier, items with no `accept` line and `adr` files that don't exist, and flags any new uncommitted change outside `docs/`. It prints each problem and exits non-zero if there are any. Approve items yourself, then run `saw autopilot`.
+
 ## Autopilot
 
 | Command | What it does |
@@ -180,13 +222,20 @@ The queue is a Markdown list you own; only `approved` items run:
 ```markdown
 - [approved] csv-export: CSV export on the reports page
 - [proposed] audit-log: waits for you
+- [approved] csv-import: CSV import, after the export
+  - tier: standard
+  - needs: csv-export
+  - accept: a 10k-row file imports in under 5s
+  - adr: docs/decisions/0007-csv.md
 ```
+
+Optional indented sub-lines: `tier`, `needs` (comma list), `accept` (repeatable) and `adr`. An item runs only after every `needs` item finished with a PR; one whose dependency was parked, is missing or isn't approved is skipped (not a failure), and a dependency cycle stops the run. When a dependency's `autopilot/<slug>` branch isn't merged into the base branch yet, the item is cut from that branch (the most recent one if several) and its PR targets it; the chosen base is saved in `.saw/autopilot.json` so a resume uses the same one. `status` and `--dry-run` print the order, each item's base branch and why any item is skipped.
 
 The runner never approves items, edits the queue, merges, pushes to the base branch or deploys. It pushes an item's branch and opens its PR only when `autonomy.actions.open_pr`, `autonomy.actions.push` and `safety.push` are all `allow`. It stops on an empty queue, `max_total_usd` spent, `max_failures` in a row, a weakened `[safety]` setting (other than `safety.push`), or a `.saw/STOP` file. On a usage limit it saves state to `.saw/autopilot.json`, waits (up to `max_wait`) and resumes. Check your Claude plan's terms before running it unattended; API billing with the USD caps is the predictable option.
 
 ## Hooks
 
-Claude Code runs these from the plugin's `hooks/hooks.json`; you don't call them yourself. `saw doctor --hooks` runs each once.
+Claude Code runs these from the plugin's `hooks/hooks.json`; you don't call them yourself. `saw doctor --hooks` runs each once and prints its time in ms. The guard answers plain `Read`, `Grep` and `Glob` calls before loading the CLI; calls that name `.env*`, `.saw` or the signing key take the full guard.
 
 | Command | Event | What it does |
 |---|---|---|
@@ -220,7 +269,7 @@ Later layers win; `--set` beats all of them for one call. From `workflow.toml`, 
 | Key | Default | Purpose |
 |---|---|---|
 | `features.grilling` | `true` | Clarifying questions before complex work. |
-| `features.tdd` | `true` | Test-first step in task steps. With `tdd.mode = "hard"` (default) and a `[checks].test` command, saw guard denies code edits (test files excepted) on standard-or-higher tasks in `tdd.playbooks` (default feature, foundation, integration, debug) until `saw run test` has failed since the task started. `"soft"`: the step only. |
+| `features.tdd` | `true` | Test-first step in task steps. With `tdd.mode = "hard"` and a `[checks].test` command, saw guard denies code edits (test files excepted) on standard-or-higher tasks in `tdd.playbooks` (default feature, foundation, integration, debug) until `saw run test` has failed since the task started. `"soft"` (default): the step only. |
 | `features.code_review` | `true` | `code_review` in `[verify]`; off drops it. |
 | `features.security_review` | `true` | `security_review` in `[verify]`; off drops it. |
 | `features.verify_hook` | `true` | The gate and the no-task router reminder. |
@@ -244,7 +293,6 @@ Later layers win; `--set` beats all of them for one call. From `workflow.toml`, 
 | `features.parallel_sessions` | `false` | Allow splitting a task into sessions. **G** |
 | `features.unslop` | `false` | unslop polish step in the design playbook. |
 | `features.brag` | `false` | Offer a launch video after feature/foundation PRs merge. |
-| `features.ecc` | `false` | Point nudges and playbooks at ECC skills. |
 | `features.docs_step` | `true` | Feature and foundation tasks end with a `docs` check. |
 | `features.living_docs` | `true` | `saw task end` flags docs still blank in a project with code, and command/config/API changes without a `docs/reference/` change; debug, integration and hardening tasks get a reference-docs step. |
 | `pre_pr.skills` | `[]` | Skills that must run before a PR, e.g. `["security-review", "simplify"]`. Each becomes a required check `skill:<name>` on `pre_pr.tiers` (default standard, complex, critical): record it with `saw task record skill:<name> pass`, or the task stays unverified. |
@@ -266,7 +314,7 @@ Later layers win; `--set` beats all of them for one call. From `workflow.toml`, 
 | `routing.trivial_max_lines` | `60` | Likewise for changed lines (added plus removed, new files counted). |
 | `routing.critical_paths` | auth, secrets, migrations, `infra/`, `*.tf`, `.github/workflows/` globs | A changed path matching one makes the floor `critical`. Below the floor, the Stop gate and (verify.mode hard) the commit guard block until `saw task retier <tier>`. |
 | `enforcement` | `"custom"` | Top-level preset for the six enforcement modes. `strict`: `routing.mode`, `verify.mode`, `tdd.mode`, `tokens.mode`, `style.mode` and `sessions.mode` all `hard`; `relaxed`: all `soft`; `custom`: each key decides. The preset wins over the keys, and `saw config show --resolved` lists them with source `enforcement=<preset>`. **G** (a committed `workflow.toml` can go `strict`, never `relaxed`) |
-| `routing.auto` | `"suggest"` | With no task open in a saw project, the UserPromptSubmit hook classifies the prompt by fixed keyword and path rules (`RULES` in `cli/src/auto-route.ts`, no model call or network) into a tier and playbook; questions and other non-change prompts classify as none. `suggest`: the router nudge adds the proposed `saw task start` line. `open`: saw opens that task flagged provisional, and `verify.mode = "hard"` holds commits until `saw task retier <tier>` or `saw task start` confirms it. `off`: neither. |
+| `routing.auto` | `"open"` | With no task open in a saw project, the UserPromptSubmit hook classifies the prompt by fixed keyword and path rules (`RULES` in `cli/src/auto-route.ts`, no model call or network) into a tier and playbook; questions and other non-change prompts classify as none. `suggest`: the router nudge adds the proposed `saw task start` line. `open`: saw opens that task flagged provisional, and `verify.mode = "hard"` holds commits until `saw task retier <tier>` or `saw task start` confirms it; with `routing.mode = "soft"`, an edit made with no task open also opens a provisional standard / feature task, so the Stop gate doesn't block for untasked edits; under soft routing the Stop gate doesn't block a provisional task either (its status still shows, and `verify.mode = "hard"` still holds commits). `off`: neither. |
 | `routing.mode` | `"soft"` | `hard` (needs `features.verify_hook`, a project with `workflow.toml`): saw guard denies Edit/Write/MultiEdit/NotebookEdit of files in the repo while no task is open, naming the router skill, `saw task start --tier <t> --playbook <p>` and `saw task adhoc`. `.saw/`, `.claude/`, the repo's own top-level `plans/*.md` and paths outside the repo are exempt. `soft`: the router nudge and the Stop block only. Working-tree changes made without an edit tool (`sed -i`, redirects) are caught by the Stop block in both modes. |
 | `autonomy.level` | `"propose"` | `suggest` (never acts), `propose` (asks before outward-facing actions), `act`. **G** |
 | `autonomy.actions.commit` | `"ask"` | `never`, `ask` or `allow`. **G** |
@@ -359,6 +407,13 @@ effort = "high"
 | `autopilot.max_failures` | `2` | Consecutive failures before it stops. |
 | `autopilot.max_wait` | `"6h"` | Longest wait on a usage limit. |
 | `autopilot.resume_on_limit` | `true` | Resume the same session after a limit. |
+| `autopilot.auto_approve_tiers` | `[]` | `[proposed]` items whose `tier:` is listed run as approved. Allowed: `trivial`, `standard`; `complex` and `critical` are ignored with a warning. An item without a tier is never auto-approved, and only an item already committed as `[proposed]` on the base branch (with the tier it has there) counts, so a session can't queue and run its own work. |
+
+### `[plan]`
+
+| Key | Default | Purpose |
+|---|---|---|
+| `plan.max_usd` | `3` | Cap for the `saw plan` session, in dollars. |
 
 ### `[knowledge]`, `[release]`, `[agents]`, `[logging]`, `[dashboard]`
 
@@ -410,7 +465,7 @@ effort = "high"
 | `safety.no_secrets` | `true` | No reading `.env` files into the session (`.env.example` is fine). **G** |
 | `safety.deny` | `["rm -rf","git push --force","git push -f","curl \| sh"]` | Denied commands; spellings are normalised. Project entries are added. **G** |
 
-Environment variables: `SAW_HOME` (moves `~/.saw`), `SAW_NO_PLUGIN` (skip plugin steps in bootstrap and doctor), `SAW_WITH_ECC` (bootstrap also installs ECC), `CLAUDE_CONFIG_DIR` (where bootstrap writes instead of `~/.claude`).
+Environment variables: `SAW_HOME` (moves `~/.saw`), `SAW_NO_PLUGIN` (skip plugin steps in bootstrap and doctor), `CLAUDE_CONFIG_DIR` (where bootstrap writes instead of `~/.claude`).
 
 ## Optional extras
 
@@ -445,23 +500,6 @@ agent-browser install
 ```
 
 `agent-browser install` downloads Chrome for Testing.
-
-**ECC** (`features.ecc`), pinned in saw's marketplace (or `SAW_WITH_ECC=1` before the bootstrap):
-
-```bash
-claude plugin install ecc@sams-agentic-workflow
-saw config set features.ecc true
-saw doctor
-```
-
-Three ECC hooks duplicate saw's (GateGuard, its compact nudge, a Stop-time format/typecheck). Turn them off in the `env` block of `~/.claude/settings.json`; `saw doctor` warns while `ECC_GATEGUARD` isn't `off`:
-
-```json
-"env": {
-  "ECC_GATEGUARD": "off",
-  "ECC_DISABLED_HOOKS": "pre:edit-write:suggest-compact,stop:format-typecheck"
-}
-```
 
 **GitHub settings**: `saw config set repo.enabled true`, review `saw repo plan`, then `saw repo apply --yes`.
 
@@ -749,6 +787,7 @@ max_total_usd = 30
 max_failures = 2
 max_wait = "6h"
 resume_on_limit = true
+auto_approve_tiers = ["trivial", "standard"]   # [proposed] items with these tiers run unapproved
 
 [autonomy.actions]
 commit = "allow"         # headless sessions can't answer an "ask"

@@ -1,0 +1,9 @@
+{
+  "name": "dashboard-pane",
+  "version": "1.0.4",
+  "description": "The saw settings dashboard in a pane beside the chat: pick a project, switch settings and mods, add projects. Starts its own local server and stops it when the pane closes",
+  "types": "./types/index.d.ts",
+  "userConfig": {
+    "sawCommand": { "type": "string", "title": "saw command", "description": "How to run the saw CLI (space-separated argv)", "default": "saw" }
+  }
+}

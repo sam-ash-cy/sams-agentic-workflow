@@ -27,10 +27,11 @@ Defaults are what a fresh `saw init` gives you. "Key" is the setting that contro
 | | Grilling (clarifying questions) on complex and critical | on | `features.grilling`, `routing.always_grill` | |
 | | Branch guard: tasks branch (or worktree) off `main`; no commits on it | on | `features.branch_guard`, `[branch]` | |
 | | Skills named per playbook at task start | on | `features.task_skills`, `[task_skills]` | the named plugins |
-| | Test-first step (hard: code edits wait for a failing `saw run test`) | on | `features.tdd`, `tdd.mode` | |
+| | Test-first step (default soft: the step only; hard: code edits wait for a failing `saw run test`) | on | `features.tdd`, `tdd.mode` | |
 | Verification | Mechanical checks, quiet output, full logs kept | on | `[checks]`, `[output]` | your commands |
 | | Required checks per tier (tiers can `extends`) | on | `[verify]` | |
 | | Gate: block "done" until checks pass | on | `features.verify_hook` | plugin |
+| | Acceptance criteria: `saw task start --accept "<criterion>"` (repeatable) or `saw task accept add`; each is recorded as `accept:<n>` (a pass needs `--note`), and the task isn't Verified until all pass. Tasks without criteria are unchanged | on | `features.verify_hook` | |
 | | Format after each edit | on (needs `checks.format`) | `features.format_hook` | |
 | | Docs step on feature and foundation tasks | on | `features.docs_step` | `engineering` plugin (installed by bootstrap) |
 | | Living docs: flag blank docs and reference drift at task end; docs step on debug/integration/hardening | on | `features.living_docs` | |
@@ -39,9 +40,11 @@ Defaults are what a fresh `saw init` gives you. "Key" is the setting that contro
 | | Unconfigured checks: a required check with no `checks.<name>` command makes the task Not verified ("not configured"), unless listed in `verify.allow_unconfigured`; session start and `saw doctor` warn when no `checks.*` command is set | on | `checks.<name>`, `verify.allow_unconfigured` | |
 | | Stale tasks (a task another session left open denies edits until `saw resume` or `saw task end`) and unverified exits (`saw task end --reason`, shown at the next session start) | on | `routing.mode` | |
 | | Enforcement preset: `strict` sets the routing, verify, tdd, tokens, style and sessions modes hard, `relaxed` sets them soft, `custom` leaves each to its key (`saw config show --resolved` names the preset as the source) | custom | `enforcement` | |
-| | Auto-routing by rules (no model call): with no task open, the router nudge proposes `saw task start --tier <t> --playbook <p>` (`suggest`), or saw opens a provisional task that holds commits until `saw task retier` or `saw task start` confirms it (`open`) | suggest | `routing.auto` | |
+| | Auto-routing by rules (no model call): with no task open, the router nudge proposes `saw task start --tier <t> --playbook <p>` (`suggest`), or saw opens a provisional task that holds commits until `saw task retier` or `saw task start` confirms it (`open`, the default; with `routing.mode = "soft"` an edit made with no task open also opens a provisional standard / feature task instead of a Stop block) | open | `routing.auto` | |
 | | Subagent coverage: subagent edits and commands pass the same routing, verify and tier-floor guards; SubagentStop logs their edits against the open task, or arms the untasked-edit Stop check | on | `features.verify_hook` | |
 | | Adoption report: tasks opened against Stops, Stops and prompts with no task, routing and verify denials, unverified exits, retiers, tier spread (`saw adoption`, and a dashboard card) | on | `dashboard.panels` (`adoption`) | |
+| | Feature usage: trigger count per feature and mod, zero counts as candidates to cut, unmeasurable ones listed apart (`saw adoption --features`) | on | | |
+| | Saw on vs off: the eval suite with and without saw's hooks, per-case and total pass rate, tokens and cost (`saw eval --ab`, `.saw/evals-ab.json`) | on | `evals.runs`, `evals.max_token_increase` | |
 | Reviews | Code and security review on standard+ | on | `features.code_review`, `features.security_review` | |
 | | Advisor consult on standard+ (Claude Code's advisor, Opus 5.5 by default) | on | `features.advisor`, `advisor.model` | |
 | | PR description from commits and checks (`saw task pr-body`) | manual | | `gh` |
@@ -65,7 +68,6 @@ Defaults are what a fresh `saw init` gives you. "Key" is the setting that contro
 | | Implementer agent writes planned units | off | `features.implementer` | |
 | UI and launch | unslop UI polish in the design playbook | off | `features.unslop` | unslop skill |
 | | Launch video after feature PRs | off | `features.brag` | brag skill, Hyperframes |
-| | ECC context and verification skills | off | `features.ecc` | ECC plugin |
 | Knowledge | `docs/` vault (decisions, learnings, plans, features) | on | `saw init` | |
 | | Central personal vault index | on (needs `vault_path`) | `features.obsidian`, `[knowledge]` | |
 | Metrics | Per-task metrics and event log | on | `features.metrics`, `[logging]` | |
@@ -80,15 +82,18 @@ Defaults are what a fresh `saw init` gives you. "Key" is the setting that contro
 | | `saw release`: version bump, CHANGELOG from Conventional Commits, annotated tag | manual | `[release]` | |
 | | Release-branch flow: cut on `release/vX.Y.Z` or `hotfix/*`, merge into `main`, then `saw release tag` | off (`main`) | `release.flow` | |
 | Automation | Autopilot: approved queue, one headless session + PR per item | off | `[autopilot]` | `claude` CLI, `gh` |
+| Automation | Autopilot chains: `needs:` dependencies stack on the previous item's branch; `auto_approve_tiers` runs trivial/standard `[proposed]` items | off (`[]`) | `autopilot.auto_approve_tiers` | autopilot |
+| | Planner: `saw plan "<goal>"` writes ADR drafts, a roadmap and validated `[proposed]` queue items | manual | `[plan]` | `claude` CLI |
 
 ## Mods
 
-Optional add-ons, each its own plugin in this marketplace: `claude plugin install <name>@sams-agentic-workflow`.
+Add-ons, each its own plugin in this marketplace: `claude plugin install <name>@sams-agentic-workflow`. The bootstrap and `/workflow-setup` install `dashboard-pane` for everyone, and `saw doctor` reports it missing as a problem. The rest are optional.
 
 | Mod | What it does |
 |---|---|
 | `prompt-band` | buttons above the prompt (Improve, Plan first, Review, Ship check, Compact, Handoff) with usage limits |
 | `workflow-pane` | a pane beside the chat: current tier, playbook, verification label and which checks passed or are missing; "no task open" in a saw project with none |
+| `dashboard-pane` | **installed by default.** The settings dashboard in a pane beside the chat (`/dashboard-pane`): switch settings and mods and manage projects; starts its own local server and stops it when the pane closes |
 | `render` | themed rendering of replies: tables, headings, code, mermaid, charts (based on prismantis, MIT) |
 | `secrets-redactor` | hides secrets, emails and IPs in tool output behind placeholders; blocks hardcoded secrets in edits |
 | `context-guard` | warns as context fills; past a limit, holds new prompts until you hand off |

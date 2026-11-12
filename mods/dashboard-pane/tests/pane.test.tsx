@@ -1,0 +1,275 @@
+import { expect, mock, test } from 'claude-code/testing'
+
+import { parseLaunch } from '../hooks/register'
+
+const PANE = { plugin: 'dashboard-pane', component: 'Pane', props: {}, requestId: 'dashboard' } as const
+const BASE = 'http://127.0.0.1:41234'
+const LAUNCH = `saw dashboard: open ${BASE}/?k=${'a'.repeat(64)} (one use; Ctrl+C to stop)\n`
+
+const row = (key: string, over: Record<string, unknown> = {}) => ({ key, group: key.split('.')[0], description: `about ${key}`, type: 'boolean', default: false, value: false, source: 'default', ...over })
+const PROJECTS = { writable: true, current: '0', projects: [{ id: 'global', name: 'Global', path: 'global/config.toml', state: 'ready', summary: 'applies to every project' }, { id: '0', name: 'demo', path: '/repo/demo', state: 'ready', summary: '3 tasks' }] }
+const ROWS = { rows: [row('features.grilling'), row('features.docs_step', { value: true, layer: true, source: 'project' }), row('verify.mode', { type: 'enum', options: ['soft', 'hard'], value: 'soft', group: 'verify' })], warnings: [] }
+const MODS = { writable: true, restart: 'A change takes effect in a new Claude session.', scope: '.claude/settings.local.json', mods: [{ name: 'prompt-band', description: 'Buttons above the prompt', state: 'enabled', own: false, install: 'claude plugin install prompt-band@sams-agentic-workflow' }, { name: 'trail-nudge', description: 'Nudges', state: 'not installed', own: false, install: 'claude plugin install trail-nudge@sams-agentic-workflow' }] }
+
+type Seen = { url: string; method: string; headers: Record<string, string>; body?: string }
+const reply = (status: number, body: unknown) => ({ value: { status, ok: status < 300, headers: {}, text: JSON.stringify(body) } })
+
+// A fake dashboard server behind http.fetch, and a fake `saw dashboard --serve` child behind process.spawn.
+function fake($: any, on: any, over: { persist?: boolean; cwd?: string; whereEmpty?: boolean; noSaw?: boolean; fetchFails?: boolean; output?: string; projects?: unknown; post?: (e: Seen) => ReturnType<typeof reply> } = {}) {
+  const clock = mock.clock(on)
+  const seen: Seen[] = []
+  const stored: Record<string, unknown> = {}
+  const toasts: string[] = []
+  on('ui.toast', (_: unknown, e: { text: string }) => { toasts.push(e.text); return { value: undefined } })
+  const spawned: { argv: string[]; ended: boolean }[] = []
+  // `where saw` finds the checkout, as on Windows.
+  on('process.run', (_: unknown, e: { argv: string[] }) => {
+    const out = e.argv[0] === 'where' && !over.whereEmpty ? 'C:\\tools\\saw\\bin\\saw\r\nC:\\tools\\saw\\bin\\saw.cmd\r\n' : ''
+    return { value: { exitCode: 0, stdout: out, stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
+  })
+  on('session.cwd', () => ({ value: over.cwd ?? '/repo/demo' }))
+  on('ui.open', () => ({ value: { isPlaced: true } }))
+  on('ui.close', () => ({ value: undefined }))
+  on('session.end', (_: unknown, e: { sessionId: string }) => ({ sessionId: e.sessionId }))
+  on('process.spawn', async function* (_: unknown, e: { argv: string[] }, next: { signal: AbortSignal }) {
+    // A shell shim that process.spawn cannot start: the call fails before any output.
+    if (over.noSaw && e.argv[0] === 'saw') throw new Error("ENOENT: Command 'saw' not found")
+    const child = { argv: e.argv, ended: false }
+    spawned.push(child)
+    try {
+      yield { stream: 'stdout', text: over.output ?? LAUNCH }
+      await new Promise<void>(done => next.signal.addEventListener('abort', () => done()))
+      return { value: { code: null, signal: 'SIGTERM' } }
+    } finally {
+      child.ended = true
+    }
+  })
+  on('http.fetch', (_: unknown, e: Seen & { init?: { method?: string; headers?: Record<string, string>; body?: string } }) => {
+    const call: Seen = { url: e.url, method: e.init?.method ?? 'GET', headers: e.init?.headers ?? {}, body: e.init?.body }
+    seen.push(call)
+    const path = new URL(call.url).pathname
+    if (over.fetchFails && path !== '/pane-session') throw new Error('connection refused')
+    if (path === '/pane-session') return reply(200, { ok: true, session: 'S'.repeat(64), csrf: 'C'.repeat(64), writable: true })
+    if (call.method === 'POST') {
+      if (over.persist && path === '/api/settings') {
+        const b = JSON.parse(call.body ?? '{}') as { key: string; value?: unknown; unset?: boolean }
+        if (b.unset) delete stored[b.key]
+        else stored[b.key] = b.value
+      }
+      return over.post ? over.post(call) : reply(200, { ok: true })
+    }
+    if (path === '/api/projects') return reply(200, over.projects ?? PROJECTS)
+    if (path === '/api/settings') return reply(200, over.persist ? { ...ROWS, rows: ROWS.rows.map(r => ({ ...r, layer: r.key in stored ? stored[r.key] : undefined })) } : ROWS)
+    if (path === '/api/mods') return reply(200, MODS)
+    return reply(404, { ok: false })
+  })
+  return { seen, spawned, clock, toasts }
+}
+
+test('launch address parsing accepts only the loopback address the server prints', () => {
+  expect(parseLaunch(LAUNCH)).toEqual({ base: BASE, code: 'a'.repeat(64) })
+  expect(parseLaunch('saw dashboard: open http://evil.example:80/?k=' + 'a'.repeat(64))).toBeUndefined()
+  expect(parseLaunch('saw dashboard: open http://127.0.0.1:99999/?k=' + 'a'.repeat(64))).toBeUndefined()
+  expect(parseLaunch('could not serve on port 0: in use')).toBeUndefined()
+  expect(parseLaunch('saw dashboard: open http://127.0.0.1:41234/?k=short')).toBeUndefined()
+})
+
+test('the command starts one server on a free port, trades the launch code and shows the settings', async ($, on) => {
+  const { seen, spawned } = fake($, on)
+  await $.command.run({ command: 'dashboard-pane' })
+  expect(spawned).toHaveLength(1)
+  expect(spawned[0]!.argv).toEqual(['saw', 'dashboard', '--serve', '--port', '0'])
+  expect(seen[0]!.url).toBe(`${BASE}/pane-session?k=${'a'.repeat(64)}`)
+  // Every read after the trade carries the session cookie and nothing else secret.
+  const reads = seen.slice(1)
+  expect(reads.length).toBeGreaterThan(0)
+  for (const r of reads) expect(r.headers.cookie).toBe(`saw_session=${'S'.repeat(64)}`)
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect(await ui.find({ type: 'Text', text: 'features.grilling' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: 'about features.grilling' })).toBeDefined()
+  await ui.unmount()
+})
+
+test('opening the pane twice does not start a second server', async ($, on) => {
+  const { spawned } = fake($, on)
+  await Promise.all([$.command.run({ command: 'dashboard-pane' }), $.command.run({ command: 'dashboard-pane' })])
+  await $.command.run({ command: 'dashboard-pane' })
+  expect(spawned).toHaveLength(1)
+})
+
+test('closing the pane stops the server it started, and the next open starts a fresh one', async ($, on) => {
+  const { spawned, clock } = fake($, on)
+  await $.command.run({ command: 'dashboard-pane' })
+  expect(spawned[0]!.ended).toBe(false)
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  await ui.press({ plugin: 'dashboard-pane', key: 'close' })
+  await ui.unmount()
+  await clock.settle()
+  expect(spawned[0]!.ended).toBe(true)
+  await $.command.run({ command: 'dashboard-pane' })
+  expect(spawned).toHaveLength(2)
+})
+
+test('ending the session stops the server too', async ($, on) => {
+  const { spawned } = fake($, on)
+  await $.command.run({ command: 'dashboard-pane' })
+  await $.session.end({ reason: 'other', sessionId: 's1' } as never)
+  expect(spawned[0]!.ended).toBe(true)
+})
+
+test('a switch posts from the dashboard origin with the csrf key, the project folder and the scope', async ($, on) => {
+  const { seen } = fake($, on)
+  await $.command.run({ command: 'dashboard-pane' })
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  await ui.press({ plugin: 'dashboard-pane', key: 'set:features.grilling:on' })
+  const post = seen.find(s => s.method === 'POST')!
+  expect(post.url).toBe(`${BASE}/api/settings`)
+  expect(post.headers.origin).toBe(BASE)
+  expect(post.headers['x-saw-csrf']).toBe('C'.repeat(64))
+  expect(post.headers.cookie).toBe(`saw_session=${'S'.repeat(64)}`)
+  expect(JSON.parse(post.body!)).toEqual({ project: '0', path: '/repo/demo', scope: 'project', key: 'features.grilling', value: true })
+  await ui.unmount()
+})
+
+test('a write the server refuses shows its reason', async ($, on) => {
+  fake($, on, { post: () => reply(400, { ok: false, problem: 'The shared workflow.toml can only tighten verify.mode.' }) })
+  await $.command.run({ command: 'dashboard-pane' })
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  await ui.press({ plugin: 'dashboard-pane', key: 'set:features.grilling:on' })
+  expect(await ui.find({ type: 'Text', text: /Not saved: The shared workflow\.toml can only tighten verify\.mode\./ })).toBeDefined()
+  await ui.unmount()
+})
+
+test('a read-only dashboard offers no switches', async ($, on) => {
+  fake($, on, { projects: { ...PROJECTS, writable: false } })
+  await $.command.run({ command: 'dashboard-pane' })
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect(await ui.find({ type: 'Text', text: 'features.grilling' })).toBeDefined()
+  expect(await ui.find({ type: 'Button', key: 'set:features.grilling:on' })).toBeUndefined()
+  await ui.unmount()
+})
+
+test('a mod switch posts to /api/mods', async ($, on) => {
+  const { seen } = fake($, on)
+  await $.command.run({ command: 'dashboard-pane' })
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  await ui.press({ plugin: 'dashboard-pane', key: 'tab:mods' })
+  await ui.press({ plugin: 'dashboard-pane', key: 'mod:prompt-band:off' })
+  const post = seen.find(s => s.method === 'POST')!
+  expect(post.url).toBe(`${BASE}/api/mods`)
+  expect(JSON.parse(post.body!)).toEqual({ project: '0', path: '/repo/demo', name: 'prompt-band', enabled: false })
+  await ui.unmount()
+})
+
+test('a server that never prints its address leaves an error after a wait, not a hang', async ($, on) => {
+  const { spawned, clock } = fake($, on, { output: 'saw dashboard: starting\n' })
+  const run = $.command.run({ command: 'dashboard-pane' })
+  await clock.advance(30000)
+  await run
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect(await ui.find({ type: 'Text', text: /did not print/ })).toBeDefined()
+  await ui.unmount()
+  expect(spawned[0]!.ended).toBe(true)
+})
+
+test('an address that is not on this machine is never visited', async ($, on) => {
+  const { seen, spawned, clock } = fake($, on, { output: `saw dashboard: open http://evil.example:80/?k=${'a'.repeat(64)}\n` })
+  const run = $.command.run({ command: 'dashboard-pane' })
+  await clock.advance(30000)
+  await run
+  expect(seen.filter(s => s.url.includes('evil.example'))).toHaveLength(0)
+  expect(spawned[0]!.ended).toBe(true)
+})
+
+test('a server that stops answering shows an error with a way to try again, not a stuck spinner', async ($, on) => {
+  fake($, on, { fetchFails: true })
+  await $.command.run({ command: 'dashboard-pane' })
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect(await ui.find({ type: 'Text', text: /did not answer/ })).toBeDefined()
+  expect(await ui.find({ type: 'Button', key: 'retry' })).toBeDefined()
+  await ui.unmount()
+})
+
+// The app that hosts the mod can lack `saw` on its PATH (only a terminal has it), so a spawn of
+// plain saw fails to start; the pane then runs a saw checkout that has the pane route, with bun.
+const ROUTE = { value: 'export const x = "GET /pane-session"' }
+
+test('when saw cannot be spawned, the pane runs the checkout of the session folder with bun', async ($, on) => {
+  const { spawned } = fake($, on, { noSaw: true, cwd: 'C:\\work\\saw\\.claude\\worktrees\\x' })
+  on('env.get', () => ({ value: undefined }))
+  on('fs.read', (_: unknown, e: { path: string }) => (/work.saw.cli.src.dashboard-server\.ts$/.test(e.path) ? ROUTE : { deny: 'ENOENT' }))
+  await $.command.run({ command: 'dashboard-pane' })
+  expect(spawned[0]!.argv).toEqual(['bun', 'C:\\work\\saw/cli/src/main.ts', 'dashboard', '--serve', '--port', '0'])
+})
+
+test('a checkout without the pane route is not used; the installed plugin is the next place to look', async ($, on) => {
+  const { spawned } = fake($, on, { noSaw: true, cwd: 'C:\\work\\old' })
+  on('env.get', (_: unknown, e: { name: string }) => ({ value: e.name === 'USERPROFILE' ? 'C:\\Users\\me' : undefined }))
+  on('fs.list', () => ({ value: [{ name: '1.0.2', kind: 'dir', size: 0, mtimeMs: 0, isLink: false }, { name: '1.0.4', kind: 'dir', size: 0, mtimeMs: 0, isLink: false }] }))
+  on('fs.read', (_: unknown, e: { path: string }) => (/1\.0\.4.cli.src.dashboard-server\.ts$/.test(e.path) ? ROUTE : /old.cli.src.dashboard-server\.ts$/.test(e.path) ? { value: 'no route here' } : { deny: 'ENOENT' }))
+  await $.command.run({ command: 'dashboard-pane' })
+  expect(spawned[0]!.argv[0]).toBe('bun')
+  expect(spawned[0]!.argv[1]).toMatch(/1\.0\.4.cli.src.main\.ts$/)
+})
+
+test('when no checkout is found, the error says where it looked', async ($, on) => {
+  fake($, on, { noSaw: true })
+  on('env.get', () => ({ value: undefined }))
+  on('fs.read', () => ({ deny: 'ENOENT' }))
+  on('fs.list', () => ({ deny: 'ENOENT' }))
+  await $.command.run({ command: 'dashboard-pane' })
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect(await ui.find({ type: 'Text', text: /no fallback: no saw checkout with the pane route found/ })).toBeDefined()
+  await ui.unmount()
+})
+
+for (const surface of ['terminal', 'desktop', 'vscode'] as const) {
+  test(`every tab draws on the ${surface} surface`, async ($, on) => {
+    fake($, on)
+    await $.command.run({ command: 'dashboard-pane' })
+    const ui = await $.ui.mount({ ...PANE, surface })
+    expect(await ui.find({ type: 'Text', text: 'features.grilling' })).toBeDefined()
+    await ui.press({ plugin: 'dashboard-pane', key: 'tab:mods' })
+    expect(await ui.find({ type: 'Text', text: 'prompt-band' })).toBeDefined()
+    await ui.press({ plugin: 'dashboard-pane', key: 'tab:projects' })
+    expect(await ui.find({ type: 'Button', key: 'open:0' })).toBeDefined()
+    await ui.unmount()
+  })
+}
+
+test('the filter finds settings across groups', async ($, on) => {
+  fake($, on)
+  await $.command.run({ command: 'dashboard-pane' })
+  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  await ui.input({ plugin: 'dashboard-pane', key: 'filter', text: 'mode' })
+  expect(await ui.find({ type: 'Text', text: 'verify.mode' })).toBeDefined()
+  await ui.unmount()
+})
+
+test('a saved setting pops up which setting changed, once the server reads it back', async ($, on) => {
+  const { toasts } = fake($, on, { persist: true })
+  await $.command.run({ command: 'dashboard-pane' })
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  await ui.press({ plugin: 'dashboard-pane', key: 'set:features.grilling:on' })
+  expect(toasts).toEqual(['✓ features.grilling: on'])
+  await ui.unmount()
+})
+
+test('a setting the server accepts but does not read back is reported, not called saved', async ($, on) => {
+  const { toasts } = fake($, on)
+  await $.command.run({ command: 'dashboard-pane' })
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  await ui.press({ plugin: 'dashboard-pane', key: 'set:features.grilling:on' })
+  expect(await ui.find({ type: 'Text', text: /reads back differently/ })).toBeDefined()
+  expect(toasts).toEqual([])
+  await ui.unmount()
+})
+
+test('a refused write says it was not saved', async ($, on) => {
+  fake($, on, { post: () => reply(400, { ok: false, problem: 'nope' }) })
+  await $.command.run({ command: 'dashboard-pane' })
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  await ui.press({ plugin: 'dashboard-pane', key: 'set:features.grilling:on' })
+  expect(await ui.find({ type: 'Text', text: 'Not saved: nope' })).toBeDefined()
+  await ui.unmount()
+})
