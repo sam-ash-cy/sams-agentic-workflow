@@ -48,7 +48,7 @@ test("B8: checks use sh syntax on every platform", () => {
 });
 
 test("B9 + B10 + B11: allowed guard calls, format skips and the router nudge are logged at debug", () => {
-  const p = project('[routing]\nmode = "soft"\n[checks]\nformat = "true"\n');
+  const p = project('[routing]\nmode = "soft"\nauto = "suggest"\n[checks]\nformat = "true"\n');
   hook(p, "guard", { tool_name: "Edit", tool_input: { file_path: "a.txt" } });
   hook(p, "format-hook", { tool_name: "Edit", tool_input: { file_path: "a.txt" } });
   hook(p, "context", {});

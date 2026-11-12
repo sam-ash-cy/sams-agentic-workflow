@@ -13,7 +13,7 @@ function config(toml = ""): ReturnType<typeof resolve>["config"] {
   const none = join(dir, "none.toml");
   return resolve(dir, {}, { global: none, project: none, local: join(dir, "workflow.toml") }).config;
 }
-const WITH_TEST = '[checks]\ntest = "bun test"\n';
+const WITH_TEST = '[checks]\ntest = "bun test"\n[tdd]\nmode = "hard"\n';
 
 test("isTestFile knows the usual test layouts", () => {
   for (const f of ["cli/test/a.test.ts", "src/a.spec.tsx", "tests/test_x.py", "pkg/x_test.go", "__tests__/a.js", "src/FooTest.java"]) expect(isTestFile(f)).toBe(true);
@@ -47,7 +47,9 @@ test("soft mode, tdd off, or no test command leave edits alone", () => {
   const cwd = mkdtempSync(join(tmpdir(), "saw-tf-"));
   startTask(cwd, "standard", "feature");
   const f = join(cwd, "a.ts");
-  expect(testsFirstEdit(config(WITH_TEST + '[tdd]\nmode = "soft"\n'), f, cwd)).toBeUndefined();
+  expect(testsFirstEdit(config('[checks]\ntest = "bun test"\n[tdd]\nmode = "soft"\n'), f, cwd)).toBeUndefined();
+  // soft is the default: no [tdd] table leaves edits alone too.
+  expect(testsFirstEdit(config('[checks]\ntest = "bun test"\n'), f, cwd)).toBeUndefined();
   expect(testsFirstEdit(config(WITH_TEST + "[features]\ntdd = false\n"), f, cwd)).toBeUndefined();
   expect(testsFirstEdit(config(), f, cwd)).toBeUndefined();
 });

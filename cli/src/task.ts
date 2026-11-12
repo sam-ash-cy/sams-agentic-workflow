@@ -5,8 +5,8 @@
 
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { appendFileSync, closeSync, existsSync, fstatSync, mkdirSync, openSync, readFileSync, readlinkSync, rmSync, statSync, writeFileSync } from "node:fs";
-import { dirname, isAbsolute, join, relative, resolve } from "node:path";
+import { appendFileSync, closeSync, existsSync, fstatSync, mkdirSync, openSync, readFileSync, readlinkSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import type { Table } from "./defaults";
 import { statePath as sessionFile } from "./session-state";
 import { advisorModel } from "./skills";
@@ -77,15 +77,45 @@ export function startTask(cwd: string, tier: string, playbook: string, style?: T
 
 // routing.auto = "open": a task opened from the prompt alone, flagged provisional until
 // the agent confirms it (saw task retier, or saw task start with its own choice).
-export function openProvisional(cwd: string, tier: string, playbook: string): Task {
+// editedPath: the edit that opened it (the post-edit hook runs after the write), so that
+// file counts as this task's work, not as dirty before it started.
+export function openProvisional(cwd: string, tier: string, playbook: string, editedPath?: string): Task {
   const task: Task = { ...startTask(cwd, tier, playbook), provisional: true };
+  if (editedPath && task.baseDirty) {
+    const key = relInside(repoTop(cwd) ?? cwd, resolve(cwd, editedPath)).split(sep).join("/");
+    delete task.baseDirty[key];
+    if (!Object.keys(task.baseDirty).length) delete task.baseDirty;
+  }
   writeTask(cwd, task);
   return task;
 }
 
 // A saw project: one with workflow.toml. The plugin's hooks run in every repo,
 // so routing is only enforced where the workflow was set up.
+// Paths from hooks may name a symlinked or 8.3-short form of the cwd (macOS /var vs
+// /private/var, Windows RUNNER~1), so compare canonical forms. The file may not
+// exist yet, so canonicalise the nearest existing ancestor and re-append the rest.
+function canonical(p: string): string {
+  const abs = resolve(p);
+  try {
+    return realpathSync.native(abs);
+  } catch {
+    const parent = dirname(abs);
+    return parent === abs ? abs : join(canonical(parent), abs.slice(parent.length).replace(/^[\\/]+/, ""));
+  }
+}
+
+const relInside = (base: string, filePath: string): string => relative(canonical(base), canonical(resolve(base, filePath)));
+
 export const isSawProject = (cwd: string): boolean => existsSync(join(cwd, "workflow.toml"));
+
+// Whether an edit to filePath, with no task open, belongs to this project (see markUntaskedEdit).
+export function editOpensProvisional(cwd: string, filePath?: string): boolean {
+  if (!isSawProject(cwd) || currentTask(cwd)) return false;
+  if (!filePath) return true;
+  const rel = relInside(cwd, filePath);
+  return !rel.startsWith("..") && !isAbsolute(rel);
+}
 
 // Post-edit hook: remembers that files changed while no task was open.
 // An edit in another repo (or ~/.claude) isn't this project's work: that repo's
@@ -93,7 +123,7 @@ export const isSawProject = (cwd: string): boolean => existsSync(join(cwd, "work
 export function markUntaskedEdit(cwd: string, filePath?: string): void {
   if (!isSawProject(cwd) || currentTask(cwd)) return;
   if (filePath) {
-    const rel = relative(cwd, resolve(cwd, filePath));
+    const rel = relInside(cwd, filePath);
     if (rel.startsWith("..") || isAbsolute(rel)) return;
   }
   mkdirSync(dir(cwd), { recursive: true });
@@ -784,6 +814,9 @@ export function gate(
   }
   const s = taskStatus(cwd, config, task);
   if (out) out.status = s;
+  // Soft routing doesn't interrupt a provisional task (opened by routing.auto = "open"): its
+  // status still shows in saw task status and the status file, and verify.mode = hard still holds commits.
+  if (task.provisional && ((config.routing ?? {}) as { mode?: string }).mode !== "hard") return undefined;
   if (s.floor) return { decision: "block", reason: `Tier too low: ${s.floor}.` };
   if (s.label === "Verified") return undefined;
   // Debugging is phased in when needed: a check failing twice means guessing has stopped working.

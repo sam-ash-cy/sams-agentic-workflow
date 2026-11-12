@@ -1,7 +1,7 @@
 // saw: the sams-agentic-workflow CLI.
 
-import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
-import { homedir } from "node:os";
+import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { homedir, tmpdir } from "node:os";
 import { dirname, isAbsolute, join, relative, resolve as resolvePath } from "node:path";
 import { baseBranch, flatten, inside, layerPaths, layerValues, loosens, parseValue, resolve, setPath, unsetPath, validate, weakenedSafety, writeSetting, type Layer } from "./config";
 import { DEFAULTS, type Table, type Value } from "./defaults";
@@ -44,7 +44,7 @@ import { formatHook, runCheck, TRUSTED_LAYERS } from "./run";
 import { checkMods, listMods } from "./mods";
 import { addProject, inspectProject, listProjects, registerProject, removeProject } from "./projects";
 import { verifyMode } from "./verify-guard";
-import { acceptanceLine, acceptanceProblem, addAcceptance, currentTask, endTask, gate, gitStatusHash, isSawProject, markUntaskedEdit, noteUnverifiedExit, noChecksWarning, pickTier, recordCheck, recordVerifiedTree, retierTask, reviewEvidence, statusProblems, setPhase, staleMessage, staleTask, startTask, storedTreeHash, storeTreeHash, takeUnverifiedExit, taskReport, writeStatusFile, taskStatus, taskSkills, taskSteps, type Status } from "./task";
+import { acceptanceLine, acceptanceProblem, addAcceptance, currentTask, endTask, gate, gitStatusHash, isSawProject, markUntaskedEdit, noteUnverifiedExit, noChecksWarning, pickTier, recordCheck, recordVerifiedTree, retierTask, reviewEvidence, statusProblems, setPhase, staleMessage, staleTask, startTask, storedTreeHash, storeTreeHash, takeUnverifiedExit, taskReport, writeStatusFile, taskStatus, taskSkills, taskSteps, type Status, editOpensProvisional, openProvisional } from "./task";
 import { routingMode } from "./routing-guard";
 import { subagentHook } from "./subagent";
 import { patchToml, readToml, stringifyToml } from "./toml";
@@ -61,7 +61,7 @@ const USAGE = `usage: saw <command>
   explain <key>                      the value in every layer, which one won, and why one was ignored
   profile list | show <name> | apply <name> [--dry-run]   merge a recommended profile (docs/COMMANDS.md) into the layers it names
   projects list | add <path> [--setup] | remove <path>   the projects saw knows about (~/.saw/projects.json); add scans the folder; remove only forgets it
-  doctor [--hooks] [--no-plugin]    check settings, environment and the Claude Code plugin install (--hooks: run each plugin hook once)
+  doctor [--hooks] [--no-plugin]    check settings, environment and the Claude Code plugin install (--hooks: time each plugin hook once, in ms)
   init [--dry-run] [--force] [--type <t>] [--hooks] [--agents a,b] [--repo [o/n]]   add workflow.toml, AGENTS.md, CI and the docs/ vault (+ agent adapters; --repo: show the repo plan)
   init --workspace <dir> [--apply]   init every git repo directly under <dir> that has no workflow.toml (dry run unless --apply)
   init --upgrade [--dry-run]         update unedited template files to the current template; edited ones are kept
@@ -769,7 +769,13 @@ export function run(argv: string[], cwdArg?: string): number {
     if (command === "format-hook") {
       const path = (input as { tool_input?: { file_path?: unknown; notebook_path?: unknown } }).tool_input;
       const file = path?.file_path ?? path?.notebook_path;
-      markUntaskedEdit(cwd, typeof file === "string" ? file : undefined);
+      const filePath = typeof file === "string" ? file : undefined;
+      // Soft routing with routing.auto = open: an edit with no task opens a provisional one
+      // instead of arming the Stop gate, so normal prompting isn't interrupted.
+      const routing = (resolved.config.routing ?? {}) as { mode?: string; auto?: string };
+      if (routing.mode !== "hard" && routing.auto === "open" && editOpensProvisional(cwd, filePath)) {
+        try { openProvisional(cwd, "standard", "feature", filePath); } catch { markUntaskedEdit(cwd, filePath); }
+      } else markUntaskedEdit(cwd, filePath);
     }
     if (command === "format-hook") {
       const source = resolved.sources["checks.format"];
@@ -1391,20 +1397,30 @@ function report(c: Comparison): number {
   return c.regressions.length ? 1 : 0;
 }
 
-// saw doctor --hooks: runs each plugin hook's saw subcommand with an empty
-// payload; a hook that crashes would otherwise fail silently in a session.
-function checkHooks(cwd: string): string[] {
+// saw doctor --hooks: runs each plugin hook entry in hooks/hooks.json once, in an empty
+// temporary folder (not a saw project, so nothing is written) with a harmless Read payload,
+// and prints its time in milliseconds. A hook that crashes would otherwise fail silently.
+function checkHooks(_cwd: string): string[] {
   const hooks = JSON.parse(readFileSync(join(PLUGIN_ROOT, "hooks", "hooks.json"), "utf8")) as { hooks: Record<string, { hooks: { command: string }[] }[]> };
   const problems: string[] = [];
-  for (const [event, groups] of Object.entries(hooks.hooks)) {
-    for (const h of groups.flatMap((g) => g.hooks)) {
-      const sub = /bin\/saw"?\s+(\S+)/.exec(h.command)?.[1];
-      if (!sub) continue;
-      const proc = Bun.spawnSync(["bun", join(import.meta.dir, "main.ts"), sub], { cwd, stdin: Buffer.from("{}"), stdout: "pipe", stderr: "pipe" });
-      const ok = proc.exitCode === 0;
-      console.log(`  hook ${event.padEnd(16)} saw ${sub.padEnd(12)} ${ok ? "ok" : `exit ${proc.exitCode}`}`);
-      if (!ok) problems.push(`hook ${event} (saw ${sub}) exited ${proc.exitCode}: ${proc.stderr.toString().trim().split("\n").pop()}`);
+  const scratch = mkdtempSync(join(tmpdir(), "saw-doctor-hooks-"));
+  try {
+    for (const [event, groups] of Object.entries(hooks.hooks)) {
+      for (const h of groups.flatMap((g) => g.hooks)) {
+        const file = /hooks\/run\/([\w-]+)\.ts/.exec(h.command)?.[1];
+        if (!file) continue;
+        const payload = JSON.stringify({ hook_event_name: event, cwd: scratch, tool_name: "Read", tool_input: { file_path: join(scratch, "README.md") }, stop_hook_active: true, prompt: "" });
+        const started = performance.now();
+        const proc = Bun.spawnSync(["bun", "--no-install", join(PLUGIN_ROOT, "hooks", "run", `${file}.ts`)], { cwd: scratch, stdin: Buffer.from(payload), stdout: "pipe", stderr: "pipe", timeout: 15000, env: { ...process.env, CLAUDE_PLUGIN_ROOT: PLUGIN_ROOT } });
+        const ms = Math.round(performance.now() - started);
+        const ok = proc.exitCode === 0;
+        const why = proc.exitCode === null ? "timed out after 15 s" : `exited ${proc.exitCode}`;
+        console.log(`  hook ${event.padEnd(18)} ${file.padEnd(14)} ${String(ms).padStart(5)} ms ${ok ? "ok" : why}`);
+        if (!ok) problems.push(`hook ${event} (${file}) ${why}: ${proc.stderr.toString().trim().split("\n").pop()}`);
+      }
     }
+  } finally {
+    rmSync(scratch, { recursive: true, force: true });
   }
   return problems;
 }

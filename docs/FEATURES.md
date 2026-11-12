@@ -27,7 +27,7 @@ Defaults are what a fresh `saw init` gives you. "Key" is the setting that contro
 | | Grilling (clarifying questions) on complex and critical | on | `features.grilling`, `routing.always_grill` | |
 | | Branch guard: tasks branch (or worktree) off `main`; no commits on it | on | `features.branch_guard`, `[branch]` | |
 | | Skills named per playbook at task start | on | `features.task_skills`, `[task_skills]` | the named plugins |
-| | Test-first step (hard: code edits wait for a failing `saw run test`) | on | `features.tdd`, `tdd.mode` | |
+| | Test-first step (default soft: the step only; hard: code edits wait for a failing `saw run test`) | on | `features.tdd`, `tdd.mode` | |
 | Verification | Mechanical checks, quiet output, full logs kept | on | `[checks]`, `[output]` | your commands |
 | | Required checks per tier (tiers can `extends`) | on | `[verify]` | |
 | | Gate: block "done" until checks pass | on | `features.verify_hook` | plugin |
@@ -40,7 +40,7 @@ Defaults are what a fresh `saw init` gives you. "Key" is the setting that contro
 | | Unconfigured checks: a required check with no `checks.<name>` command makes the task Not verified ("not configured"), unless listed in `verify.allow_unconfigured`; session start and `saw doctor` warn when no `checks.*` command is set | on | `checks.<name>`, `verify.allow_unconfigured` | |
 | | Stale tasks (a task another session left open denies edits until `saw resume` or `saw task end`) and unverified exits (`saw task end --reason`, shown at the next session start) | on | `routing.mode` | |
 | | Enforcement preset: `strict` sets the routing, verify, tdd, tokens, style and sessions modes hard, `relaxed` sets them soft, `custom` leaves each to its key (`saw config show --resolved` names the preset as the source) | custom | `enforcement` | |
-| | Auto-routing by rules (no model call): with no task open, the router nudge proposes `saw task start --tier <t> --playbook <p>` (`suggest`), or saw opens a provisional task that holds commits until `saw task retier` or `saw task start` confirms it (`open`) | suggest | `routing.auto` | |
+| | Auto-routing by rules (no model call): with no task open, the router nudge proposes `saw task start --tier <t> --playbook <p>` (`suggest`), or saw opens a provisional task that holds commits until `saw task retier` or `saw task start` confirms it (`open`, the default; with `routing.mode = "soft"` an edit made with no task open also opens a provisional standard / feature task instead of a Stop block) | open | `routing.auto` | |
 | | Subagent coverage: subagent edits and commands pass the same routing, verify and tier-floor guards; SubagentStop logs their edits against the open task, or arms the untasked-edit Stop check | on | `features.verify_hook` | |
 | | Adoption report: tasks opened against Stops, Stops and prompts with no task, routing and verify denials, unverified exits, retiers, tier spread (`saw adoption`, and a dashboard card) | on | `dashboard.panels` (`adoption`) | |
 | | Feature usage: trigger count per feature and mod, zero counts as candidates to cut, unmeasurable ones listed apart (`saw adoption --features`) | on | | |
