@@ -41,6 +41,10 @@ export function checkMods(root: string, spawn: Spawn, only?: string): ModResult[
 // .claude/settings.local.json. A key missing from both means the mod is not installed.
 export const MOD_MARKETPLACE = "sams-agentic-workflow";
 
+// Mods the bootstrap installs for everyone; saw doctor treats a missing one as a problem.
+// The dashboard pane is the main way to change settings, so it ships by default.
+export const DEFAULT_MODS = ["dashboard-pane"];
+
 export interface ModInfo {
   name: string;
   description: string;

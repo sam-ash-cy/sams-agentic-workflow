@@ -87,13 +87,13 @@ Defaults are what a fresh `saw init` gives you. "Key" is the setting that contro
 
 ## Mods
 
-Optional add-ons, each its own plugin in this marketplace: `claude plugin install <name>@sams-agentic-workflow`.
+Add-ons, each its own plugin in this marketplace: `claude plugin install <name>@sams-agentic-workflow`. The bootstrap and `/workflow-setup` install `dashboard-pane` for everyone, and `saw doctor` reports it missing as a problem. The rest are optional.
 
 | Mod | What it does |
 |---|---|
 | `prompt-band` | buttons above the prompt (Improve, Plan first, Review, Ship check, Compact, Handoff) with usage limits |
 | `workflow-pane` | a pane beside the chat: current tier, playbook, verification label and which checks passed or are missing; "no task open" in a saw project with none |
-| `dashboard-pane` | the settings dashboard in a pane beside the chat (`/dashboard-pane`): switch settings and mods and manage projects; starts its own local server and stops it when the pane closes |
+| `dashboard-pane` | **installed by default.** The settings dashboard in a pane beside the chat (`/dashboard-pane`): switch settings and mods and manage projects; starts its own local server and stops it when the pane closes |
 | `render` | themed rendering of replies: tables, headings, code, mermaid, charts (based on prismantis, MIT) |
 | `secrets-redactor` | hides secrets, emails and IPs in tool output behind placeholders; blocks hardcoded secrets in edits |
 | `context-guard` | warns as context fills; past a limit, holds new prompts until you hand off |
