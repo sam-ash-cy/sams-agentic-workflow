@@ -23,7 +23,7 @@ Needs [bun](https://bun.sh) 1.3+ and [Claude Code](https://claude.com/claude-cod
 /workflow-setup
 ```
 
-`/workflow-setup` walks you through global and project setup; `/workflow-setup full` lists every setting to turn on or off. Prefer the terminal, or want one prompt that does it all? See [docs/STARTUP.md](docs/STARTUP.md).
+Then run `/dashboard-pane` to see and switch every setting in a pane beside the chat (installed by default with the setup). `/workflow-setup` walks you through global and project setup; `/workflow-setup full` lists every setting to turn on or off. Prefer the terminal, or want one prompt that does it all? See [docs/STARTUP.md](docs/STARTUP.md).
 
 ## Why it's different
 
@@ -46,10 +46,12 @@ Coding agents treat a typo and a payment migration the same way, say "done" befo
 | **Test-first** | code edits can wait for a failing test |
 | **Token control** | per-tier budgets, cost shown above the prompt, auto-compact and handoff to a fresh session |
 | **Sessions** | branch guard, a worktree per complex task, and `saw split` to run plan stages in parallel |
+| **Dashboard pane** | `/dashboard-pane` opens settings, mods and projects in a pane beside the chat; installed by default |
 | **Metrics + retro** | per-task outcomes, proposals from repeated failures, and a local dashboard (`saw dashboard --serve`) that lists your projects and edits their settings and mods |
-| **Autopilot** | an approved queue worked through headlessly, one session and PR per item |
+| **Planner** | `saw plan "<goal>"` drafts ADRs, a roadmap and `[proposed]` queue items for you to approve |
+| **Autopilot** | an approved queue worked through headlessly, one session and PR per item; `needs:` stacks dependent items on each other's branches |
 
-**45+ features and 10 mods, every one switchable globally, per project, or just for you.** See the [full feature list](docs/FEATURES.md).
+**45+ features and 10 mods (`dashboard-pane` on by default), every one switchable globally, per project, or just for you.** See the [full feature list](docs/FEATURES.md).
 
 ## Configure it your way
 

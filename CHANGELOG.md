@@ -6,12 +6,20 @@ All notable changes to this project. Versions follow [Semantic Versioning](https
 
 ### Features
 
+- dashboard-pane is installed by default: the bootstrap and `/workflow-setup` install it, and `saw doctor` flags it when missing
+- add saw plan to turn a goal into ADRs, a roadmap and proposed queue items ([#87](https://github.com/sam-ash-cy/sams-agentic-workflow/pull/87))
+- soft defaults, timed doctor --hooks and guard read fast path ([#85](https://github.com/sam-ash-cy/sams-agentic-workflow/pull/85))
+- queue dependencies, stacked branches and tier auto-approval ([#84](https://github.com/sam-ash-cy/sams-agentic-workflow/pull/84))
+- saw eval --ab and saw adoption --features ([#88](https://github.com/sam-ash-cy/sams-agentic-workflow/pull/88))
+- acceptance criteria on tasks, enforced by the gate ([#86](https://github.com/sam-ash-cy/sams-agentic-workflow/pull/86))
 - card layout, switches, filter and a saved toast ([#82](https://github.com/sam-ash-cy/sams-agentic-workflow/pull/82))
 - open the dashboard in a Claude Code pane ([#79](https://github.com/sam-ash-cy/sams-agentic-workflow/pull/79))
 - edit settings, mods and projects from the live dashboard ([#78](https://github.com/sam-ash-cy/sams-agentic-workflow/pull/78))
 
 ### Fixes
 
+- read the plan queue and ADRs in one step, closing a file-system race (CodeQL)
+- compare canonical paths, so macOS /private/var and Windows short-name temp dirs count as inside the project
 - find the saw checkout when the host has no saw on PATH ([#81](https://github.com/sam-ash-cy/sams-agentic-workflow/pull/81))
 - run saw through bun when its PATH shim cannot be spawned ([#80](https://github.com/sam-ash-cy/sams-agentic-workflow/pull/80))
 

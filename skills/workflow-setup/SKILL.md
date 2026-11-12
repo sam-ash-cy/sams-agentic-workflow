@@ -13,7 +13,7 @@ Ask in one AskUserQuestion:
 - **Which project** (unless global only): this folder (show the cwd) · another folder. For another folder, ask for its path, check that it exists and is a git repo (`git -C <path> rev-parse --show-toplevel`), and run every later project command from that folder.
 
 ## 2. Assess (read-only)
-One short table (item, state, evidence): `bun --version`, `git --version`, `claude --version`, `trail --version`; `saw doctor --no-plugin`; `claude plugin list` (sams-agentic-workflow, mattpocock-skills, engineering); `@saw-workflow.md` in `~/.claude/CLAUDE.md`; `~/.saw/config.toml` keys; in the project: `workflow.toml`, `workflow.local.toml`, `AGENTS.md`, `.trail/`, the stack, and its test/lint/typecheck commands (package files, CI config, README).
+One short table (item, state, evidence): `bun --version`, `git --version`, `claude --version`, `trail --version`; `saw doctor --no-plugin`; `claude plugin list` (sams-agentic-workflow, mattpocock-skills, engineering, dashboard-pane); `@saw-workflow.md` in `~/.claude/CLAUDE.md`; `~/.saw/config.toml` keys; in the project: `workflow.toml`, `workflow.local.toml`, `AGENTS.md`, `.trail/`, the stack, and its test/lint/typecheck commands (package files, CI config, README).
 
 ## 3a. Standard
 Ask once, at most four questions: how much the agent does alone (commit / PRs / dependencies: never, ask, allow) · review strictness (default, independent review sessions, required review evidence) · token priority (normal, save tokens) · optional extras (Trail, unslop, brag, mods). Recommend the closest profile (`saw profile list`: solo, team, strict, autopilot) in two lines, plus a table of the settings that differ from it (setting, value, layer, reason). Wait for approval.
@@ -25,7 +25,8 @@ Run `saw config show --layers --json` in the project. Present every `features.*`
 - Global: `sh bootstrap.sh --dry-run` (or `.\bootstrap.ps1 -DryRun`), then the real run.
 - Project: `saw init --dry-run`, then `saw init`. Fill `AGENTS.md` with the real commands and only non-obvious rules (under 60 lines). Set `[checks]` with `saw config set checks.<name> "<cmd>"` and confirm each with `saw run <name>`.
 - Settings: `saw profile apply <name> --dry-run` then without it (standard); the approved `saw config set <key> <value> --scope <layer>` commands (full).
-- Mods (if chosen): offer each folder under `mods/` in the plugin (prompt-band, context-guard, context-saver, pre-pr-gate, guardrail-hook, trail-nudge, workflow-pane, dashboard-pane) with its `plugin.json` description, as one multi-select. Run `saw mods check <name>` for each pick, then add its absolute folder to `CLAUDE_CODE_PLUGIN_DIRS` (global: the user's shell profile; project: `.claude/settings.local.json` `env`). Say they load in the next session, and that limits and thresholds are under `/config`.
+- Default mod: if `dashboard-pane` is missing from `claude plugin list`, run `claude plugin install dashboard-pane@sams-agentic-workflow` without asking (it ships by default, like the bootstrap installs it) and tell the user `/dashboard-pane` opens settings beside the chat.
+- Mods (if chosen): offer each other folder under `mods/` in the plugin (prompt-band, context-guard, context-saver, pre-pr-gate, guardrail-hook, trail-nudge, workflow-pane) with its `plugin.json` description, as one multi-select. Run `saw mods check <name>` for each pick, then add its absolute folder to `CLAUDE_CODE_PLUGIN_DIRS` (global: the user's shell profile; project: `.claude/settings.local.json` `env`). Say they load in the next session, and that limits and thresholds are under `/config`.
 - Then `saw sync` and `saw doctor --hooks`.
 
 ## 5. Docs backfill (project only)
